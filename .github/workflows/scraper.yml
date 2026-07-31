@@ -2,15 +2,15 @@ name: Daily QQ Music Scraper
 
 on:
   schedule:
-    # 每小時執行一次
-    - cron: '0 * * * *'
-  workflow_dispatch: # 允許在網頁上手動點擊執行
+    # 每天台灣時間早上 08:00 執行 (對應 UTC 時間 00:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 允許在網頁上手動點擊觸發
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 授權 Bot 可以自動把資料存回 GitHub
+      contents: write # 授權 Bot 可以自動將 CSV 檔案寫回 GitHub 倉庫
 
     steps:
       - name: Checkout Repository
