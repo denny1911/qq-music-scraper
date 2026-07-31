@@ -10,8 +10,10 @@ def fetch_qq_music_new_songs():
     os.makedirs(output_dir, exist_ok=True)
 
     # 2. 取得當前日期字串 (格式：YYYY-MM-DD)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-
+    # 格式：YYYY-MM-DD_HH-MM
+    today_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    # 產生的檔案名稱會變成：data/2026-07-31_16-30_QQ音樂_新歌榜Top100.csv
+    
     # QQ 音樂官方 API 接口
     url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
 
