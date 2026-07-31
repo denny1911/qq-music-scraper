@@ -1,32 +1,18 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import requests
 
 
-def fetch_qq_music_new_songs():
-    # 1. 建立輸出資料夾 (若不存在則自動創建)
-    output_dir = "data"
-    os.makedirs(output_dir, exist_ok=True)
-
-    # 1. 設定台灣時區 (UTC+8)
-    tz_taiwan = timezone(timedelta(hours=8))
-
-    # 2. 取得台灣當前時間並格式化（加入小時）
-    today_str = datetime.now(tz_taiwan).strftime("%Y-%m-%d_%H時")
-    # 2. 取得當前日期字串 (格式：YYYY-MM-DD)
-    # 格式：YYYY-MM-DD_HH-MM
-    # 產生的檔案名稱會變成：data/2026-07-31_16-30_QQ音樂_新歌榜Top100.csv
-    
-    # QQ 音樂官方 API 接口
+def fetch_qq_music_chart(top_id, chart_name, date_str):
+    """通用函式：輸入 topId 與榜單名稱，撈取前 100 名資料"""
     url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
 
-    # topId: 27 代表「新歌榜」，num 設置為 100 抓取前 100 名
     payload = {
         "detail": {
             "module": "musicToplist.ToplistInfoServer",
             "method": "GetDetail",
-            "param": {"topId": 27, "offset": 0, "num": 100, "period": ""},
+            "param": {"topId": top_id, "offset": 0, "num": 100, "period": ""},
         },
         "comm": {"ct": 24, "cv": 0},
     }
@@ -40,10 +26,9 @@ def fetch_qq_music_new_songs():
         "Referer": "https://y.qq.com/",
     }
 
-    print(f"[{today_str}] 正在撈取 QQ 音樂新歌榜 Top 100...")
+    print(f"[{date_str}] 正在撈取 QQ 音樂 [{chart_name}] Top 100...")
 
     try:
-        # 設定 timeout=15 避免伺服器端連線卡死
         response = requests.post(
             url, json=payload, headers=headers, timeout=15
         )
@@ -60,14 +45,14 @@ def fetch_qq_music_new_songs():
                 [s.get("name", "") for s in song.get("singer", [])]
             )
             album = song.get("album", {}).get("name", "未知專輯")
-
             release_date = song.get("time_public") or song.get(
                 "album", {}
             ).get("time_public", "未知日期")
 
             song_data.append(
                 {
-                    "抓取日期": today_str,  # 紀錄這筆榜單是哪天抓的
+                    "抓取日期": date_str,
+                    "榜單類型": chart_name,
                     "排名": rank,
                     "歌名": title,
                     "歌手": singers,
@@ -76,31 +61,42 @@ def fetch_qq_music_new_songs():
                 }
             )
 
-        # 轉換為 Pandas DataFrame 表格格式
-        df = pd.DataFrame(song_data)
-
-        # 3. 動態產生帶有日期的 CSV 檔案路徑 (例如: data/2026-07-31_QQ音樂_新歌榜Top100.csv)
-        csv_filename = os.path.join(
-            output_dir, f"{today_str}_QQ音樂_新歌榜Top100.csv"
-        )
-
-        # 僅輸出 CSV 檔案 (採用 utf-8-sig 編碼，防止以 Excel 打開時中文亂碼)
-        df.to_csv(csv_filename, index=False, encoding="utf-8-sig")
-
-        print(f"✓ 抓取成功！檔案已輸出至：\n - CSV 檔: {csv_filename}\n")
-
-        # 在終端機預覽前 10 名
-        pd.set_option("display.max_columns", None)
-        pd.set_option("display.width", 1000)
-        print("【前 10 名預覽】")
-        print(df.head(10).to_string(index=False))
-
-        return df
+        return pd.DataFrame(song_data)
 
     except Exception as e:
-        print(f"❌ 撈取過程發生錯誤：{e}")
+        print(f"❌ 撈取 [{chart_name}] 過程發生錯誤：{e}")
         return None
 
 
+def main():
+    # 1. 設定台灣時區 (UTC+8) 取得日期字串 (例如: 2026-01-01)
+    tz_taiwan = timezone(timedelta(hours=8))
+    date_str = datetime.now(tz_taiwan).strftime("%Y-%m-%d")
+
+    # 2. 建立當天日期的專屬資料夾 (例如: data/2026-01-01)
+    target_dir = os.path.join("data", date_str)
+    os.makedirs(target_dir, exist_ok=True)
+
+    # 3. 定義 4 個榜單名稱、對應的 topId 與檔案後綴標籤
+    charts = {
+        "new": {"top_id": 27, "name": "新歌榜"},
+        "film": {"top_id": 29, "name": "影視金曲榜"},
+        "show": {"top_id": 64, "name": "綜藝新歌榜"},
+        "tik": {"top_id": 60, "name": "抖音熱歌榜"},
+    }
+
+    # 4. 依序抓取每個榜單並寫入對應 CSV
+    for tag, info in charts.items():
+        df = fetch_qq_music_chart(info["top_id"], info["name"], date_str)
+
+        if df is not None and not df.empty:
+            # 檔案路徑格式如：data/2026-01-01/2026-01-01_new.csv
+            csv_filename = os.path.join(target_dir, f"{date_str}_{tag}.csv")
+            df.to_csv(csv_filename, index=False, encoding="utf-8-sig")
+            print(f" ✓ [{info['name']}] 儲存成功 ➔ {csv_filename}")
+        else:
+            print(f" ⚠️ [{info['name']}] 無法取得資料")
+
+
 if __name__ == "__main__":
-    fetch_qq_music_new_songs()
+    main()
