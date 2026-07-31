@@ -9,9 +9,13 @@ def fetch_qq_music_new_songs():
     output_dir = "data"
     os.makedirs(output_dir, exist_ok=True)
 
+    # 1. 設定台灣時區 (UTC+8)
+    tz_taiwan = timezone(timedelta(hours=8))
+
+    # 2. 取得台灣當前時間並格式化（加入小時）
+    today_str = datetime.now(tz_taiwan).strftime("%Y-%m-%d_%H時")
     # 2. 取得當前日期字串 (格式：YYYY-MM-DD)
     # 格式：YYYY-MM-DD_HH-MM
-    today_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
     # 產生的檔案名稱會變成：data/2026-07-31_16-30_QQ音樂_新歌榜Top100.csv
     
     # QQ 音樂官方 API 接口
