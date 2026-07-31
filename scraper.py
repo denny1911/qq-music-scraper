@@ -61,7 +61,7 @@ def fetch_qq_music_new_songs():
 
             song_data.append(
                 {
-                    "抓取日期": today_str,  # ★ 新增欄位：紀錄這筆榜單是哪天抓的
+                    "抓取日期": today_str,  # 紀錄這筆榜單是哪天抓的
                     "排名": rank,
                     "歌名": title,
                     "歌手": singers,
@@ -73,22 +73,15 @@ def fetch_qq_music_new_songs():
         # 轉換為 Pandas DataFrame 表格格式
         df = pd.DataFrame(song_data)
 
-        # 3. 動態產生帶有日期的檔案路徑 (例如: data/2026-07-31_QQ音樂_新歌榜Top100.csv)
+        # 3. 動態產生帶有日期的 CSV 檔案路徑 (例如: data/2026-07-31_QQ音樂_新歌榜Top100.csv)
         csv_filename = os.path.join(
             output_dir, f"{today_str}_QQ音樂_新歌榜Top100.csv"
         )
-        excel_filename = os.path.join(
-            output_dir, f"{today_str}_QQ音樂_新歌榜Top100.xlsx"
-        )
 
-        # 輸出檔案
+        # 僅輸出 CSV 檔案 (採用 utf-8-sig 編碼，防止以 Excel 打開時中文亂碼)
         df.to_csv(csv_filename, index=False, encoding="utf-8-sig")
-        df.to_excel(excel_filename, index=False)
 
-        print(
-            f"✓ 抓取成功！檔案已輸出至：\n - CSV 檔:   {csv_filename}\n -"
-            f" Excel 檔: {excel_filename}\n"
-        )
+        print(f"✓ 抓取成功！檔案已輸出至：\n - CSV 檔: {csv_filename}\n")
 
         # 在終端機預覽前 10 名
         pd.set_option("display.max_columns", None)
