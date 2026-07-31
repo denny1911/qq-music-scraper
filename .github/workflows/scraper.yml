@@ -28,7 +28,15 @@ jobs:
 
       - name: Run Scraper
         run: python scraper.py
-
+      
+      - name: auto Commit & Push result
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add data/
+          git diff-index --quiet HEAD || git commit -m "Auto update: 抓取新歌榜數據"
+          git push
+      
       - name: Save and Commit Data
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
