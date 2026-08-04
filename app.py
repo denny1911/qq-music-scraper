@@ -48,7 +48,7 @@ if os.path.exists(data_dir):
                         mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
                         df = df[mask]
                     
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df, hide_index=True, use_container_width=True)
                 else:
                     st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
     else:
