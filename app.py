@@ -21,20 +21,23 @@ if os.path.exists(data_dir):
         
         day_path = os.path.join(data_dir, selected_date)
         
-        # 定義榜單檔案對照
+        # 定義榜單代碼
         charts = {
-            "新歌榜 (日榜)": "new.csv",
-            "影視金曲榜 (週榜)": "film.csv",
-            "綜藝新歌榜 (週榜)": "show.csv",
-            "抖音熱歌榜 (週榜)": "tik.csv"
+            "新歌榜 (日榜)": "new",
+            "影視金曲榜 (週榜)": "film",
+            "綜藝新歌榜 (週榜)": "show",
+            "抖音熱歌榜 (週榜)": "tik"
         }
         
         # 建立分頁
         tabs = st.tabs(list(charts.keys()))
         
-        for tab, (chart_name, file_name) in zip(tabs, charts.items()):
+        for tab, (chart_name, chart_key) in zip(tabs, charts.items()):
             with tab:
+                # 正確的檔名格式：日期_榜單.csv (例如：2026-08-01_new.csv)
+                file_name = f"{selected_date}_{chart_key}.csv"
                 file_path = os.path.join(day_path, file_name)
+                
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
                     st.success(f"📅 讀取成功｜數據日期：{selected_date}｜共 {len(df)} 筆排名資料")
@@ -42,13 +45,12 @@ if os.path.exists(data_dir):
                     # 搜尋過濾功能
                     search_term = st.text_input(f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=chart_name)
                     if search_term:
-                        # 假設 CSV 內欄位為 'song' 與 'singer'（若不同系統會自動相容）
                         mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
                         df = df[mask]
                     
                     st.dataframe(df, use_container_width=True)
                 else:
-                    st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案。")
+                    st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
     else:
         st.info("目前 `data/` 資料夾內尚無日期數據。")
 else:
