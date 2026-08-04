@@ -151,9 +151,9 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("👑 模組三：榜單常勝軍（長青熱歌）")
-    st.markdown("統計**指定日期區間**內，在個別榜單平均排名最高、最耐聽的長青熱歌。")
+    st.markdown("統計**指定日期區間**內，在個別榜單的累積上榜天數與平均名次表現[cite: 1]。")
     
-    # 1. 單一榜單選擇（移除全榜綜合）
+    # 1. 單一榜單選擇
     chart_option_m3 = st.radio(
         "選擇要統計常勝軍的榜單",
         ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
@@ -162,7 +162,7 @@ with main_tabs[2]:
     )
     
     # 2. 指定日期區間選擇
-    sorted_dates_asc = sorted(dates)  # 由舊到新排列供滑桿選取
+    sorted_dates_asc = sorted(dates)
     if len(sorted_dates_asc) > 1:
         start_date, end_date = st.select_slider(
             "🗓️ 請選擇統計日期區間",
@@ -194,13 +194,13 @@ with main_tabs[2]:
         target_df = full_df[full_df['榜單類型'] == chart_option_m3]
             
         if not target_df.empty:
+            # 排序條件修正：1. 累積上榜天數(高到低) -> 2. 平均名次(1名到多名)
             evergreen = target_df.groupby([song_col, singer_col]).agg(
-                平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count'),
-                累積上榜天數=('抓取日期', 'nunique')
-            ).reset_index().sort_values(by=['平均名次', '累積上榜天數'], ascending=[True, False])
+                累積上榜天數=('抓取日期', 'nunique'),
+                平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
+            ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
             
             st.success(f"📈 【{chart_option_m3}】統計區間：{start_date} ～ {end_date}（涵蓋 {len(selected_m3_dates)} 天數據，共 {len(evergreen)} 首歌曲）：")
-            # 完整列出，依平均名次排序
             st.dataframe(evergreen, hide_index=True, use_container_width=True)
         else:
             st.info(f"在 {start_date} ～ {end_date} 區間內，尚無【{chart_option_m3}】的數據。")
