@@ -21,10 +21,6 @@ if not dates:
     st.info("目前 `data/` 資料夾內尚無日期數據。")
     st.stop()
 
-# 側邊欄：選擇基準日期
-st.sidebar.header("🔍 挑選條件設定")
-selected_date = st.sidebar.selectbox("選擇主要基準日期", dates)
-
 # 讀取單日所有榜單資料的輔助函式
 def load_date_data(date_str):
     day_path = os.path.join(data_dir, date_str)
@@ -63,6 +59,9 @@ with main_tabs[0]:
     st.header("🔥 模組一：全網跨榜霸榜池")
     st.markdown("自動比對當日 4 大榜單，篩選出**同時登上 2 個（含）以上榜單**的神曲，指標最硬不踩雷！")
     
+    # 局部日期選擇
+    selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m1_date")
+    
     df_curr = load_date_data(selected_date)
     if not df_curr.empty:
         song_col = '歌名' if '歌名' in df_curr.columns else ('song' if 'song' in df_curr.columns else None)
@@ -94,11 +93,14 @@ with main_tabs[1]:
     st.header("🚀 模組二：飆升與新進黑馬")
     st.markdown("對比前後日期數據，找出名次大幅爬升或全新進榜（New Entry）的潛力黑馬歌曲！")
     
+    # 局部日期選擇
+    selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m2_date")
+    
     curr_idx = dates.index(selected_date)
     prev_dates = dates[curr_idx + 1:]
     
     if prev_dates:
-        compare_date = st.selectbox("選擇對比歷史日期", prev_dates, index=0)
+        compare_date = st.selectbox("🔍 選擇對比歷史日期", prev_dates, index=0, key="m2_compare_date")
         df_now = load_date_data(selected_date)
         df_prev = load_date_data(compare_date)
         
@@ -134,7 +136,6 @@ with main_tabs[1]:
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
                 
-                # 篩選全新進榜或爬升的歌曲
                 rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                 
                 st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
@@ -153,7 +154,6 @@ with main_tabs[2]:
     st.header("👑 模組三：榜單常勝軍（長青熱歌）")
     st.markdown("統計**指定日期區間**內，在個別榜單的累積上榜天數與平均名次表現[cite: 1]。")
     
-    # 1. 單一榜單選擇
     chart_option_m3 = st.radio(
         "選擇要統計常勝軍的榜單",
         ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
@@ -161,7 +161,6 @@ with main_tabs[2]:
         key="m3_radio"
     )
     
-    # 2. 指定日期區間選擇
     sorted_dates_asc = sorted(dates)
     if len(sorted_dates_asc) > 1:
         start_date, end_date = st.select_slider(
@@ -174,10 +173,8 @@ with main_tabs[2]:
         start_date = end_date = sorted_dates_asc[0]
         st.info(f"📅 目前僅有單日數據：{start_date}")
     
-    # 篩選選定區間內的日期
     selected_m3_dates = [d for d in dates if start_date <= d <= end_date]
     
-    # 讀取區間內所有數據
     all_dfs = []
     for d in selected_m3_dates:
         d_df = load_date_data(d)
@@ -190,11 +187,9 @@ with main_tabs[2]:
         song_col = '歌名' if '歌名' in full_df.columns else 'song'
         singer_col = '歌手' if '歌手' in full_df.columns else 'singer'
         
-        # 過濾特定榜單
         target_df = full_df[full_df['榜單類型'] == chart_option_m3]
             
         if not target_df.empty:
-            # 排序條件修正：1. 累積上榜天數(高到低) -> 2. 平均名次(1名到多名)
             evergreen = target_df.groupby([song_col, singer_col]).agg(
                 累積上榜天數=('抓取日期', 'nunique'),
                 平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
@@ -212,6 +207,9 @@ with main_tabs[2]:
 # ==========================================
 with main_tabs[3]:
     st.header("📊 原始各榜單數據瀏覽")
+    
+    # 局部日期選擇
+    selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m4_date")
     
     charts = {
         "新歌榜 (日榜)": "new",
