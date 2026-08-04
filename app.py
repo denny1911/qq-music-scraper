@@ -107,7 +107,7 @@ with main_tabs[1]:
             singer_col = '歌手' if '歌手' in df_now.columns else 'singer'
             rank_col = '排名' if '排名' in df_now.columns else 'rank'
             
-            chart_option = st.radio("選擇要比對的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True)
+            chart_option = st.radio("選擇要比對的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_radio")
             
             now_chart = df_now[df_now['榜單類型'] == chart_option]
             prev_chart = df_prev[df_prev['榜單類型'] == chart_option]
@@ -151,7 +151,7 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("👑 模組三：榜單常勝軍（長青熱歌）")
-    st.markdown("統計歷史所有抓取紀錄，算出現身頻率最高、最耐聽的長青熱歌。")
+    st.markdown("統計歷史所有抓取紀錄，算出現身頻率最高、最耐聽的長青熱歌[cite: 1]。")
     
     all_dfs = []
     for d in dates:
@@ -165,14 +165,30 @@ with main_tabs[2]:
         song_col = '歌名' if '歌名' in full_df.columns else 'song'
         singer_col = '歌手' if '歌手' in full_df.columns else 'singer'
         
-        evergreen = full_df.groupby([song_col, singer_col]).agg(
-            累積上榜天數=('抓取日期', 'nunique'),
-            登上榜單類型=('榜單類型', lambda x: "、".join(set(x))),
-            平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in full_df.columns else ('抓取日期', 'count')
-        ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
+        # 可切換獨立榜單或全榜綜合
+        chart_option_m3 = st.radio(
+            "選擇要統計常勝軍的榜單範圍",
+            ["全榜綜合", "新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
+            horizontal=True,
+            key="m3_radio"
+        )
         
-        st.success(f"📈 已分析歷史累積共 {len(dates)} 天數據，產出常勝軍 Top 50：")
-        st.dataframe(evergreen.head(50), hide_index=True, use_container_width=True)
+        if chart_option_m3 != "全榜綜合":
+            target_df = full_df[full_df['榜單類型'] == chart_option_m3]
+        else:
+            target_df = full_df
+            
+        if not target_df.empty:
+            evergreen = target_df.groupby([song_col, singer_col]).agg(
+                累積上榜天數=('抓取日期', 'nunique'),
+                登上榜單類型=('榜單類型', lambda x: "、".join(set(x))),
+                平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
+            ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
+            
+            st.success(f"📈 【{chart_option_m3}】分析歷史累積共 {len(dates)} 天數據，產出常勝軍 Top 50：")
+            st.dataframe(evergreen.head(50), hide_index=True, use_container_width=True)
+        else:
+            st.info(f"尚無【{chart_option_m3}】的歷史數據。")
     else:
         st.info("尚無足夠歷史數據進行統計。")
 
