@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import datetime
 
 # 1. 頁面基本設定
 st.set_page_config(page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide")
@@ -268,17 +269,43 @@ with main_tabs[2]:
         key="m3_radio"
     )
     
+    # 快捷範圍選擇
+    m3_preset = st.radio(
+        "🗓️ 選擇統計時間範圍",
+        ["⚡ 近 7 天", "⚡ 近 30 天", "🌐 全部歷史區間", "📅 自訂月曆區間"],
+        horizontal=True,
+        key="m3_preset_radio"
+    )
+    
     sorted_dates_asc = sorted(dates)
-    if len(sorted_dates_asc) > 1:
-        start_date, end_date = st.select_slider(
-            "🗓️ 請選擇統計日期區間",
-            options=sorted_dates_asc,
-            value=(sorted_dates_asc[0], sorted_dates_asc[-1]),
-            key="m3_date_slider"
+    earliest_date_obj = datetime.datetime.strptime(sorted_dates_asc[0], "%Y-%m-%d").date()
+    latest_date_obj = datetime.datetime.strptime(sorted_dates_asc[-1], "%Y-%m-%d").date()
+    
+    if m3_preset == "⚡ 近 7 天":
+        start_date_obj = max(earliest_date_obj, latest_date_obj - datetime.timedelta(days=6))
+        end_date_obj = latest_date_obj
+    elif m3_preset == "⚡ 近 30 天":
+        start_date_obj = max(earliest_date_obj, latest_date_obj - datetime.timedelta(days=29))
+        end_date_obj = latest_date_obj
+    elif m3_preset == "🌐 全部歷史區間":
+        start_date_obj = earliest_date_obj
+        end_date_obj = latest_date_obj
+    else: # 自訂月曆區間
+        date_range = st.date_input(
+            "請選取月曆區間（點擊開始與結束日期）",
+            value=(earliest_date_obj, latest_date_obj),
+            min_value=earliest_date_obj,
+            max_value=latest_date_obj,
+            key="m3_date_picker"
         )
-    else:
-        start_date = end_date = sorted_dates_asc[0]
-        st.info(f"📅 目前僅有單日數據：{start_date}")
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date_obj, end_date_obj = date_range
+        else:
+            st.info("💡 請在月曆上選取『結束日期』以完成選擇。")
+            st.stop()
+            
+    start_date = start_date_obj.strftime("%Y-%m-%d")
+    end_date = end_date_obj.strftime("%Y-%m-%d")
     
     selected_m3_dates = [d for d in dates if start_date <= d <= end_date]
     
