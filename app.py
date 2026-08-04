@@ -260,7 +260,7 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("👑 模組三：榜單常勝軍（長青熱歌）")
-    st.markdown("統計**指定日期區間**內，在個別榜單的累積上榜表現（**新歌榜統計天數，其餘三榜自動依週數歸納統計**）。")
+    st.markdown("統計**指定日期區間**內，在個別榜單的累積表現（**新歌榜統計天數，其餘三榜依官方週四更新期數統計**）。")
     
     chart_option_m3 = st.radio(
         "選擇要統計常勝軍的榜單",
@@ -271,7 +271,6 @@ with main_tabs[2]:
     
     is_weekly_chart = chart_option_m3 != "新歌榜"
     
-    # 快捷範圍選擇
     m3_preset = st.radio(
         "🗓️ 選擇統計時間範圍",
         ["⚡ 近 7 天", "⚡ 近 30 天", "🌐 全部歷史區間", "📅 自訂月曆區間"],
@@ -292,7 +291,7 @@ with main_tabs[2]:
     elif m3_preset == "🌐 全部歷史區間":
         start_date_obj = earliest_date_obj
         end_date_obj = latest_date_obj
-    else: # 自訂月曆區間
+    else:
         date_range = st.date_input(
             "請選取月曆區間（點擊開始與結束日期）",
             value=(earliest_date_obj, latest_date_obj),
@@ -326,24 +325,26 @@ with main_tabs[2]:
         target_df = full_df[full_df['榜單類型'] == chart_option_m3].copy()
             
         if not target_df.empty:
-            # 將抓取日期轉為年份與第幾週 (ISO Week)
-            target_df['日期物件'] = pd.to_datetime(target_df['抓取日期'])
-            target_df['年份週數'] = target_df['日期物件'].dt.strftime('%Y-W%U')
-            
             if is_weekly_chart:
-                # 週榜邏輯：按週數去重統計
+                # 計算以週四為起點的榜單期數標籤
+                def get_issue_label(date_str):
+                    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                    offset = (dt.weekday() - 3) % 7 # 3 代表週四
+                    issue_start = dt - datetime.timedelta(days=offset)
+                    return issue_start.strftime("%Y-%m-%d 期")
+
+                target_df['榜單期數'] = target_df['抓取日期'].apply(get_issue_label)
+                
                 evergreen = target_df.groupby([song_col, singer_col]).agg(
-                    累積上榜週數=('年份週數', 'nunique'),
-                    平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('年份週數', 'count')
-                ).reset_index().sort_values(by=['累積上榜週數', '平均名次'], ascending=[False, True])
+                    累積上榜期數=('榜單期數', 'nunique'),
+                    平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('榜單期數', 'count')
+                ).reset_index().sort_values(by=['累積上榜期數', '平均名次'], ascending=[False, True])
             else:
-                # 日榜邏輯：按天數去重統計
                 evergreen = target_df.groupby([song_col, singer_col]).agg(
                     累積上榜天數=('抓取日期', 'nunique'),
                     平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
                 ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
             
-            unit_str = "週" if is_weekly_chart else "天"
             st.success(f"📈 【{chart_option_m3}（{ '週榜' if is_weekly_chart else '日榜' }）】統計區間：{start_date} ～ {end_date}（共 {len(evergreen)} 首歌曲）：")
             st.dataframe(evergreen, hide_index=True, use_container_width=True)
             
