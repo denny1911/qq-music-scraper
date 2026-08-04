@@ -44,6 +44,22 @@ def load_date_data(date_str):
         return pd.concat(dfs, ignore_index=True)
     return pd.DataFrame()
 
+# 輔助函式：根據跨榜組合生成標籤
+def generate_song_tags(charts_str):
+    charts = set(charts_str.split("、"))
+    tags = []
+    if "新歌榜" in charts and "抖音熱歌榜" in charts:
+        tags.append("🔥 社群爆款")
+    if "影視金曲榜" in charts and "抖音熱歌榜" in charts:
+        tags.append("🎬 大劇神曲")
+    if "綜藝新歌榜" in charts and "新歌榜" in charts:
+        tags.append("🎤 節目話題曲")
+    if len(charts) >= 3:
+        tags.append("🌟 跨榜超級爆款")
+    if not tags:
+        tags.append("⚡ 雙榜同登")
+    return "｜".join(tags)
+
 # 主介面四大分頁
 main_tabs = st.tabs([
     "🔥 模組一：全網霸榜池",
@@ -59,7 +75,6 @@ with main_tabs[0]:
     st.header("🔥 模組一：全網跨榜霸榜池")
     st.markdown("自動比對當日 4 大榜單，篩選出**同時登上 2 個（含）以上榜單**的神曲，指標最硬不踩雷！")
     
-    # 局部日期選擇
     selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m1_date")
     
     df_curr = load_date_data(selected_date)
@@ -77,8 +92,25 @@ with main_tabs[0]:
             multi_chart = grouped[grouped['登榜數量'] >= 2].sort_values(by=['登榜數量', '最高名次'], ascending=[False, True])
             
             if not multi_chart.empty:
+                # 貼上屬性標籤
+                multi_chart['爆款屬性標籤'] = multi_chart['登上榜單'].apply(generate_song_tags)
+                
+                # 調整欄位順序呈現
+                cols_order = [song_col, singer_col, '登榜數量', '爆款屬性標籤', '登上榜單', '最高名次']
+                multi_chart = multi_chart[cols_order]
+                
                 st.success(f"🎯 在 {selected_date} 共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
                 st.dataframe(multi_chart, hide_index=True, use_container_width=True)
+                
+                # CSV 下載按鈕
+                csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 匯出霸榜池清單 (CSV)",
+                    data=csv_data,
+                    file_name=f"QQ音樂_全網霸榜池_{selected_date}.csv",
+                    mime="text/csv",
+                    key="m1_download"
+                )
             else:
                 st.info(f"在 {selected_date} 當天，暫無同時登上 2 個以上榜單的歌曲。")
         else:
@@ -93,7 +125,6 @@ with main_tabs[1]:
     st.header("🚀 模組二：飆升與新進黑馬")
     st.markdown("對比前後日期數據，找出名次大幅爬升或全新進榜（New Entry）的潛力黑馬歌曲！")
     
-    # 局部日期選擇
     selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m2_date")
     
     curr_idx = dates.index(selected_date)
@@ -110,6 +141,10 @@ with main_tabs[1]:
             rank_col = '排名' if '排名' in df_now.columns else 'rank'
             
             chart_option = st.radio("選擇要比對的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_radio")
+            
+            # 週榜溫馨提示
+            if chart_option != "新歌榜":
+                st.caption(f"💡 **提示**：【{chart_option}】為**週榜**。若對比日期相隔過近名次變動可能較小，建議將對比區間拉長至 **7 天以上**。")
             
             now_chart = df_now[df_now['榜單類型'] == chart_option]
             prev_chart = df_prev[df_prev['榜單類型'] == chart_option]
@@ -140,6 +175,16 @@ with main_tabs[1]:
                 
                 st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                 st.dataframe(rising[[song_col, singer_col, f'{rank_col}_當前', f'{rank_col}_前次', '名次變動']], hide_index=True, use_container_width=True)
+                
+                # CSV 下載按鈕
+                csv_data = rising[[song_col, singer_col, f'{rank_col}_當前', f'{rank_col}_前次', '名次變動']].to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label=f"📥 匯出【{chart_option}】黑馬清單 (CSV)",
+                    data=csv_data,
+                    file_name=f"QQ音樂_飆升黑馬_{chart_option}_{selected_date}_vs_{compare_date}.csv",
+                    mime="text/csv",
+                    key="m2_download"
+                )
             else:
                 st.info(f"{selected_date} 當天無 {chart_option} 數據。")
         else:
@@ -197,6 +242,16 @@ with main_tabs[2]:
             
             st.success(f"📈 【{chart_option_m3}】統計區間：{start_date} ～ {end_date}（涵蓋 {len(selected_m3_dates)} 天數據，共 {len(evergreen)} 首歌曲）：")
             st.dataframe(evergreen, hide_index=True, use_container_width=True)
+            
+            # CSV 下載按鈕
+            csv_data = evergreen.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label=f"📥 匯出【{chart_option_m3}】常勝軍清單 (CSV)",
+                data=csv_data,
+                file_name=f"QQ音樂_榜單常勝軍_{chart_option_m3}_{start_date}_至_{end_date}.csv",
+                mime="text/csv",
+                key="m3_download"
+            )
         else:
             st.info(f"在 {start_date} ～ {end_date} 區間內，尚無【{chart_option_m3}】的數據。")
     else:
@@ -208,7 +263,6 @@ with main_tabs[2]:
 with main_tabs[3]:
     st.header("📊 原始各榜單數據瀏覽")
     
-    # 局部日期選擇
     selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m4_date")
     
     charts = {
@@ -236,5 +290,15 @@ with main_tabs[3]:
                     df = df[mask]
                 
                 st.dataframe(df, hide_index=True, use_container_width=True)
+                
+                # CSV 下載按鈕
+                csv_data = df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
+                    data=csv_data,
+                    file_name=f"QQ音樂_原始資料_{chart_key}_{selected_date}.csv",
+                    mime="text/csv",
+                    key=f"m4_download_{chart_key}"
+                )
             else:
                 st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
