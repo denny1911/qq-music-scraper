@@ -151,10 +151,35 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("👑 模組三：榜單常勝軍（長青熱歌）")
-    st.markdown("統計歷史所有抓取紀錄，算出現身頻率最高、最耐聽的長青熱歌[cite: 1]。")
+    st.markdown("統計**指定日期區間**內，在個別榜單平均排名最高、最耐聽的長青熱歌。")
     
+    # 1. 單一榜單選擇（移除全榜綜合）
+    chart_option_m3 = st.radio(
+        "選擇要統計常勝軍的榜單",
+        ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
+        horizontal=True,
+        key="m3_radio"
+    )
+    
+    # 2. 指定日期區間選擇
+    sorted_dates_asc = sorted(dates)  # 由舊到新排列供滑桿選取
+    if len(sorted_dates_asc) > 1:
+        start_date, end_date = st.select_slider(
+            "🗓️ 請選擇統計日期區間",
+            options=sorted_dates_asc,
+            value=(sorted_dates_asc[0], sorted_dates_asc[-1]),
+            key="m3_date_slider"
+        )
+    else:
+        start_date = end_date = sorted_dates_asc[0]
+        st.info(f"📅 目前僅有單日數據：{start_date}")
+    
+    # 篩選選定區間內的日期
+    selected_m3_dates = [d for d in dates if start_date <= d <= end_date]
+    
+    # 讀取區間內所有數據
     all_dfs = []
-    for d in dates:
+    for d in selected_m3_dates:
         d_df = load_date_data(d)
         if not d_df.empty:
             d_df['抓取日期'] = d
@@ -165,32 +190,22 @@ with main_tabs[2]:
         song_col = '歌名' if '歌名' in full_df.columns else 'song'
         singer_col = '歌手' if '歌手' in full_df.columns else 'singer'
         
-        # 可切換獨立榜單或全榜綜合
-        chart_option_m3 = st.radio(
-            "選擇要統計常勝軍的榜單範圍",
-            ["全榜綜合", "新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
-            horizontal=True,
-            key="m3_radio"
-        )
-        
-        if chart_option_m3 != "全榜綜合":
-            target_df = full_df[full_df['榜單類型'] == chart_option_m3]
-        else:
-            target_df = full_df
+        # 過濾特定榜單
+        target_df = full_df[full_df['榜單類型'] == chart_option_m3]
             
         if not target_df.empty:
             evergreen = target_df.groupby([song_col, singer_col]).agg(
-                累積上榜天數=('抓取日期', 'nunique'),
-                登上榜單類型=('榜單類型', lambda x: "、".join(set(x))),
-                平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
-            ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
+                平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count'),
+                累積上榜天數=('抓取日期', 'nunique')
+            ).reset_index().sort_values(by=['平均名次', '累積上榜天數'], ascending=[True, False])
             
-            st.success(f"📈 【{chart_option_m3}】分析歷史累積共 {len(dates)} 天數據，產出常勝軍 Top 50：")
-            st.dataframe(evergreen.head(50), hide_index=True, use_container_width=True)
+            st.success(f"📈 【{chart_option_m3}】統計區間：{start_date} ～ {end_date}（涵蓋 {len(selected_m3_dates)} 天數據，共 {len(evergreen)} 首歌曲）：")
+            # 完整列出，依平均名次排序
+            st.dataframe(evergreen, hide_index=True, use_container_width=True)
         else:
-            st.info(f"尚無【{chart_option_m3}】的歷史數據。")
+            st.info(f"在 {start_date} ～ {end_date} 區間內，尚無【{chart_option_m3}】的數據。")
     else:
-        st.info("尚無足夠歷史數據進行統計。")
+        st.info("選定日期區間內無數據。")
 
 # ==========================================
 # 📊 原始榜單瀏覽
