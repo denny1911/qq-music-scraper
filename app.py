@@ -183,6 +183,13 @@ with main_tabs[0]:
         else:
             st.warning(f"{selected_date} 尚無榜單資料。")
 
+完全沒錯！這是因為 Streamlit 預設會記住相同 Key 的元件狀態，導致切換榜單時，舊榜單選取的日期被留了下來。
+
+要解決這個問題，最標準的做法是在 st.radio 加入 on_change 回呼函式（Callback），只要使用者切換榜單，就自動將所有選單的狀態重置為 None（預設空白）。
+
+以下是修改後的完整模組二程式碼：
+
+Python
 # ==========================================
 # 🚀 模組二：飆升與新進黑馬（新鮮潮流）
 # ==========================================
@@ -190,7 +197,19 @@ with main_tabs[1]:
     st.header("🚀 模組二：飆升與新進黑馬")
     st.markdown("對比前後數據，找出名次大幅爬升或全新進榜（New Entry）的潛力黑馬歌曲！")
     
-    chart_option = st.radio("選擇要比對的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_radio")
+    # 輔助函式：切換榜單時重置下方所有選單狀態
+    def reset_m2_selections():
+        for key in ["m2_curr_issue", "m2_comp_issue", "m2_date", "m2_compare_date"]:
+            if key in st.session_state:
+                st.session_state[key] = None
+
+    chart_option = st.radio(
+        "選擇要比對的榜單", 
+        ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], 
+        horizontal=True, 
+        key="m2_radio",
+        on_change=reset_m2_selections  # 切換榜單即自動重置選單
+    )
     is_weekly_chart = chart_option != "新歌榜"
 
     # 輔助函式：計算週榜期數標籤（以週四為更新基準）
