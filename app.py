@@ -90,98 +90,113 @@ with main_tabs[0]:
     st.header("🔥 模組一：全網跨榜霸榜池")
     st.markdown("自動比對榜單數據，篩選出**登上 2 個（含）以上榜單**的神曲，指標最硬不踩雷！")
     
+    # 輔助函式：切換視角模式時重置日期選單
+    def reset_m1_selections():
+        if "m1_date" in st.session_state:
+            st.session_state["m1_date"] = None
+
     col_date, col_mode = st.columns([1, 2])
     with col_date:
-        selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m1_date")
+        selected_date = st.selectbox(
+            "📅 選擇主要基準日期", 
+            options=dates, 
+            index=None, 
+            placeholder="請選擇主要基準日期...", 
+            key="m1_date"
+        )
     with col_mode:
         m1_mode = st.radio(
             "👁️ 分析視角模式",
             ["🗓️ 7 天滾動視角（推薦：破解週榜平緩）", "⚡ 單日即時視角"],
             horizontal=True,
-            key="m1_mode_radio"
+            key="m1_mode_radio",
+            on_change=reset_m1_selections
         )
     
-    if "7 天滾動" in m1_mode:
-        df_range, covered_dates = load_range_data_up_to(selected_date, days=7)
-        if not df_range.empty:
-            song_col = '歌名' if '歌名' in df_range.columns else ('song' if 'song' in df_range.columns else None)
-            singer_col = '歌手' if '歌手' in df_range.columns else ('singer' if 'singer' in df_range.columns else None)
-            
-            if song_col and singer_col:
-                grouped = df_range.groupby([song_col, singer_col]).agg(
-                    跨榜數量=('榜單類型', 'nunique'),
-                    涵蓋榜單=('榜單類型', lambda x: "、".join(sorted(set(x)))),
-                    累積活躍天數=('抓取日期', 'nunique'),
-                    最高名次=('排名', 'min') if '排名' in df_range.columns else ('跨榜數量', 'count')
-                ).reset_index()
+    if selected_date:
+        if "7 天滾動" in m1_mode:
+            df_range, covered_dates = load_range_data_up_to(selected_date, days=7)
+            if not df_range.empty:
+                song_col = '歌名' if '歌名' in df_range.columns else ('song' if 'song' in df_range.columns else None)
+                singer_col = '歌手' if '歌手' in df_range.columns else ('singer' if 'singer' in df_range.columns else None)
                 
-                multi_chart = grouped[grouped['跨榜數量'] >= 2].sort_values(
-                    by=['跨榜數量', '累積活躍天數', '最高名次'],
-                    ascending=[False, False, True]
-                )
-                
-                if not multi_chart.empty:
-                    multi_chart['爆款屬性標籤'] = multi_chart['涵蓋榜單'].apply(generate_song_tags)
+                if song_col and singer_col:
+                    grouped = df_range.groupby([song_col, singer_col]).agg(
+                        跨榜數量=('榜單類型', 'nunique'),
+                        涵蓋榜單=('榜單類型', lambda x: "、".join(sorted(set(x)))),
+                        累積活躍天數=('抓取日期', 'nunique'),
+                        最高名次=('排名', 'min') if '排名' in df_range.columns else ('跨榜數量', 'count')
+                    ).reset_index()
                     
-                    cols_order = [song_col, singer_col, '跨榜數量', '爆款屬性標籤', '涵蓋榜單', '累積活躍天數', '最高名次']
-                    multi_chart = multi_chart[cols_order]
-                    
-                    st.success(f"🎯 涵蓋區間：{covered_dates[-1]} ～ {covered_dates[0]}（共 {len(covered_dates)} 天數據），共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
-                    st.dataframe(multi_chart, hide_index=True, use_container_width=True)
-                    
-                    csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 匯出 7 天滾動霸榜池清單 (CSV)",
-                        data=csv_data,
-                        file_name=f"QQ音樂_7天滾動霸榜池_{selected_date}.csv",
-                        mime="text/csv",
-                        key="m1_download_7d"
+                    multi_chart = grouped[grouped['跨榜數量'] >= 2].sort_values(
+                        by=['跨榜數量', '累積活躍天數', '最高名次'],
+                        ascending=[False, False, True]
                     )
+                    
+                    if not multi_chart.empty:
+                        multi_chart['爆款屬性標籤'] = multi_chart['涵蓋榜單'].apply(generate_song_tags)
+                        
+                        cols_order = [song_col, singer_col, '跨榜數量', '爆款屬性標籤', '涵蓋榜單', '累積活躍天數', '最高名次']
+                        multi_chart = multi_chart[cols_order]
+                        
+                        st.success(f"🎯 涵蓋區間：{covered_dates[-1]} ～ {covered_dates[0]}（共 {len(covered_dates)} 天數據），共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
+                        st.dataframe(multi_chart, hide_index=True, use_container_width=True)
+                        
+                        csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label="📥 匯出 7 天滾動霸榜池清單 (CSV)",
+                            data=csv_data,
+                            file_name=f"QQ音樂_7天滾動霸榜池_{selected_date}.csv",
+                            mime="text/csv",
+                            key="m1_download_7d"
+                        )
+                    else:
+                        st.info(f"在 {covered_dates[-1]} ～ {covered_dates[0]} 區間內，暫無同時登上 2 個以上榜單的歌曲。")
                 else:
-                    st.info(f"在 {covered_dates[-1]} ～ {covered_dates[0]} 區間內，暫無同時登上 2 個以上榜單的歌曲。")
+                    st.warning("數據欄位解析異常，請確認 CSV 欄位是否包含『歌名』與『歌手』。")
             else:
-                st.warning("數據欄位解析異常，請確認 CSV 欄位是否包含『歌名』與『歌手』。")
-        else:
-            st.warning(f"截至 {selected_date} 尚無足夠榜單資料。")
-            
-    else: # 單日視角
-        df_curr = load_date_data(selected_date)
-        if not df_curr.empty:
-            song_col = '歌名' if '歌名' in df_curr.columns else ('song' if 'song' in df_curr.columns else None)
-            singer_col = '歌手' if '歌手' in df_curr.columns else ('singer' if 'singer' in df_curr.columns else None)
-            
-            if song_col and singer_col:
-                grouped = df_curr.groupby([song_col, singer_col]).agg(
-                    登榜數量=('榜單類型', 'nunique'),
-                    登上榜單=('榜單類型', lambda x: "、".join(set(x))),
-                    最高名次=('排名', 'min') if '排名' in df_curr.columns else ('登榜數量', 'count')
-                ).reset_index()
+                st.warning(f"截至 {selected_date} 尚無足夠榜單資料。")
                 
-                multi_chart = grouped[grouped['登榜數量'] >= 2].sort_values(by=['登榜數量', '最高名次'], ascending=[False, True])
+        else: # 單日視角
+            df_curr = load_date_data(selected_date)
+            if not df_curr.empty:
+                song_col = '歌名' if '歌名' in df_curr.columns else ('song' if 'song' in df_curr.columns else None)
+                singer_col = '歌手' if '歌手' in df_curr.columns else ('singer' if 'singer' in df_curr.columns else None)
                 
-                if not multi_chart.empty:
-                    multi_chart['爆款屬性標籤'] = multi_chart['登上榜單'].apply(generate_song_tags)
+                if song_col and singer_col:
+                    grouped = df_curr.groupby([song_col, singer_col]).agg(
+                        登榜數量=('榜單類型', 'nunique'),
+                        登上榜單=('榜單類型', lambda x: "、".join(set(x))),
+                        最高名次=('排名', 'min') if '排名' in df_curr.columns else ('登榜數量', 'count')
+                    ).reset_index()
                     
-                    cols_order = [song_col, singer_col, '登榜數量', '爆款屬性標籤', '登上榜單', '最高名次']
-                    multi_chart = multi_chart[cols_order]
+                    multi_chart = grouped[grouped['登榜數量'] >= 2].sort_values(by=['登榜數量', '最高名次'], ascending=[False, True])
                     
-                    st.success(f"🎯 在 {selected_date} 單日共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
-                    st.dataframe(multi_chart, hide_index=True, use_container_width=True)
-                    
-                    csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 匯出單日霸榜池清單 (CSV)",
-                        data=csv_data,
-                        file_name=f"QQ音樂_單日霸榜池_{selected_date}.csv",
-                        mime="text/csv",
-                        key="m1_download_1d"
-                    )
+                    if not multi_chart.empty:
+                        multi_chart['爆款屬性標籤'] = multi_chart['登上榜單'].apply(generate_song_tags)
+                        
+                        cols_order = [song_col, singer_col, '登榜數量', '爆款屬性標籤', '登上榜單', '最高名次']
+                        multi_chart = multi_chart[cols_order]
+                        
+                        st.success(f"🎯 在 {selected_date} 單日共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
+                        st.dataframe(multi_chart, hide_index=True, use_container_width=True)
+                        
+                        csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label="📥 匯出單日霸榜池清單 (CSV)",
+                            data=csv_data,
+                            file_name=f"QQ音樂_單日霸榜池_{selected_date}.csv",
+                            mime="text/csv",
+                            key="m1_download_1d"
+                        )
+                    else:
+                        st.info(f"在 {selected_date} 當天，暫無同時登上 2 個以上榜單的歌曲。")
                 else:
-                    st.info(f"在 {selected_date} 當天，暫無同時登上 2 個以上榜單的歌曲。")
+                    st.warning("數據欄位解析異常，請確認 CSV 欄位是否包含『歌名』與『歌手』。")
             else:
-                st.warning("數據欄位解析異常，請確認 CSV 欄位是否包含『歌名』與『歌手』。")
-        else:
-            st.warning(f"{selected_date} 尚無榜單資料。")
+                st.warning(f"{selected_date} 尚無榜單資料。")
+    else:
+        st.info("💡 **請先選擇『主要基準日期』**，即可開始進行全網跨榜霸榜池分析。")
 
 # ==========================================
 # 🚀 模組二：飆升與新進黑馬（新鮮潮流）
