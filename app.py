@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
+import altair as alt
 
 # 1. 頁面基本設定
 st.set_page_config(page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide")
@@ -435,17 +436,42 @@ with main_tabs[1]:
                             st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
-                            # 📊 新增：Top 10 黑馬每日名次走勢折線圖
+                            # 📊 升級：Top 10 黑馬每日名次走勢圖（Y 軸反轉：1 在最上方，100 在最下方）
                             st.markdown("### 📈 Top 10 黑馬每日名次走勢圖")
-                            st.caption("💡 註：圖表展示區間內每一天的名次變化（數值越低代表排名越前面）。")
-                            
+                            st.caption("💡 註：X 軸為追蹤序列天數，Y 軸已自動反轉（數字越小、排名越前面，會顯示在圖表越上方）。")
+
                             # 萃取 Top 10 歌曲在 pivot_df 中的歷史軌跡數據
                             top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                             chart_subset = pivot_df.loc[top_keys, range_dates].T
-                            # 重新命名欄位為「歌名 - 歌手」方便辨識
-                            chart_subset.columns = [f"{s} ({si})" for s, si in chart_subset.columns]
-                            
-                            st.line_chart(chart_subset)
+
+                            # 1. 將 X 軸索引改為乾淨的序列編號（第 1 天、第 2 天...）
+                            chart_subset.index = [f"第 {i+1} 天" for i in range(len(chart_subset))]
+
+                            # 2. 將圖例（欄位名稱）對應到表格的「黑馬綜合排名」
+                            column_names = []
+                            for rank, (s, si) in enumerate(top_keys, start=1):
+                                column_names.append(f"{rank}. {s} ({si})")
+                            chart_subset.columns = column_names
+
+                            # 3. 轉換為 Altair 專用的長格式 (Melt DataFrame)
+                            df_melted = chart_subset.reset_index().melt(
+                                id_vars=['index'],
+                                var_name='黑馬綜合排名',
+                                value_name='名次'
+                            ).rename(columns={'index': '追蹤天數'})
+
+                            # 4. 建立 Altair 互動式折線圖（設定 scale=alt.Scale(reverse=True) 將 Y 軸反轉）
+                            c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2).encode(
+                                x=alt.X('追蹤天數:N', sort=None, title='追蹤天數'),
+                                y=alt.Y('名次:Q', scale=alt.Scale(reverse=True), title='名次 (數字越小越前面)'),
+                                color=alt.Color('黑馬綜合排名:N', title='Top 10 黑馬排行'),
+                                tooltip=['黑馬綜合排名', '追蹤天數', '名次']
+                            ).properties(
+                                width='container',
+                                height=450
+                            ).interactive()
+
+                            st.altair_chart(c, use_container_width=True)
                             
                             # 準備匯出資料
                             base_chart = df_all_range[df_all_range['追蹤日期'] == base_date]
