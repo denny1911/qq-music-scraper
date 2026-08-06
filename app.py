@@ -292,7 +292,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：黑馬雷達與動態追蹤（多日連續追蹤與上升次數統計）
+# 🚀 模組二：黑馬雷達與動態追蹤（簡潔呈現格式）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：黑馬雷達與動態追蹤")
@@ -378,9 +378,7 @@ with main_tabs[1]:
                             
                             # 計算區間內的「上升次數」與「每日軌跡」
                             rise_count = 0
-                            valid_ranks = [row[d] for d in range_dates if pd.notna(row[d])]
                             
-                            # 計算相鄰兩天之間的排名變化次數
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
                                 d_curr = range_dates[i]
@@ -391,14 +389,12 @@ with main_tabs[1]:
                                     if r_curr < r_prev: # 排名數字變小代表名次上升
                                         rise_count += 1
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
-                                    # 從無到有進榜也算一次跳升
                                     rise_count += 1
 
                             if pd.isna(past_rank_val):
-                                # 🆕 全新進榜
+                                # 🆕 全新進榜：改成簡潔清爽的格式（僅顯示計算結果）
                                 calc_val = max(0, 100 - curr_rank)
-                                display_text = f"🆕 新進榜並上升 (100 - {curr_rank} = {calc_val}) 名"
-                                # 排序權重：全新進榜優先，其次看上升次數與現有名次
+                                display_text = f"🆕 新進榜並上升 {calc_val} 名"
                                 sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
                                 past_display = "🆕 全新進榜"
                             else:
@@ -432,7 +428,7 @@ with main_tabs[1]:
                             display_df = df_result[[song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']].copy()
                             display_df.columns = ['歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']
                             
-                            st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬（結合新進榜優先與區間上升次數）！")
+                            st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
                             # 準備匯出資料
@@ -538,7 +534,7 @@ with main_tabs[2]:
             else:
                 evergreen = target_df.groupby([song_col, singer_col]).agg(
                     累積上榜天數=('抓取日期', 'nunique'),
-                    平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
+                    平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('榜單期數', 'count')
                 ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
             
             total_units = target_df['榜單期數'].nunique() if is_weekly_chart else target_df['抓取日期'].nunique()
