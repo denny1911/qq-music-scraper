@@ -94,6 +94,45 @@ def format_df_for_display(df):
         display_df[col] = display_df[col].astype(str)
     return display_df
 
+# 輔助函式：轉碼 CSV 匯出專用（純淨 4 直欄：歌名、歌手、專輯、發行日期）
+def get_clean_export_df(source_df, filtered_songs_df):
+    if source_df.empty or filtered_songs_df.empty:
+        return pd.DataFrame(columns=['歌名', '歌手', '專輯', '發行日期'])
+        
+    song_col = '歌名' if '歌名' in source_df.columns else ('song' if 'song' in source_df.columns else None)
+    singer_col = '歌手' if '歌手' in source_df.columns else ('singer' if 'singer' in source_df.columns else None)
+    
+    if not song_col or not singer_col:
+        return filtered_songs_df
+
+    target_order = ['歌名', '歌手', '專輯', '發行日期']
+    col_map = {}
+    for target in target_order:
+        if target in source_df.columns:
+            col_map[target] = target
+        elif target == '歌名' and 'song' in source_df.columns:
+            col_map['song'] = '歌名'
+        elif target == '歌手' and 'singer' in source_df.columns:
+            col_map['singer'] = '歌手'
+        elif target == '專輯' and 'album' in source_df.columns:
+            col_map['album'] = '專輯'
+        elif target == '發行日期' and 'public_time' in source_df.columns:
+            col_map['public_time'] = '發行日期'
+            
+    cols_to_extract = list(col_map.keys())
+    keys = filtered_songs_df[[song_col, singer_col]].drop_duplicates()
+    
+    merged = pd.merge(
+        keys, 
+        source_df[cols_to_extract].drop_duplicates(subset=[song_col, singer_col]), 
+        on=[song_col, singer_col], 
+        how='left'
+    )
+    
+    merged = merged.rename(columns=col_map)
+    final_cols = [c for c in target_order if c in merged.columns]
+    return merged[final_cols]
+
 # 主介面四大分頁
 main_tabs = st.tabs([
     "🔥 模組一：全網霸榜池",
@@ -152,7 +191,8 @@ with main_tabs[0]:
                         st.success(f"🎯 在 {selected_date} 當天，共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
                         st.dataframe(format_df_for_display(multi_chart), hide_index=True, use_container_width=True)
                         
-                        csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
+                        export_df = get_clean_export_df(df_curr, multi_chart)
+                        csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
                         st.download_button(
                             label="📥 匯出單日霸榜池清單 (CSV)",
                             data=csv_data,
@@ -230,14 +270,14 @@ with main_tabs[0]:
                     cols_order = [song_col, singer_col, '跨榜數量', '爆款屬性標籤', '涵蓋榜單', '累積活躍天數', '最高名次']
                     multi_chart = multi_chart[cols_order]
                     
-                    # 計算涵蓋的天數與折合週榜期數
                     num_days = len(selected_m1_dates)
                     num_issues = len(set([get_issue_label(d) for d in selected_m1_dates]))
                     
                     st.success(f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {num_days} 天數據 / {num_issues} 期週榜），共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
                     st.dataframe(format_df_for_display(multi_chart), hide_index=True, use_container_width=True)
                     
-                    csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
+                    export_df = get_clean_export_df(df_range, multi_chart)
+                    csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label="📥 匯出跨榜霸榜池清單 (CSV)",
                         data=csv_data,
@@ -350,6 +390,16 @@ with main_tabs[1]:
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                 st.dataframe(format_df_for_display(rising[[song_col, singer_col, '對比歷史週榜排名', '當期週榜排名', '名次變動']]), hide_index=True, use_container_width=True)
+                
+                export_df = get_clean_export_df(now_chart, rising)
+                csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label=f"📥 匯出【{chart_option}】飆升與新進黑馬清單 (CSV)",
+                    data=csv_data,
+                    file_name=f"QQ音樂_飆升與新進黑馬_{chart_option}_{curr_issue}.csv",
+                    mime="text/csv",
+                    key="m2_download_weekly"
+                )
             elif history_issues:
                 st.info("💡 **請在右上角選取『對比歷史週榜』**，即可開始進行名次變動分析。")
             elif not curr_issue:
@@ -432,6 +482,16 @@ with main_tabs[1]:
                     
                     st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                     st.dataframe(format_df_for_display(rising[[song_col, singer_col, '對比歷史日榜排名', '當前日榜排名', '名次變動']]), hide_index=True, use_container_width=True)
+                    
+                    export_df = get_clean_export_df(now_chart, rising)
+                    csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        label=f"📥 匯出【{chart_option}】飆升與新進黑馬清單 (CSV)",
+                        data=csv_data,
+                        file_name=f"QQ音樂_飆升與新進黑馬_{chart_option}_{selected_date}.csv",
+                        mime="text/csv",
+                        key="m2_download_daily"
+                    )
             elif history_dates:
                 st.info("💡 **請在右上角選取『對比歷史日期』**，即可開始進行名次變動分析。")
             elif not selected_date:
@@ -530,7 +590,8 @@ with main_tabs[2]:
             st.success(f"📈 【{chart_option_m3}（{ '週榜' if is_weekly_chart else '日榜' }）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）：")
             st.dataframe(format_df_for_display(evergreen), hide_index=True, use_container_width=True)
             
-            csv_data = evergreen.to_csv(index=False).encode('utf-8-sig')
+            export_df = get_clean_export_df(target_df, evergreen)
+            csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 label=f"📥 匯出【{chart_option_m3}】常勝軍清單 (CSV)",
                 data=csv_data,
