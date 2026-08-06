@@ -389,8 +389,8 @@ with main_tabs[1]:
                             
                             rise_count = 0
                             max_single_rise = 0
-                            max_jump_type = "internal"  紀錄最大爬升的來源類型 (internal 或 outside)
-                            max_jump_target_rank = 0    紀錄從榜外衝進來時的落點名次 (X)
+                            max_jump_type = "internal"  #紀錄最大爬升的來源類型 (internal 或 outside)
+                            max_jump_target_rank = 0    #紀錄從榜外衝進來時的落點名次 (X)
                             
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
