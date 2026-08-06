@@ -552,8 +552,8 @@ with main_tabs[3]:
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
                     
-                    # 自動剔除不用在網頁展示的「抓取日期」與「榜單類型」欄位
-                    cols_to_drop = [c for c in ['抓取日期', '榜單類型'] if c in df.columns]
+                    # 移除「抓取日期」與「榜單類型/種類」欄位
+                    cols_to_drop = [c for c in ['抓取日期', '榜單類型', '榜單種類'] if c in df.columns]
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
@@ -566,11 +566,12 @@ with main_tabs[3]:
                     
                     st.dataframe(df, hide_index=True, use_container_width=True)
                     
+                    # 匯出不含抓取日期與榜單類型的數據，檔名為「日期_種類.csv」
                     csv_data = df.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
                         data=csv_data,
-                        file_name=f"QQ音樂_原始資料_{chart_key}_{selected_date}.csv",
+                        file_name=f"{selected_date}_{chart_key}.csv",
                         mime="text/csv",
                         key=f"m4_download_{chart_key}"
                     )
