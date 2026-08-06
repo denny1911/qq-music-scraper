@@ -289,6 +289,8 @@ with main_tabs[1]:
                 st.dataframe(rising[[song_col, singer_col, '對比歷史週榜排名', '當期週榜排名', '名次變動']], hide_index=True, use_container_width=True)
             elif history_issues:
                 st.info("💡 **請在右上角選取『對比歷史週榜』**，即可開始進行名次變動分析。")
+            elif not curr_issue:
+                st.info("💡 **請先選擇第一步『當期週榜』**。")
             else:
                 st.warning("⚠️ 您選擇的『當期週榜』為系統內最早的一期，無更早的歷史週榜可供對比。")
         else:
@@ -380,6 +382,7 @@ with main_tabs[1]:
                 st.warning("⚠️ 您選擇的『基準日期』為系統內最早的一天，無更早的歷史日期可供對比。")
         else:
             st.info("目前系統內只有單日數據，尚無法進行日榜跨期對比。")
+
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
