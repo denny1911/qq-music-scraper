@@ -292,11 +292,11 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：黑馬雷達與動態追蹤（全新淨爬升演算法）
+# 🚀 模組二：黑馬雷達與動態追蹤（全新優先級與 100-現名 格式）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：黑馬雷達與動態追蹤")
-    st.markdown("採用**『淨爬升名次（Net Rank Change）』**演算法，自動比對基準日與歷史對比日，精準鎖定 Top 10 爆發黑馬與新進黑馬！")
+    st.markdown("採用**『新進榜優先排序』**與**『淨爬升名次』**演算法，自動鎖定 Top 10 爆發黑馬！")
 
     m2_chart_option = st.radio(
         "選擇要分析的榜單",
@@ -346,46 +346,74 @@ with main_tabs[1]:
                 past_chart = df_past_full[df_past_full['榜單類型'] == m2_chart_option] if not df_past_full.empty else pd.DataFrame()
 
                 if not base_chart.empty:
-                    max_rank_val = base_chart[rank_col].max() if not base_chart.empty else 100
+                    merged = pd.merge(
+                        base_chart,
+                        past_chart[[song_col, singer_col, rank_col]],
+                        on=[song_col, singer_col],
+                        how='left',
+                        suffixes=('_基準', '_過去')
+                    )
                     
-                    if not past_chart.empty and rank_col in past_chart.columns:
-                        merged = pd.merge(
-                            base_chart,
-                            past_chart[[song_col, singer_col, rank_col]],
-                            on=[song_col, singer_col],
-                            how='left',
-                            suffixes=('_基準', '_過去')
-                        )
-                        merged['過去排名_temp'] = merged[f'{rank_col}_過去'].fillna(max_rank_val + 20)
-                        merged['淨爬升名次'] = merged['過去排名_temp'] - merged[f'{rank_col}_基準']
-                        merged['對比歷史排名'] = merged[f'{rank_col}_過去'].apply(lambda x: "🆕 全新進榜" if pd.isna(x) else str(int(x)))
-                        merged['基準日排名'] = merged[f'{rank_col}_基準'].astype(int).astype(str)
+                    processed_rows = []
+                    for idx, row in merged.iterrows():
+                        song = row[song_col]
+                        singer = row[singer_col]
+                        curr_rank = int(row[f'{rank_col}_基準'])
+                        past_rank_val = row[f'{rank_col}_過去']
                         
-                        black_horses = merged[merged['淨爬升名次'] > 0].sort_values(by='淨爬升名次', ascending=False)
-                        
-                        if not black_horses.empty:
-                            display_top = black_horses.head(10).copy()
-                            
-                            display_df = display_top[[song_col, singer_col, '對比歷史排名', '基準日排名', '淨爬升名次']].copy()
-                            display_df.columns = ['歌名', '歌手', '對比歷史排名', '基準日排名', '淨爬升名次']
-                            display_df['淨爬升名次'] = display_df['淨爬升名次'].apply(lambda x: f"⬆️ 暴增進步 {int(x)} 名")
-                            
-                            st.success(f"🎯 在【{m2_chart_option}】中，成功鎖定以下 Top 10 潛力黑馬！")
-                            st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
-                            
-                            export_df = get_clean_export_df(base_chart, display_top)
-                            csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
-                            st.download_button(
-                                label=f"📥 匯出【{m2_chart_option}】Top 10 黑馬清單 (CSV)",
-                                data=csv_data,
-                                file_name=f"QQ音樂_黑馬雷達_{m2_chart_option}_{base_date}.csv",
-                                mime="text/csv",
-                                key="m2_download_btn"
-                            )
+                        if pd.isna(past_rank_val):
+                            # 🆕 全新進榜：依照使用者要求呈現「新進榜並上升 (100 - 當前名次)」
+                            calc_val = max(0, 100 - curr_rank)
+                            display_text = f"🆕 新進榜並上升 (100 - {curr_rank} = {calc_val}) 名"
+                            # 排序權重：給予極高分數確保全新進榜絕對排在最前面
+                            sort_score = 10000 + (101 - curr_rank)
+                            past_display = "🆕 全新進榜"
                         else:
-                            st.info(f"在所選區間內，【{m2_chart_option}】暫無名次正成長的黑馬歌曲。")
+                            # ⬆️ 一般在榜內爬升
+                            past_rank = int(past_rank_val)
+                            net_change = past_rank - curr_rank
+                            if net_change > 0:
+                                display_text = f"⬆️ 穩定進步 {net_change} 名"
+                                sort_score = net_change
+                                past_display = str(past_rank)
+                            else:
+                                continue # 如果沒有進步（持平或退步），黑馬雷達不予納入
+                                
+                        processed_rows.append({
+                            song_col: song,
+                            singer_col: singer,
+                            '對比歷史排名': past_display,
+                            '基準日排名': str(curr_rank),
+                            '淨爬升名次': display_text,
+                            'sort_score': sort_score,
+                            'raw_row_data': row
+                        })
+                        
+                    df_result = pd.DataFrame(processed_rows)
+                    
+                    if not df_result.empty:
+                        # 依照 sort_score 由大到小排序（全新進榜權重最高排最前，其次依爬升幅度）
+                        df_result = df_result.sort_values(by='sort_score', ascending=False).head(10)
+                        
+                        display_df = df_result[[song_col, singer_col, '對比歷史排名', '基準日排名', '淨爬升名次']].copy()
+                        display_df.columns = ['歌名', '歌手', '對比歷史排名', '基準日排名', '淨爬升名次']
+                        
+                        st.success(f"🎯 在【{m2_chart_option}】中，成功鎖定以下 Top 10 潛力黑馬（全新進榜優先排序）！")
+                        st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
+                        
+                        # 準備匯出資料
+                        display_top_raw = pd.DataFrame([r['raw_row_data'] for _, r in df_result.iterrows()])
+                        export_df = get_clean_export_df(base_chart, display_top_raw)
+                        csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label=f"📥 匯出【{m2_chart_option}】Top 10 黑馬清單 (CSV)",
+                            data=csv_data,
+                            file_name=f"QQ音樂_黑馬雷達_{m2_chart_option}_{base_date}.csv",
+                            mime="text/csv",
+                            key="m2_download_btn"
+                        )
                     else:
-                        st.warning("歷史對比數據不足或欄位解析異常，無法進行跨期淨爬升計算。")
+                        st.info(f"在所選區間內，【{m2_chart_option}】暫無名次正成長的黑馬歌曲。")
                 else:
                     st.warning(f"在 {base_date} 找不到【{m2_chart_option}】的資料。")
             else:
