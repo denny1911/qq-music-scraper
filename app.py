@@ -292,11 +292,11 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：黑馬雷達與動態追蹤（簡潔呈現格式）
+# 🚀 模組二：黑馬雷達與動態追蹤（含每日走勢折線圖）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：黑馬雷達與動態追蹤")
-    st.markdown("連線期間內**每日數據**，完整計算**「區間內上升次數」**與**「新進榜優先排序」**，抓出最具成長爆發力的黑馬！")
+    st.markdown("連線期間內**每日數據**，完整計算**「區間內上升次數」**與**「新進榜優先排序」**，並透過互動折線圖透視完整成長軌跡！")
 
     m2_chart_option = st.radio(
         "選擇要分析的榜單",
@@ -376,9 +376,8 @@ with main_tabs[1]:
                             # 檢查歷史對比日 (past_date) 的排名
                             past_rank_val = row.get(past_date, float('nan'))
                             
-                            # 計算區間內的「上升次數」與「每日軌跡」
+                            # 計算區間內的「上升次數」
                             rise_count = 0
-                            
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
                                 d_curr = range_dates[i]
@@ -392,7 +391,7 @@ with main_tabs[1]:
                                     rise_count += 1
 
                             if pd.isna(past_rank_val):
-                                # 🆕 全新進榜：改成簡潔清爽的格式（僅顯示計算結果）
+                                # 🆕 全新進榜
                                 calc_val = max(0, 100 - curr_rank)
                                 display_text = f"🆕 新進榜並上升 {calc_val} 名"
                                 sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
@@ -430,6 +429,18 @@ with main_tabs[1]:
                             
                             st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
+                            
+                            # 📊 新增：Top 10 黑馬每日名次走勢折線圖
+                            st.markdown("### 📈 Top 10 黑馬每日名次走勢圖")
+                            st.caption("💡 註：圖表展示區間內每一天的名次變化（數值越低代表排名越前面）。")
+                            
+                            # 萃取 Top 10 歌曲在 pivot_df 中的歷史軌跡數據
+                            top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
+                            chart_subset = pivot_df.loc[top_keys, range_dates].T
+                            # 重新命名欄位為「歌名 - 歌手」方便辨識
+                            chart_subset.columns = [f"{s} ({si})" for s, si in chart_subset.columns]
+                            
+                            st.line_chart(chart_subset)
                             
                             # 準備匯出資料
                             base_chart = df_all_range[df_all_range['追蹤日期'] == base_date]
@@ -534,7 +545,7 @@ with main_tabs[2]:
             else:
                 evergreen = target_df.groupby([song_col, singer_col]).agg(
                     累積上榜天數=('抓取日期', 'nunique'),
-                    平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('榜單期數', 'count')
+                    平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
                 ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
             
             total_units = target_df['榜單期數'].nunique() if is_weekly_chart else target_df['抓取日期'].nunique()
