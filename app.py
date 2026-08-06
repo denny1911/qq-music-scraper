@@ -41,6 +41,13 @@ if not dates:
     st.info("目前 `data/` 資料夾內尚無日期數據。")
     st.stop()
 
+# 輔助函式：計算週榜期數標籤 (週四為起算點)
+def get_issue_label(date_str):
+    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    offset = (dt.weekday() - 3) % 7 # 3 代表週四
+    issue_start = dt - datetime.timedelta(days=offset)
+    return issue_start.strftime("%Y-%m-%d 期")
+
 # 讀取單日所有榜單資料的輔助函式
 def load_date_data(date_str):
     day_path = os.path.join(data_dir, date_str)
@@ -142,7 +149,7 @@ with main_tabs[0]:
                         cols_order = [song_col, singer_col, '登榜數量', '爆款屬性標籤', '登上榜單', '最高名次']
                         multi_chart = multi_chart[cols_order]
                         
-                        st.success(f"🎯 在 {selected_date} 單日共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
+                        st.success(f"🎯 在 {selected_date} 當天，共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
                         st.dataframe(format_df_for_display(multi_chart), hide_index=True, use_container_width=True)
                         
                         csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
@@ -223,7 +230,11 @@ with main_tabs[0]:
                     cols_order = [song_col, singer_col, '跨榜數量', '爆款屬性標籤', '涵蓋榜單', '累積活躍天數', '最高名次']
                     multi_chart = multi_chart[cols_order]
                     
-                    st.success(f"🎯 涵蓋區間：{start_date} ～ {end_date}（共 {len(selected_m1_dates)} 天數據），共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
+                    # 計算涵蓋的天數與折合週榜期數
+                    num_days = len(selected_m1_dates)
+                    num_issues = len(set([get_issue_label(d) for d in selected_m1_dates]))
+                    
+                    st.success(f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {num_days} 天數據 / {num_issues} 期週榜），共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
                     st.dataframe(format_df_for_display(multi_chart), hide_index=True, use_container_width=True)
                     
                     csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
@@ -261,12 +272,6 @@ with main_tabs[1]:
         on_change=reset_m2_selections
     )
     is_weekly_chart = chart_option != "新歌榜"
-
-    def get_issue_label(date_str):
-        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-        offset = (dt.weekday() - 3) % 7 # 3 代表週四
-        issue_start = dt - datetime.timedelta(days=offset)
-        return issue_start.strftime("%Y-%m-%d 期")
 
     if is_weekly_chart:
         all_issues = sorted(list(set([get_issue_label(d) for d in dates])), reverse=True)
@@ -507,12 +512,6 @@ with main_tabs[2]:
             
         if not target_df.empty:
             if is_weekly_chart:
-                def get_issue_label(date_str):
-                    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-                    offset = (dt.weekday() - 3) % 7 # 3 代表週四
-                    issue_start = dt - datetime.timedelta(days=offset)
-                    return issue_start.strftime("%Y-%m-%d 期")
-
                 target_df['榜單期數'] = target_df['抓取日期'].apply(get_issue_label)
                 
                 evergreen = target_df.groupby([song_col, singer_col]).agg(
