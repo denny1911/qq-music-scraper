@@ -389,8 +389,6 @@ with main_tabs[1]:
                             
                             rise_count = 0
                             max_single_rise = 0
-                            max_jump_type = "internal"  #紀錄最大爬升的來源類型 (internal 或 outside)
-                            max_jump_target_rank = 0    #紀錄從榜外衝進來時的落點名次 (X)
                             
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
@@ -404,16 +402,13 @@ with main_tabs[1]:
                                         jump = int(r_prev - r_curr)
                                         if jump > max_single_rise:
                                             max_single_rise = jump
-                                            max_jump_type = "internal"
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
-                                    # 🎯 內部以 101 當標記，但計算是以 100 為基準 (100 - X)
+                                    # 🎯 內部以 100 作為基準來計算真實暴衝幅度，但不印出公式
                                     target_x = int(r_curr)
                                     jump = int(100 - target_x)
                                     if jump > max_single_rise:
                                         max_single_rise = jump
-                                        max_jump_type = "outside"
-                                        max_jump_target_rank = target_x
 
                             # 💡 維持原本的排序與選歌邏輯，確保折線圖不變
                             curr_rank = int(row[base_date])
@@ -422,23 +417,14 @@ with main_tabs[1]:
                             if pd.isna(past_rank_val):
                                 past_display = "🆕 全新進榜"
                                 sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
-                                
-                                # 🎯 根據是否為榜外衝進來，套用不同的顯示格式
-                                if max_jump_type == "outside":
-                                    display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} (100-{max_jump_target_rank})名)"
-                                else:
-                                    display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
+                                display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
                             else:
                                 past_rank = int(past_rank_val)
                                 net_change = past_rank - curr_rank
                                 if net_change > 0:
                                     past_display = str(past_rank)
                                     sort_score = 10000 + (rise_count * 100) + net_change
-                                    
-                                    if max_jump_type == "outside":
-                                        display_text = f"🚀 單次最高衝 {max_single_rise} (100-{max_jump_target_rank})名"
-                                    else:
-                                        display_text = f"🚀 單次最高衝 {max_single_rise} 名"
+                                    display_text = f"🚀 單次最高衝 {max_single_rise} 名"
                                 else:
                                     continue 
 
