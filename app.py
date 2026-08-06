@@ -136,7 +136,7 @@ def get_clean_export_df(source_df, filtered_songs_df):
 # 主介面四大分頁
 main_tabs = st.tabs([
     "🔥 模組一：全網霸榜池",
-    "🚀 模組二：飆升與新進黑馬",
+    "🚀 模組二：黑馬雷達與動態追蹤",
     "👑 模組三：榜單常勝軍",
     "📊 原始榜單瀏覽"
 ])
@@ -210,7 +210,6 @@ with main_tabs[0]:
             st.info("💡 **請先選擇『主要基準日期』**，即可開始進行單日霸榜池分析。")
 
     else:
-        # 區間分析模式
         if m1_preset == "⚡ 近 7 天":
             start_date_obj = max(earliest_date_obj, latest_date_obj - datetime.timedelta(days=6))
             end_date_obj = latest_date_obj
@@ -293,213 +292,106 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：飆升與新進黑馬（新鮮潮流）
+# 🚀 模組二：黑馬雷達與動態追蹤（全新淨爬升演算法）
 # ==========================================
 with main_tabs[1]:
-    st.header("🚀 模組二：飆升與新進黑馬")
-    st.markdown("對比前後數據，找出名次大幅爬升或全新進榜（New Entry）的潛力黑馬歌曲！")
-    
-    def reset_m2_selections():
-        for key in ["m2_curr_issue", "m2_comp_issue", "m2_date", "m2_compare_date"]:
-            if key in st.session_state:
-                st.session_state[key] = None
+    st.header("🚀 模組二：黑馬雷達與動態追蹤")
+    st.markdown("採用**『淨爬升名次（Net Rank Change）』**演算法，自動比對基準日與歷史對比日，精準鎖定 Top 10 爆發黑馬與新進黑馬！")
 
-    chart_option = st.radio(
-        "選擇要比對的榜單", 
-        ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], 
-        horizontal=True, 
-        key="m2_radio",
-        on_change=reset_m2_selections
+    m2_chart_option = st.radio(
+        "選擇要分析的榜單",
+        ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
+        horizontal=True,
+        key="m2_chart_radio"
     )
-    is_weekly_chart = chart_option != "新歌榜"
 
-    if is_weekly_chart:
-        all_issues = sorted(list(set([get_issue_label(d) for d in dates])), reverse=True)
-        
-        if len(all_issues) >= 2:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                curr_issue = st.selectbox(
-                    "📅 第一步：選擇當期週榜", 
-                    options=all_issues, 
-                    index=None, 
-                    placeholder="請選擇當期週榜...", 
-                    key="m2_curr_issue"
-                )
-            
-            history_issues = []
-            with col2:
-                if curr_issue:
-                    curr_idx = all_issues.index(curr_issue)
-                    history_issues = all_issues[curr_idx + 1:]
-                    
-                    if history_issues:
-                        compare_issue = st.selectbox(
-                            "🔍 第二步：選擇對比歷史週榜", 
-                            options=history_issues, 
-                            index=None, 
-                            placeholder="請選擇對比歷史週榜...", 
-                            key="m2_comp_issue"
-                        )
-                    else:
-                        st.selectbox("🔍 第二步：選擇對比歷史週榜", ["無更早的歷史週榜"], index=0, disabled=True, key="m2_comp_issue_disabled")
-                        compare_issue = None
-                else:
-                    st.selectbox("🔍 第二步：選擇對比歷史週榜", ["請先選擇第一步當期週榜"], index=0, disabled=True, key="m2_comp_issue_waiting")
-                    compare_issue = None
+    m2_preset = st.radio(
+        "🗓️ 選擇黑馬分析週期",
+        ["⚡ 近 7 天短期爆發黑馬", "📈 近 30 天中長期逆襲黑馬"],
+        horizontal=True,
+        key="m2_preset_radio"
+    )
 
-            if compare_issue:
-                curr_dates = [d for d in dates if get_issue_label(d) == curr_issue]
-                comp_dates = [d for d in dates if get_issue_label(d) == compare_issue]
-                
-                df_now = load_date_data(curr_dates[0])
-                df_prev = load_date_data(comp_dates[0])
-                
-                now_chart = df_now[df_now['榜單類型'] == chart_option]
-                prev_chart = df_prev[df_prev['榜單類型'] == chart_option]
-                
-                song_col = '歌名' if '歌名' in now_chart.columns else 'song'
-                singer_col = '歌手' if '歌手' in now_chart.columns else 'singer'
-                rank_col = '排名' if '排名' in now_chart.columns else 'rank'
+    base_date = st.selectbox(
+        "📅 選擇基準日期 (預設為最新數據)", 
+        options=dates, 
+        index=0, 
+        key="m2_base_date"
+    )
 
-                merged = pd.merge(
-                    now_chart[[song_col, singer_col, rank_col]],
-                    prev_chart[[song_col, singer_col, rank_col]],
-                    on=[song_col, singer_col],
-                    how='left',
-                    suffixes=('_當前', '_前次')
-                )
-                
-                def calc_status(row):
-                    if pd.isna(row[f'{rank_col}_前次']):
-                        return "🆕 全新進榜"
-                    diff = row[f'{rank_col}_前次'] - row[f'{rank_col}_當前']
-                    if diff > 0:
-                        return f"⬆️ 爬升 {int(diff)} 名"
-                    elif diff < 0:
-                        return f"⬇️ 下降 {int(abs(diff))} 名"
-                    else:
-                        return "➡️ 持平"
-                
-                merged['名次變動'] = merged.apply(calc_status, axis=1)
-                merged['當期週榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
-                merged['對比歷史週榜排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
-                
-                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
-                
-                st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                st.dataframe(format_df_for_display(rising[[song_col, singer_col, '對比歷史週榜排名', '當期週榜排名', '名次變動']]), hide_index=True, use_container_width=True)
-                
-                export_df = get_clean_export_df(now_chart, rising)
-                csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label=f"📥 匯出【{chart_option}】飆升與新進黑馬清單 (CSV)",
-                    data=csv_data,
-                    file_name=f"QQ音樂_飆升與新進黑馬_{chart_option}_{curr_issue}.csv",
-                    mime="text/csv",
-                    key="m2_download_weekly"
-                )
-            elif history_issues:
-                st.info("💡 **請在右上角選取『對比歷史週榜』**，即可開始進行名次變動分析。")
-            elif not curr_issue:
-                st.info("💡 **請先選擇第一步『當期週榜』**。")
-            else:
-                st.warning("⚠️ 您選擇的『當期週榜』為系統內最早的一期，無更早的歷史週榜可供對比。")
+    if base_date:
+        base_dt = datetime.datetime.strptime(base_date, "%Y-%m-%d")
+        delta_days = 7 if "7 天" in m2_preset else 30
+        target_past_dt = base_dt - datetime.timedelta(days=delta_days)
+
+        available_past_dates = [d for d in dates if datetime.datetime.strptime(d, "%Y-%m-%d") <= target_past_dt]
+
+        if not available_past_dates:
+            past_date = sorted(dates)[0]
+            st.caption(f"ℹ️ 系統內歷史數據不足 {delta_days} 天，已自動改用最早可得日期：`{past_date}` 進行對比。")
         else:
-            st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間皆屬於同一期，尚無歷史週榜可供跨期比對。")
+            past_date = max(available_past_dates)
+            st.caption(f"📊 數據對比基準：`{base_date}` 🆚 歷史對比日：`{past_date}`（跨度約 {delta_days} 天）")
 
-    else:
-        if len(dates) >= 2:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                selected_date = st.selectbox(
-                    "📅 第一步：選擇主要基準日期", 
-                    options=dates, 
-                    index=None, 
-                    placeholder="請選擇主要基準日期...", 
-                    key="m2_date"
-                )
-            
-            history_dates = []
-            with col2:
-                if selected_date:
-                    curr_idx = dates.index(selected_date)
-                    history_dates = dates[curr_idx + 1:]
+        df_base_full = load_date_data(base_date)
+        df_past_full = load_date_data(past_date)
+
+        if not df_base_full.empty:
+            song_col = '歌名' if '歌名' in df_base_full.columns else ('song' if 'song' in df_base_full.columns else None)
+            singer_col = '歌手' if '歌手' in df_base_full.columns else ('singer' if 'singer' in df_base_full.columns else None)
+            rank_col = '排名' if '排名' in df_base_full.columns else ('rank' if 'rank' in df_base_full.columns else None)
+
+            if song_col and singer_col and rank_col:
+                base_chart = df_base_full[df_base_full['榜單類型'] == m2_chart_option]
+                past_chart = df_past_full[df_past_full['榜單類型'] == m2_chart_option] if not df_past_full.empty else pd.DataFrame()
+
+                if not base_chart.empty:
+                    max_rank_val = base_chart[rank_col].max() if not base_chart.empty else 100
                     
-                    if history_dates:
-                        compare_date = st.selectbox(
-                            "🔍 第二步：選擇對比歷史日期", 
-                            options=history_dates, 
-                            index=None, 
-                            placeholder="請選擇對比歷史日期...", 
-                            key="m2_compare_date"
+                    if not past_chart.empty and rank_col in past_chart.columns:
+                        merged = pd.merge(
+                            base_chart,
+                            past_chart[[song_col, singer_col, rank_col]],
+                            on=[song_col, singer_col],
+                            how='left',
+                            suffixes=('_基準', '_過去')
                         )
-                    else:
-                        st.selectbox("🔍 第二步：選擇對比歷史日期", ["無更早的歷史日期"], index=0, disabled=True, key="m2_comp_date_disabled")
-                        compare_date = None
-                else:
-                    st.selectbox("🔍 第二步：選擇對比歷史日期", ["請先選擇第一步主要基準日期"], index=0, disabled=True, key="m2_comp_date_waiting")
-                    compare_date = None
-
-            if compare_date:
-                df_now = load_date_data(selected_date)
-                df_prev = load_date_data(compare_date)
-                
-                song_col = '歌名' if '歌名' in df_now.columns else 'song'
-                singer_col = '歌手' if '歌手' in df_now.columns else 'singer'
-                rank_col = '排名' if '排名' in df_now.columns else 'rank'
-                
-                now_chart = df_now[df_now['榜單類型'] == chart_option]
-                prev_chart = df_prev[df_prev['榜單類型'] == chart_option]
-                
-                if not now_chart.empty:
-                    merged = pd.merge(
-                        now_chart[[song_col, singer_col, rank_col]],
-                        prev_chart[[song_col, singer_col, rank_col]],
-                        on=[song_col, singer_col],
-                        how='left',
-                        suffixes=('_當前', '_前次')
-                    )
-                    
-                    def calc_status(row):
-                        if pd.isna(row[f'{rank_col}_前次']):
-                            return "🆕 全新進榜"
-                        diff = row[f'{rank_col}_前次'] - row[f'{rank_col}_當前']
-                        if diff > 0:
-                            return f"⬆️ 爬升 {int(diff)} 名"
-                        elif diff < 0:
-                            return f"⬇️ 下降 {int(abs(diff))} 名"
+                        merged['過去排名_temp'] = merged[f'{rank_col}_過去'].fillna(max_rank_val + 20)
+                        merged['淨爬升名次'] = merged['過去排名_temp'] - merged[f'{rank_col}_基準']
+                        merged['對比歷史排名'] = merged[f'{rank_col}_過去'].apply(lambda x: "🆕 全新進榜" if pd.isna(x) else str(int(x)))
+                        merged['基準日排名'] = merged[f'{rank_col}_基準'].astype(int).astype(str)
+                        
+                        black_horses = merged[merged['淨爬升名次'] > 0].sort_values(by='淨爬升名次', ascending=False)
+                        
+                        if not black_horses.empty:
+                            display_top = black_horses.head(10).copy()
+                            
+                            display_df = display_top[[song_col, singer_col, '對比歷史排名', '基準日排名', '淨爬升名次']].copy()
+                            display_df.columns = ['歌名', '歌手', '對比歷史排名', '基準日排名', '淨爬升名次']
+                            display_df['淨爬升名次'] = display_df['淨爬升名次'].apply(lambda x: f"⬆️ 暴增進步 {int(x)} 名")
+                            
+                            st.success(f"🎯 在【{m2_chart_option}】中，成功鎖定以下 Top 10 潛力黑馬！")
+                            st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
+                            
+                            export_df = get_clean_export_df(base_chart, display_top)
+                            csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
+                            st.download_button(
+                                label=f"📥 匯出【{m2_chart_option}】Top 10 黑馬清單 (CSV)",
+                                data=csv_data,
+                                file_name=f"QQ音樂_黑馬雷達_{m2_chart_option}_{base_date}.csv",
+                                mime="text/csv",
+                                key="m2_download_btn"
+                            )
                         else:
-                            return "➡️ 持平"
-                    
-                    merged['名次變動'] = merged.apply(calc_status, axis=1)
-                    merged['當前日榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
-                    merged['對比歷史日榜排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
-                    
-                    rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
-                    
-                    st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                    st.dataframe(format_df_for_display(rising[[song_col, singer_col, '對比歷史日榜排名', '當前日榜排名', '名次變動']]), hide_index=True, use_container_width=True)
-                    
-                    export_df = get_clean_export_df(now_chart, rising)
-                    csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label=f"📥 匯出【{chart_option}】飆升與新進黑馬清單 (CSV)",
-                        data=csv_data,
-                        file_name=f"QQ音樂_飆升與新進黑馬_{chart_option}_{selected_date}.csv",
-                        mime="text/csv",
-                        key="m2_download_daily"
-                    )
-            elif history_dates:
-                st.info("💡 **請在右上角選取『對比歷史日期』**，即可開始進行名次變動分析。")
-            elif not selected_date:
-                st.info("💡 **請先選擇第一步『主要基準日期』**。")
+                            st.info(f"在所選區間內，【{m2_chart_option}】暫無名次正成長的黑馬歌曲。")
+                    else:
+                        st.warning("歷史對比數據不足或欄位解析異常，無法進行跨期淨爬升計算。")
+                else:
+                    st.warning(f"在 {base_date} 找不到【{m2_chart_option}】的資料。")
             else:
-                st.warning("⚠️ 您選擇的『基準日期』為系統內最早的一天，無更早的歷史日期可供對比。")
+                st.warning("資料欄位解析異常（找不到歌名、歌手或排名欄位）。")
         else:
-            st.info("目前系統內只有單日數據，尚無法進行日榜跨期對比。")
+            st.warning(f"無法載入 {base_date} 的資料。")
 
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
