@@ -373,16 +373,24 @@ with main_tabs[1]:
                         for idx, row in base_active_songs.iterrows():
                             song, singer = idx
                             
-                            # 🎯 計算該首歌在整個追蹤區間內的歷史最高與最低排名
-                            song_history = row[range_dates].dropna()
-                            if song_history.empty:
+                            song_history = row[range_dates]
+                            valid_history = song_history.dropna()
+                            if valid_history.empty:
                                 continue
                             
-                            highest_rank = int(song_history.min())  # 數值最小 = 最高排名（最佳）
-                            lowest_rank = int(song_history.max())   # 數值最大 = 最低排名（最差）
+                            # 1. 歷史最高排名（數字最小的最佳名次）
+                            highest_rank = int(valid_history.min())
+                            
+                            # 2. 歷史最低排名：若期間內有空值(排行榜外)，直接顯示為 "排行榜外"
+                            if song_history.isna().any():
+                                lowest_rank_display = "排行榜外"
+                            else:
+                                lowest_rank_display = str(int(song_history.max()))
                             
                             rise_count = 0
                             max_single_rise = 0
+                            max_jump_type = "internal"  紀錄最大爬升的來源類型 (internal 或 outside)
+                            max_jump_target_rank = 0    紀錄從榜外衝進來時的落點名次 (X)
                             
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
@@ -396,34 +404,49 @@ with main_tabs[1]:
                                         jump = int(r_prev - r_curr)
                                         if jump > max_single_rise:
                                             max_single_rise = jump
+                                            max_jump_type = "internal"
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
-                                    curr_rank_val = int(row[base_date])
-                                    jump = int(max(0, 100 - curr_rank_val))
+                                    # 🎯 內部以 101 當標記，但計算是以 100 為基準 (100 - X)
+                                    target_x = int(r_curr)
+                                    jump = int(100 - target_x)
                                     if jump > max_single_rise:
                                         max_single_rise = jump
+                                        max_jump_type = "outside"
+                                        max_jump_target_rank = target_x
 
-                            # 💡 維持原本的排序與選歌邏輯，確保折線圖維持不變
+                            # 💡 維持原本的排序與選歌邏輯，確保折線圖不變
                             curr_rank = int(row[base_date])
                             past_rank_val = row.get(past_date, float('nan'))
                             
                             if pd.isna(past_rank_val):
-                                display_text = f"🆕 新進榜 (單次最高衝 {int(max_single_rise)} 名)"
+                                past_display = "🆕 全新進榜"
                                 sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
+                                
+                                # 🎯 根據是否為榜外衝進來，套用不同的顯示格式
+                                if max_jump_type == "outside":
+                                    display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} (100-{max_jump_target_rank})名)"
+                                else:
+                                    display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
                             else:
                                 past_rank = int(past_rank_val)
                                 net_change = past_rank - curr_rank
                                 if net_change > 0:
-                                    display_text = f"🚀 單次最高衝 {int(max_single_rise)} 名"
+                                    past_display = str(past_rank)
                                     sort_score = 10000 + (rise_count * 100) + net_change
+                                    
+                                    if max_jump_type == "outside":
+                                        display_text = f"🚀 單次最高衝 {max_single_rise} (100-{max_jump_target_rank})名"
+                                    else:
+                                        display_text = f"🚀 單次最高衝 {max_single_rise} 名"
                                 else:
                                     continue 
 
                             processed_rows.append({
                                 song_col: song,
                                 singer_col: singer,
-                                '歷史最低排名': lowest_rank,  # 🆕 歷史最差名次
-                                '歷史最高排名': highest_rank,  # 🆕 歷史最佳名次
+                                '歷史最低排名': lowest_rank_display,
+                                '歷史最高排名': highest_rank,
                                 '區間上升次數': f"📈 {rise_count} 次",
                                 '單次最高爬升': display_text,
                                 'sort_score': sort_score,
@@ -438,7 +461,6 @@ with main_tabs[1]:
                             
                             df_result['黑馬綜合排名'] = range(1, len(df_result) + 1)
                             
-                            # 調整欄位順序與名稱
                             display_df = df_result[['黑馬綜合排名', song_col, singer_col, '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']].copy()
                             display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']
                             
