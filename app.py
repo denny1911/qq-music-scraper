@@ -254,7 +254,15 @@ with main_tabs[1]:
                         return "➡️ 持平"
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
-                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
+
+                # 💡 新增這行：把 None/NaN 改為 "未入榜"，並將數字轉為不帶小數點的字串
+                merged[f'{rank_col}_前次'] = merged[f'{rank_col}_前次'].apply(
+                    lambda x: "未入榜" if pd.isna(x) else str(int(x))
+                )
+
+                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(
+                    by=f'{rank_col}_當前'
+                )
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                 st.dataframe(rising[[song_col, singer_col, f'{rank_col}_當前', f'{rank_col}_前次', '名次變動']], hide_index=True, use_container_width=True)
@@ -311,7 +319,15 @@ with main_tabs[1]:
                         return "➡️ 持平"
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
-                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
+
+                # 💡 新增這行：把 None/NaN 改為 "未入榜"，並將數字轉為不帶小數點的字串
+                merged[f'{rank_col}_前次'] = merged[f'{rank_col}_前次'].apply(
+                    lambda x: "未入榜" if pd.isna(x) else str(int(x))
+                )
+
+                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(
+                    by=f'{rank_col}_當前'
+                )
                 
                 st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                 st.dataframe(rising[[song_col, singer_col, f'{rank_col}_當前', f'{rank_col}_前次', '名次變動']], hide_index=True, use_container_width=True)
