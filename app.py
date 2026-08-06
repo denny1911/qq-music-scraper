@@ -211,24 +211,34 @@ with main_tabs[1]:
             col1, col2 = st.columns(2)
             
             with col1:
-                curr_issue = st.selectbox("📅 第一步：選擇當期週榜", all_issues, index=0, placeholder="請選擇當期週榜...", key="m2_curr_issue")
-            
-            # 排除當前選定的期數，僅保留「比當前更早」的歷史期數
-            curr_idx = all_issues.index(curr_issue)
-            history_issues = all_issues[curr_idx + 1:]
-            
+                # 💡 第一步：預設為空，設定 placeholder
+                curr_issue = st.selectbox(
+                    "📅 第一步：選擇當期週榜", 
+                    options=all_issues, 
+                    index=None, 
+                    placeholder="請選擇當期週榜...", 
+                    key="m2_curr_issue"
+                )
+            history_issues = []
             with col2:
-                if history_issues:
-                    # 💡 使用 index=None 與 placeholder 達到原生提示文字效果
-                    compare_issue = st.selectbox(
-                        "🔍 第二步：選擇對比歷史週榜", 
-                        options=history_issues, 
-                        index=None, 
-                        placeholder="請選擇對比歷史週榜...", 
-                        key="m2_comp_issue"
-                    )
+                if curr_issue:
+                    # 根據第一步選擇，動態計算比當前更早的歷史期數
+                    curr_idx = all_issues.index(curr_issue)
+                    history_issues = all_issues[curr_idx + 1:]
+                    
+                    if history_issues:
+                        compare_issue = st.selectbox(
+                            "🔍 第二步：選擇對比歷史週榜", 
+                            options=history_issues, 
+                            index=None, 
+                            placeholder="請選擇對比歷史週榜...", 
+                            key="m2_comp_issue"
+                        )
+                    else:
+                        st.selectbox("🔍 第二步：選擇對比歷史週榜", ["無更早的歷史週榜"], index=0, disabled=True, key="m2_comp_issue_disabled")
+                        compare_issue = None
                 else:
-                    st.selectbox("🔍 第二步：選擇對比歷史週榜", ["無更早的歷史週榜"], index=0, disabled=True, key="m2_comp_issue_disabled")
+                    st.selectbox("🔍 第二步：選擇對比歷史週榜", ["請先選擇第一步當期週榜"], index=0, disabled=True, key="m2_comp_issue_waiting")
                     compare_issue = None
 
             # 根據使用者的選擇進行狀態判斷與提示
@@ -269,17 +279,17 @@ with main_tabs[1]:
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
                 
                 # 轉為字串並靠左對齊，None 改為 未入榜
-                merged['當前週榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
+                merged['當期週榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
                 merged['對比歷史週榜排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
                 
                 rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                st.dataframe(rising[[song_col, singer_col, '對比歷史週榜排名', '當前週榜排名', '名次變動']], hide_index=True, use_container_width=True)
+                st.dataframe(rising[[song_col, singer_col, '對比歷史週榜排名', '當期週榜排名', '名次變動']], hide_index=True, use_container_width=True)
             elif history_issues:
                 st.info("💡 **請在右上角選取『對比歷史週榜』**，即可開始進行名次變動分析。")
             else:
-                st.warning("⚠️ 您選擇的『當前週榜』為系統內最早的一期，無更早的歷史週榜可供對比。")
+                st.warning("⚠️ 您選擇的『當期週榜』為系統內最早的一期，無更早的歷史週榜可供對比。")
         else:
             st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間皆屬於同一期，尚無歷史週榜可供跨期比對。")
 
