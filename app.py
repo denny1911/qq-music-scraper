@@ -376,9 +376,8 @@ with main_tabs[1]:
                             past_rank_val = row.get(past_date, float('nan'))
                             
                             rise_count = 0
-                            max_single_rise = 0  # 🎯 真正記錄區間內的單次最大爬升名次
+                            max_single_rise = 0  # 🎯 確實計算這首歌在區間內的單次最大爬升
                             
-                            # 逐日檢查每一天的變化
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
                                 d_curr = range_dates[i]
@@ -393,24 +392,24 @@ with main_tabs[1]:
                                             max_single_rise = jump
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
-                                    # 從榜外（以 101 名計算）瞬間衝進當前日的 r_curr
-                                    jump = 101 - r_curr
+                                    jump = max(0, 100 - curr_rank)
                                     if jump > max_single_rise:
                                         max_single_rise = jump
 
-                            # 💡 核心修正：只要在區間內曾有過上升（max_single_rise > 0），就符合黑馬資格
-                            if max_single_rise <= 0:
-                                continue 
-
+                            # 💡 維持原本的篩選與排序權重（確保 Top 10 名單與折線圖維持不變）
                             if pd.isna(past_rank_val):
+                                display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
+                                sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
                                 past_display = "🆕 全新進榜"
                             else:
-                                past_display = str(int(past_rank_val))
-
-                            # 🎯 調整排序權重：以「單次最高爬升幅度」為第一優先考量，其次為上升次數與基準日名次
-                            sort_score = (max_single_rise * 1000) + (rise_count * 100) + (101 - curr_rank)
-                            
-                            display_text = f"🚀 單次最高衝 {max_single_rise} 名"
+                                past_rank = int(past_rank_val)
+                                net_change = past_rank - curr_rank
+                                if net_change > 0:
+                                    display_text = f"🚀 單次最高衝 {max_single_rise} 名"
+                                    sort_score = 10000 + (rise_count * 100) + net_change
+                                    past_display = str(past_rank)
+                                else:
+                                    continue 
 
                             processed_rows.append({
                                 song_col: song,
@@ -418,8 +417,8 @@ with main_tabs[1]:
                                 '對比歷史排名': past_display,
                                 '基準日排名': str(curr_rank),
                                 '區間上升次數': f"📈 {rise_count} 次",
-                                '單次最高爬升': display_text,
-                                'sort_score': sort_score,
+                                '單次最高爬升': display_text,  # 🎯 正確計算出的數值
+                                'sort_score': sort_score,     # 維持原本排序，不影響折線圖
                                 'raw_song': song,
                                 'raw_singer': singer
                             })
@@ -427,7 +426,6 @@ with main_tabs[1]:
                         df_result = pd.DataFrame(processed_rows)
 
                         if not df_result.empty:
-                            # 依照真正的單次最高暴衝幅度排序取前 10 名
                             df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
                             
                             # 建立最左側的「黑馬綜合排名」
@@ -436,7 +434,7 @@ with main_tabs[1]:
                             display_df = df_result[['黑馬綜合排名', song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '單次最高爬升']].copy()
                             display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '單次最高爬升']
                             
-                            st.success(f"🎯 在【{m2_chart_option}】中，已成功鎖定具備最強單日暴衝力的 Top 10 潛力黑馬！")
+                            st.success(f"🎯 在【{m2_chart_option}】中，已成功鎖定 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
                             # 📊 升級：Top 10 黑馬每日名次走勢圖（Y 軸固定從 1 到 100，且 1 在最上方）
