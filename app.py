@@ -211,7 +211,7 @@ with main_tabs[1]:
             col1, col2 = st.columns(2)
             
             with col1:
-                curr_issue = st.selectbox("📅 第一步：選擇當期週榜", all_issues, index=None, placeholder="請選擇當期週榜...", key="m2_curr_issue")
+                curr_issue = st.selectbox("📅 第一步：選擇當期週榜", all_issues, index=0, placeholder="請選擇當期週榜...", key="m2_curr_issue")
             
             # 排除當前選定的期數，僅保留「比當前更早」的歷史期數
             curr_idx = all_issues.index(curr_issue)
