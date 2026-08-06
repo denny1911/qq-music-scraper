@@ -211,7 +211,7 @@ with main_tabs[1]:
             col1, col2 = st.columns(2)
             
             with col1:
-                curr_issue = st.selectbox("📅 第一步：選擇當期週榜", all_issues, index=0, key="m2_curr_issue")
+                curr_issue = st.selectbox("📅 第一步：選擇當期週榜", all_issues, index=None, placeholder="請選擇當期週榜...", key="m2_curr_issue")
             
             # 排除當前選定的期數，僅保留「比當前更早」的歷史期數
             curr_idx = all_issues.index(curr_issue)
@@ -221,10 +221,10 @@ with main_tabs[1]:
                 if history_issues:
                     # 💡 使用 index=None 與 placeholder 達到原生提示文字效果
                     compare_issue = st.selectbox(
-                        "🔍 第二步：選擇對比歷史期數", 
+                        "🔍 第二步：選擇對比歷史週榜", 
                         options=history_issues, 
                         index=None, 
-                        placeholder="請選擇對比歷史期數...", 
+                        placeholder="請選擇對比歷史週榜...", 
                         key="m2_comp_issue"
                     )
                 else:
