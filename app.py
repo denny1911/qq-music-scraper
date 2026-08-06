@@ -422,11 +422,16 @@ with main_tabs[1]:
                         df_result = pd.DataFrame(processed_rows)
 
                         if not df_result.empty:
-                            df_result = df_result.sort_values(by='sort_score', ascending=False).head(10)
-                            
-                            display_df = df_result[[song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']].copy()
-                            display_df.columns = ['歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']
-                            
+                            # 排序並取前 10 名
+                            df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
+
+                            # 🆕 建立最左側的「黑馬綜合排名」(1 到 10)
+                            df_result['黑馬綜合排名'] = range(1, len(df_result) + 1)
+
+                            # 調整欄位順序，將「黑馬綜合排名」放到最前面
+                            display_df = df_result[['黑馬綜合排名', song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']].copy()
+                            display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']
+
                             st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
