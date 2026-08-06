@@ -436,9 +436,9 @@ with main_tabs[1]:
                             st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
-                            # 📊 升級：Top 10 黑馬每日名次走勢圖（Y 軸反轉：1 在最上方，100 在最下方）
+                            # 📊 升級：Top 10 黑馬每日名次走勢圖（Y 軸固定從 1 到 100，且 1 在最上方）
                             st.markdown("### 📈 Top 10 黑馬每日名次走勢圖")
-                            st.caption("💡 註：X 軸為追蹤序列天數，Y 軸已自動反轉（數字越小、排名越前面，會顯示在圖表越上方）。")
+                            st.caption("💡 註：X 軸為追蹤序列天數，Y 軸已固定範圍（1 在最上方，100 在最下方）。")
 
                             # 萃取 Top 10 歌曲在 pivot_df 中的歷史軌跡數據
                             top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
@@ -460,10 +460,14 @@ with main_tabs[1]:
                                 value_name='名次'
                             ).rename(columns={'index': '追蹤天數'})
 
-                            # 4. 建立 Altair 互動式折線圖（設定 scale=alt.Scale(reverse=True) 將 Y 軸反轉）
+                            # 4. 建立 Altair 互動式折線圖（設定 domain=[1, 100]、reverse=True、nice=False）
                             c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2).encode(
                                 x=alt.X('追蹤天數:N', sort=None, title='追蹤天數'),
-                                y=alt.Y('名次:Q', scale=alt.Scale(reverse=True), title='名次 (數字越小越前面)'),
+                                y=alt.Y(
+                                    '名次:Q', 
+                                    scale=alt.Scale(domain=[1, 100], reverse=True, nice=False), 
+                                    title='名次 (1 在最上方)'
+                                ),
                                 color=alt.Color('黑馬綜合排名:N', title='Top 10 黑馬排行'),
                                 tooltip=['黑馬綜合排名', '追蹤天數', '名次']
                             ).properties(
