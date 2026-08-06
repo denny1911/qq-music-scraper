@@ -406,7 +406,11 @@ with main_tabs[2]:
                     平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
                 ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
             
-            st.success(f"📈 【{chart_option_m3}（{ '週榜' if is_weekly_chart else '日榜' }）】統計區間：{start_date} ～ {end_date}（共 {len(evergreen)} 首歌曲）：")
+            # 先計算該區間內涵蓋的總期數 (週榜) 或總天數 (日榜)
+            total_units = target_df['榜單期數'].nunique() if is_weekly_chart else target_df['抓取日期'].nunique()
+            unit_name = "期" if is_weekly_chart else "天"
+
+            st.success(f"📈 【{chart_option_m3}（{ '週榜' if is_weekly_chart else '日榜' }）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）：")
             st.dataframe(evergreen, hide_index=True, use_container_width=True)
             
             csv_data = evergreen.to_csv(index=False).encode('utf-8-sig')
