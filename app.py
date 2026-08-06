@@ -254,18 +254,16 @@ with main_tabs[1]:
                         return "➡️ 持平"
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
-
-                # 💡 新增這行：把 None/NaN 改為 "未入榜"，並將數字轉為不帶小數點的字串
-                merged[f'{rank_col}_前次'] = merged[f'{rank_col}_前次'].apply(
-                    lambda x: "未入榜" if pd.isna(x) else str(int(x))
-                )
-
-                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(
-                    by=f'{rank_col}_當前'
-                )
+                
+                # 💡 重命名與對齊處理：轉為字串確保靠左對齊，並替換 None 為 未入榜
+                merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
+                merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
+                
+                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                st.dataframe(rising[[song_col, singer_col, f'{rank_col}_當前', f'{rank_col}_前次', '名次變動']], hide_index=True, use_container_width=True)
+                # 💡 順序對調：對比歷史排名 放前面，當前排名 放後面
+                st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
         else:
             st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間（{dates[-1]} ～ {dates[0]}）皆屬於同一期 (`{all_issues[0]}`)，尚無歷史期數可供跨期比對。請待下週新一期資料進來後，即可啟用『跨期飆升黑馬』對比功能！")
 
@@ -319,18 +317,16 @@ with main_tabs[1]:
                         return "➡️ 持平"
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
-
-                # 💡 新增這行：把 None/NaN 改為 "未入榜"，並將數字轉為不帶小數點的字串
-                merged[f'{rank_col}_前次'] = merged[f'{rank_col}_前次'].apply(
-                    lambda x: "未入榜" if pd.isna(x) else str(int(x))
-                )
-
-                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(
-                    by=f'{rank_col}_當前'
-                )
+                
+                # 💡 重命名與對齊處理：轉為字串確保靠左對齊，並替換 None 為 未入榜
+                merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
+                merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
+                
+                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                 
                 st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                st.dataframe(rising[[song_col, singer_col, f'{rank_col}_當前', f'{rank_col}_前次', '名次變動']], hide_index=True, use_container_width=True)
+                # 💡 順序對調：對比歷史排名 放前面，當前排名 放後面
+                st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
 
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
