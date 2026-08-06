@@ -204,20 +204,24 @@ with main_tabs[1]:
     # 模式 A：週榜（按「期數」比對）
     # ------------------------------------------
     if is_weekly_chart:
-        # 蒐集目前所有資料中的期數列表
+        # 蒐集目前所有資料中的期數列表（由新到舊排序）
         all_issues = sorted(list(set([get_issue_label(d) for d in dates])), reverse=True)
         
         if len(all_issues) >= 2:
             col1, col2 = st.columns(2)
+            
+            # 💡 連動邏輯 1：左邊選單排除最舊的一期（因為最舊的沒有歷史期數可比）
+            curr_issue_options = all_issues[:-1]
+            
             with col1:
-                curr_issue = st.selectbox("📅 選擇當前期數", all_issues, index=0, key="m2_curr_issue")
+                curr_issue = st.selectbox("📅 選擇當前期數", curr_issue_options, index=0, key="m2_curr_issue")
+            
+            # 💡 連動邏輯 2：右邊選單只保留「比左邊選定期數更早」的歷史期數
+            curr_idx_in_all = all_issues.index(curr_issue)
+            prev_issues = all_issues[curr_idx_in_all + 1:]
+            
             with col2:
-                prev_issues = all_issues[all_issues.index(curr_issue) + 1:]
-                if prev_issues:
-                    compare_issue = st.selectbox("🔍 選擇對比歷史期數", prev_issues, index=0, key="m2_comp_issue")
-                else:
-                    st.info("無更早的歷史期數可供對比。")
-                    compare_issue = None
+                compare_issue = st.selectbox("🔍 選擇對比歷史期數", prev_issues, index=0, key="m2_comp_issue")
 
             if compare_issue:
                 # 撈取對應期數最新的那一天資料作為代表
@@ -255,14 +259,12 @@ with main_tabs[1]:
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
                 
-                # 💡 重命名與對齊處理：轉為字串確保靠左對齊，並替換 None 為 未入榜
                 merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
                 merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
                 
                 rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                # 💡 順序對調：對比歷史排名 放前面，當前排名 放後面
                 st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
         else:
             st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間（{dates[-1]} ～ {dates[0]}）皆屬於同一期 (`{all_issues[0]}`)，尚無歷史期數可供跨期比對。請待下週新一期資料進來後，即可啟用『跨期飆升黑馬』對比功能！")
@@ -271,62 +273,64 @@ with main_tabs[1]:
     # 模式 B：日榜（按「日期」比對）
     # ------------------------------------------
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m2_date")
-        
-        curr_idx = dates.index(selected_date)
-        prev_dates = dates[curr_idx + 1:]
-        
-        with col2:
-            if prev_dates:
+        if len(dates) >= 2:
+            col1, col2 = st.columns(2)
+            
+            # 💡 連動邏輯 1：左邊選單排除最舊的一天
+            curr_date_options = dates[:-1]
+            
+            with col1:
+                selected_date = st.selectbox("📅 選擇主要基準日期", curr_date_options, index=0, key="m2_date")
+            
+            # 💡 連動邏輯 2：右邊選單只保留「比左邊選定日期更早」的歷史日期
+            curr_idx = dates.index(selected_date)
+            prev_dates = dates[curr_idx + 1:]
+            
+            with col2:
                 compare_date = st.selectbox("🔍 選擇對比歷史日期", prev_dates, index=0, key="m2_compare_date")
-            else:
-                compare_date = None
-                st.info("無更早的歷史日期可供對比。")
 
-        if compare_date:
-            df_now = load_date_data(selected_date)
-            df_prev = load_date_data(compare_date)
-            
-            song_col = '歌名' if '歌名' in df_now.columns else 'song'
-            singer_col = '歌手' if '歌手' in df_now.columns else 'singer'
-            rank_col = '排名' if '排名' in df_now.columns else 'rank'
-            
-            now_chart = df_now[df_now['榜單類型'] == chart_option]
-            prev_chart = df_prev[df_prev['榜單類型'] == chart_option]
-            
-            if not now_chart.empty:
-                merged = pd.merge(
-                    now_chart[[song_col, singer_col, rank_col]],
-                    prev_chart[[song_col, singer_col, rank_col]],
-                    on=[song_col, singer_col],
-                    how='left',
-                    suffixes=('_當前', '_前次')
-                )
+            if compare_date:
+                df_now = load_date_data(selected_date)
+                df_prev = load_date_data(compare_date)
                 
-                def calc_status(row):
-                    if pd.isna(row[f'{rank_col}_前次']):
-                        return "🆕 全新進榜"
-                    diff = row[f'{rank_col}_前次'] - row[f'{rank_col}_當前']
-                    if diff > 0:
-                        return f"⬆️ 爬升 {int(diff)} 名"
-                    elif diff < 0:
-                        return f"⬇️ 下降 {int(abs(diff))} 名"
-                    else:
-                        return "➡️ 持平"
+                song_col = '歌名' if '歌名' in df_now.columns else 'song'
+                singer_col = '歌手' if '歌手' in df_now.columns else 'singer'
+                rank_col = '排名' if '排名' in df_now.columns else 'rank'
                 
-                merged['名次變動'] = merged.apply(calc_status, axis=1)
+                now_chart = df_now[df_now['榜單類型'] == chart_option]
+                prev_chart = df_prev[df_prev['榜單類型'] == chart_option]
                 
-                # 💡 重命名與對齊處理：轉為字串確保靠左對齊，並替換 None 為 未入榜
-                merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
-                merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
-                
-                rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
-                
-                st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                # 💡 順序對調：對比歷史排名 放前面，當前排名 放後面
-                st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
+                if not now_chart.empty:
+                    merged = pd.merge(
+                        now_chart[[song_col, singer_col, rank_col]],
+                        prev_chart[[song_col, singer_col, rank_col]],
+                        on=[song_col, singer_col],
+                        how='left',
+                        suffixes=('_當前', '_前次')
+                    )
+                    
+                    def calc_status(row):
+                        if pd.isna(row[f'{rank_col}_前次']):
+                            return "🆕 全新進榜"
+                        diff = row[f'{rank_col}_前次'] - row[f'{rank_col}_當前']
+                        if diff > 0:
+                            return f"⬆️ 爬升 {int(diff)} 名"
+                        elif diff < 0:
+                            return f"⬇️ 下降 {int(abs(diff))} 名"
+                        else:
+                            return "➡️ 持平"
+                    
+                    merged['名次變動'] = merged.apply(calc_status, axis=1)
+                    
+                    merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
+                    merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
+                    
+                    rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
+                    
+                    st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
+                    st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
+        else:
+            st.info("目前系統內只有單日數據，尚無法進行日榜跨期對比。")
 
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
