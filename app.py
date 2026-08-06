@@ -372,11 +372,17 @@ with main_tabs[1]:
                         processed_rows = []
                         for idx, row in base_active_songs.iterrows():
                             song, singer = idx
-                            curr_rank = int(row[base_date])
-                            past_rank_val = row.get(past_date, float('nan'))
+                            
+                            # 🎯 計算該首歌在整個追蹤區間內的歷史最高與最低排名
+                            song_history = row[range_dates].dropna()
+                            if song_history.empty:
+                                continue
+                            
+                            highest_rank = int(song_history.min())  # 數值最小 = 最高排名（最佳）
+                            lowest_rank = int(song_history.max())   # 數值最大 = 最低排名（最差）
                             
                             rise_count = 0
-                            max_single_rise = 0  # 🎯 確實計算這首歌在區間內的單次最大爬升
+                            max_single_rise = 0
                             
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
@@ -385,40 +391,42 @@ with main_tabs[1]:
                                 r_curr = row.get(d_curr, float('nan'))
                                 
                                 if pd.notna(r_prev) and pd.notna(r_curr):
-                                    if r_curr < r_prev:  # 排名數字變小代表上升
+                                    if r_curr < r_prev:
                                         rise_count += 1
-                                        jump = r_prev - r_curr
+                                        jump = int(r_prev - r_curr)
                                         if jump > max_single_rise:
                                             max_single_rise = jump
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
-                                    jump = max(0, 100 - curr_rank)
+                                    curr_rank_val = int(row[base_date])
+                                    jump = int(max(0, 100 - curr_rank_val))
                                     if jump > max_single_rise:
                                         max_single_rise = jump
 
-                            # 💡 維持原本的篩選與排序權重（確保 Top 10 名單與折線圖維持不變）
+                            # 💡 維持原本的排序與選歌邏輯，確保折線圖維持不變
+                            curr_rank = int(row[base_date])
+                            past_rank_val = row.get(past_date, float('nan'))
+                            
                             if pd.isna(past_rank_val):
-                                display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
+                                display_text = f"🆕 新進榜 (單次最高衝 {int(max_single_rise)} 名)"
                                 sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
-                                past_display = "🆕 全新進榜"
                             else:
                                 past_rank = int(past_rank_val)
                                 net_change = past_rank - curr_rank
                                 if net_change > 0:
-                                    display_text = f"🚀 單次最高衝 {max_single_rise} 名"
+                                    display_text = f"🚀 單次最高衝 {int(max_single_rise)} 名"
                                     sort_score = 10000 + (rise_count * 100) + net_change
-                                    past_display = str(past_rank)
                                 else:
                                     continue 
 
                             processed_rows.append({
                                 song_col: song,
                                 singer_col: singer,
-                                '對比歷史排名': past_display,
-                                '基準日排名': str(curr_rank),
+                                '歷史最低排名': lowest_rank,  # 🆕 歷史最差名次
+                                '歷史最高排名': highest_rank,  # 🆕 歷史最佳名次
                                 '區間上升次數': f"📈 {rise_count} 次",
-                                '單次最高爬升': display_text,  # 🎯 正確計算出的數值
-                                'sort_score': sort_score,     # 維持原本排序，不影響折線圖
+                                '單次最高爬升': display_text,
+                                'sort_score': sort_score,
                                 'raw_song': song,
                                 'raw_singer': singer
                             })
@@ -428,40 +436,35 @@ with main_tabs[1]:
                         if not df_result.empty:
                             df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
                             
-                            # 建立最左側的「黑馬綜合排名」
                             df_result['黑馬綜合排名'] = range(1, len(df_result) + 1)
                             
-                            display_df = df_result[['黑馬綜合排名', song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '單次最高爬升']].copy()
-                            display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '單次最高爬升']
+                            # 調整欄位順序與名稱
+                            display_df = df_result[['黑馬綜合排名', song_col, singer_col, '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']].copy()
+                            display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']
                             
                             st.success(f"🎯 在【{m2_chart_option}】中，已成功鎖定 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
-                            # 📊 升級：Top 10 黑馬每日名次走勢圖（Y 軸固定從 1 到 100，且 1 在最上方）
+                            # 📊 Top 10 黑馬每日名次走勢圖
                             st.markdown("### 📈 Top 10 黑馬每日名次走勢圖")
                             st.caption("💡 註：X 軸為追蹤序列天數，Y 軸已固定範圍（1 在最上方，100 在最下方）。")
-
-                            # 萃取 Top 10 歌曲在 pivot_df 中的歷史軌跡數據
+                            
                             top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                             chart_subset = pivot_df.loc[top_keys, range_dates].T
-
-                            # 1. 將 X 軸索引改為乾淨的序列編號（第 1 天、第 2 天...）
+                            
                             chart_subset.index = [f"第 {i+1} 天" for i in range(len(chart_subset))]
-
-                            # 2. 將圖例（欄位名稱）對應到表格的「黑馬綜合排名」
+                            
                             column_names = []
                             for rank, (s, si) in enumerate(top_keys, start=1):
                                 column_names.append(f"{rank}. {s} ({si})")
                             chart_subset.columns = column_names
-
-                            # 3. 轉換為 Altair 專用的長格式 (Melt DataFrame)
+                            
                             df_melted = chart_subset.reset_index().melt(
                                 id_vars=['index'],
                                 var_name='黑馬綜合排名',
                                 value_name='名次'
                             ).rename(columns={'index': '追蹤天數'})
-
-                            # 4. 建立 Altair 互動式折線圖（設定 domain=[1, 100]、reverse=True、nice=False）
+                            
                             c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2).encode(
                                 x=alt.X('追蹤天數:N', sort=None, title='追蹤天數'),
                                 y=alt.Y(
@@ -469,13 +472,17 @@ with main_tabs[1]:
                                     scale=alt.Scale(domain=[1, 100], reverse=True, nice=False), 
                                     title='名次 (1 在最上方)'
                                 ),
-                                color=alt.Color('黑馬綜合排名:N', title='Top 10 黑馬排行'),
+                                color=alt.Color(
+                                    '黑馬綜合排名:N', 
+                                    title='Top 10 黑馬排行',
+                                    sort=column_names
+                                ),
                                 tooltip=['黑馬綜合排名', '追蹤天數', '名次']
                             ).properties(
                                 width='container',
                                 height=450
                             ).interactive()
-
+                            
                             st.altair_chart(c, use_container_width=True)
                             
                             # 準備匯出資料
