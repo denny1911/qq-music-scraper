@@ -210,25 +210,28 @@ with main_tabs[1]:
         if len(all_issues) >= 2:
             col1, col2 = st.columns(2)
             
-            # 💡 連動邏輯 1：左邊選單排除最舊的一期（因為最舊的沒有歷史期數可比）
-            curr_issue_options = all_issues[:-1]
-            
             with col1:
-                curr_issue = st.selectbox("📅 選擇當前期數", curr_issue_options, index=0, key="m2_curr_issue")
+                curr_issue = st.selectbox("📅 第一步：選擇當前期數", all_issues, index=0, key="m2_curr_issue")
             
-            # 💡 連動邏輯 2：右邊選單只保留「比左邊選定期數更早」的歷史期數
-            curr_idx_in_all = all_issues.index(curr_issue)
-            prev_issues = all_issues[curr_idx_in_all + 1:]
+            # 💡 排除當選期的期數，僅保留「比當前更早」的歷史期數
+            curr_idx = all_issues.index(curr_issue)
+            history_issues = all_issues[curr_idx + 1:]
             
             with col2:
-                compare_issue = st.selectbox("🔍 選擇對比歷史期數", prev_issues, index=0, key="m2_comp_issue")
+                if history_issues:
+                    compare_options = ["請選擇對比歷史期數..."] + history_issues
+                    compare_issue = st.selectbox("🔍 第二步：選擇對比歷史期數", compare_options, index=0, key="m2_comp_issue")
+                else:
+                    st.selectbox("🔍 第二步：選擇對比歷史期數", ["無更早的歷史期數"], index=0, disabled=True, key="m2_comp_issue_disabled")
+                    compare_issue = None
 
-            if compare_issue:
+            # 💡 根據使用者的選擇進行狀態判斷與提示
+            if compare_issue and compare_issue != "請選擇對比歷史期數...":
                 # 撈取對應期數最新的那一天資料作為代表
                 curr_dates = [d for d in dates if get_issue_label(d) == curr_issue]
                 comp_dates = [d for d in dates if get_issue_label(d) == compare_issue]
                 
-                df_now = load_date_data(curr_dates[0]) # 拿該期最新的日期
+                df_now = load_date_data(curr_dates[0])
                 df_prev = load_date_data(comp_dates[0])
                 
                 now_chart = df_now[df_now['榜單類型'] == chart_option]
@@ -259,6 +262,7 @@ with main_tabs[1]:
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
                 
+                # 轉為字串並靠左對齊，None 改為 未入榜
                 merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
                 merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
                 
@@ -266,8 +270,12 @@ with main_tabs[1]:
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                 st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
+            elif history_issues:
+                st.info("💡 **請在右上角選取『對比歷史期數』**，即可開始進行名次變動分析。")
+            else:
+                st.warning("⚠️ 您選擇的『當前期數』為系統內最早的一期，無更早的歷史期數可供對比。")
         else:
-            st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間（{dates[-1]} ～ {dates[0]}）皆屬於同一期 (`{all_issues[0]}`)，尚無歷史期數可供跨期比對。請待下週新一期資料進來後，即可啟用『跨期飆升黑馬』對比功能！")
+            st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間皆屬於同一期，尚無歷史期數可供跨期比對。")
 
     # ------------------------------------------
     # 模式 B：日榜（按「日期」比對）
@@ -276,20 +284,23 @@ with main_tabs[1]:
         if len(dates) >= 2:
             col1, col2 = st.columns(2)
             
-            # 💡 連動邏輯 1：左邊選單排除最舊的一天
-            curr_date_options = dates[:-1]
-            
             with col1:
-                selected_date = st.selectbox("📅 選擇主要基準日期", curr_date_options, index=0, key="m2_date")
+                selected_date = st.selectbox("📅 第一步：選擇主要基準日期", dates, index=0, key="m2_date")
             
-            # 💡 連動邏輯 2：右邊選單只保留「比左邊選定日期更早」的歷史日期
+            # 💡 排除當選日期，僅保留「比主要基準日期更早」的歷史日期
             curr_idx = dates.index(selected_date)
-            prev_dates = dates[curr_idx + 1:]
+            history_dates = dates[curr_idx + 1:]
             
             with col2:
-                compare_date = st.selectbox("🔍 選擇對比歷史日期", prev_dates, index=0, key="m2_compare_date")
+                if history_dates:
+                    compare_options = ["請選擇對比歷史日期..."] + history_dates
+                    compare_date = st.selectbox("🔍 第二步：選擇對比歷史日期", compare_options, index=0, key="m2_compare_date")
+                else:
+                    st.selectbox("🔍 第二步：選擇對比歷史日期", ["無更早的歷史日期"], index=0, disabled=True, key="m2_comp_date_disabled")
+                    compare_date = None
 
-            if compare_date:
+            # 💡 根據選擇呈現提示或分析圖表
+            if compare_date and compare_date != "請選擇對比歷史日期...":
                 df_now = load_date_data(selected_date)
                 df_prev = load_date_data(compare_date)
                 
@@ -329,6 +340,10 @@ with main_tabs[1]:
                     
                     st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
                     st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
+            elif history_dates:
+                st.info("💡 **請在右上角選取『對比歷史日期』**，即可開始進行名次變動分析。")
+            else:
+                st.warning("⚠️ 您選擇的『基準日期』為系統內最早的一天，無更早的歷史日期可供對比。")
         else:
             st.info("目前系統內只有單日數據，尚無法進行日榜跨期對比。")
 
