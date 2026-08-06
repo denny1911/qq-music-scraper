@@ -6,14 +6,14 @@ import datetime
 # 1. 頁面基本設定
 st.set_page_config(page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide")
 
-# 2. 全域 CSS 設定：強制全站所有表格與 DataFrame 內容及欄位標題統一靠左對齊
+# 2. 全域 CSS 設定：強制全站表格與內容統一靠左對齊
 st.markdown("""
     <style>
     /* 傳統 HTML 表格全域靠左 */
     table, th, td {
         text-align: left !important;
     }
-    /* Streamlit DataFrame (Glide Data Grid) 標題與單元格靠左 */
+    /* Streamlit DataFrame 標題與單元格靠左 */
     div[data-testid="stDataFrame"] div[role="columnheader"] {
         justify-content: flex-start !important;
         text-align: left !important;
@@ -94,6 +94,13 @@ def generate_song_tags(charts_str):
         tags.append("⚡ 雙榜同登")
     return "｜".join(tags)
 
+# 輔助函式：強行將 Dataframe 所有數值欄位轉字串以實現靠左對齊
+def format_df_for_display(df):
+    display_df = df.copy()
+    for col in display_df.columns:
+        display_df[col] = display_df[col].astype(str)
+    return display_df
+
 # 主介面四大分頁
 main_tabs = st.tabs([
     "🔥 模組一：全網霸榜池",
@@ -158,7 +165,7 @@ with main_tabs[0]:
                         multi_chart = multi_chart[cols_order]
                         
                         st.success(f"🎯 涵蓋區間：{covered_dates[-1]} ～ {covered_dates[0]}（共 {len(covered_dates)} 天數據），共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
-                        st.dataframe(multi_chart, hide_index=True, use_container_width=True)
+                        st.dataframe(format_df_for_display(multi_chart), hide_index=True, use_container_width=True)
                         
                         csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
                         st.download_button(
@@ -197,7 +204,7 @@ with main_tabs[0]:
                         multi_chart = multi_chart[cols_order]
                         
                         st.success(f"🎯 在 {selected_date} 單日共找到 {len(multi_chart)} 首跨榜爆款歌曲！")
-                        st.dataframe(multi_chart, hide_index=True, use_container_width=True)
+                        st.dataframe(format_df_for_display(multi_chart), hide_index=True, use_container_width=True)
                         
                         csv_data = multi_chart.to_csv(index=False).encode('utf-8-sig')
                         st.download_button(
@@ -319,7 +326,7 @@ with main_tabs[1]:
                 rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                 
                 st.success(f"📊 【{chart_option}】跨期對比：{curr_issue} vs {compare_issue}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                st.dataframe(rising[[song_col, singer_col, '對比歷史週榜排名', '當期週榜排名', '名次變動']], hide_index=True, use_container_width=True)
+                st.dataframe(format_df_for_display(rising[[song_col, singer_col, '對比歷史週榜排名', '當期週榜排名', '名次變動']]), hide_index=True, use_container_width=True)
             elif history_issues:
                 st.info("💡 **請在右上角選取『對比歷史週榜』**，即可開始進行名次變動分析。")
             elif not curr_issue:
@@ -401,7 +408,7 @@ with main_tabs[1]:
                     rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                     
                     st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                    st.dataframe(rising[[song_col, singer_col, '對比歷史日榜排名', '當前日榜排名', '名次變動']], hide_index=True, use_container_width=True)
+                    st.dataframe(format_df_for_display(rising[[song_col, singer_col, '對比歷史日榜排名', '當前日榜排名', '名次變動']]), hide_index=True, use_container_width=True)
             elif history_dates:
                 st.info("💡 **請在右上角選取『對比歷史日期』**，即可開始進行名次變動分析。")
             elif not selected_date:
@@ -504,7 +511,7 @@ with main_tabs[2]:
             unit_name = "期" if is_weekly_chart else "天"
 
             st.success(f"📈 【{chart_option_m3}（{ '週榜' if is_weekly_chart else '日榜' }）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）：")
-            st.dataframe(evergreen, hide_index=True, use_container_width=True)
+            st.dataframe(format_df_for_display(evergreen), hide_index=True, use_container_width=True)
             
             csv_data = evergreen.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
@@ -552,7 +559,7 @@ with main_tabs[3]:
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
                     
-                    # 移除「抓取日期」與「榜單類型/種類」欄位
+                    # 移除不用展示的「抓取日期」與「榜單類型/種類」欄位
                     cols_to_drop = [c for c in ['抓取日期', '榜單類型', '榜單種類'] if c in df.columns]
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
@@ -564,9 +571,9 @@ with main_tabs[3]:
                         mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
                         df = df[mask]
                     
-                    st.dataframe(df, hide_index=True, use_container_width=True)
+                    # 透過 format_df_for_display 將包含「排名」在內的所有數字轉換為字串，強制讓 Canvas 靠左對齊
+                    st.dataframe(format_df_for_display(df), hide_index=True, use_container_width=True)
                     
-                    # 匯出不含抓取日期與榜單類型的數據，檔名為「日期_種類.csv」
                     csv_data = df.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
