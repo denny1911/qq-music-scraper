@@ -6,6 +6,25 @@ import datetime
 # 1. 頁面基本設定
 st.set_page_config(page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide")
 
+# 2. 全域 CSS 設定：強制全站所有表格與 DataFrame 內容及欄位標題統一靠左對齊
+st.markdown("""
+    <style>
+    /* 傳統 HTML 表格全域靠左 */
+    table, th, td {
+        text-align: left !important;
+    }
+    /* Streamlit DataFrame (Glide Data Grid) 標題與單元格靠左 */
+    div[data-testid="stDataFrame"] div[role="columnheader"] {
+        justify-content: flex-start !important;
+        text-align: left !important;
+    }
+    div[data-testid="stDataFrame"] div[role="gridcell"] {
+        justify-content: flex-start !important;
+        text-align: left !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("🎵 QQ 音樂熱門歌曲挑選系統")
 st.caption("少即是多：專注於全網霸榜爆款、飆升黑馬與長青熱歌的智慧選曲平台。")
 
@@ -90,7 +109,6 @@ with main_tabs[0]:
     st.header("🔥 模組一：全網跨榜霸榜池")
     st.markdown("自動比對榜單數據，篩選出**登上 2 個（含）以上榜單**的神曲，指標最硬不踩雷！")
     
-    # 輔助函式：切換視角模式時重置日期選單
     def reset_m1_selections():
         if "m1_date" in st.session_state:
             st.session_state["m1_date"] = None
@@ -205,7 +223,6 @@ with main_tabs[1]:
     st.header("🚀 模組二：飆升與新進黑馬")
     st.markdown("對比前後數據，找出名次大幅爬升或全新進榜（New Entry）的潛力黑馬歌曲！")
     
-    # 輔助函式：切換榜單時重置下方所有選單狀態
     def reset_m2_selections():
         for key in ["m2_curr_issue", "m2_comp_issue", "m2_date", "m2_compare_date"]:
             if key in st.session_state:
@@ -216,29 +233,23 @@ with main_tabs[1]:
         ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], 
         horizontal=True, 
         key="m2_radio",
-        on_change=reset_m2_selections  # 切換榜單即自動重置選單
+        on_change=reset_m2_selections
     )
     is_weekly_chart = chart_option != "新歌榜"
 
-    # 輔助函式：計算週榜期數標籤（以週四為更新基準）
     def get_issue_label(date_str):
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
         offset = (dt.weekday() - 3) % 7 # 3 代表週四
         issue_start = dt - datetime.timedelta(days=offset)
         return issue_start.strftime("%Y-%m-%d 期")
 
-    # ------------------------------------------
-    # 模式 A：週榜（按「週榜期數」比對）
-    # ------------------------------------------
     if is_weekly_chart:
-        # 蒐集目前所有資料中的期數列表（由新到舊排序）
         all_issues = sorted(list(set([get_issue_label(d) for d in dates])), reverse=True)
         
         if len(all_issues) >= 2:
             col1, col2 = st.columns(2)
             
             with col1:
-                # 第一步：預設為空，設定 placeholder
                 curr_issue = st.selectbox(
                     "📅 第一步：選擇當期週榜", 
                     options=all_issues, 
@@ -250,7 +261,6 @@ with main_tabs[1]:
             history_issues = []
             with col2:
                 if curr_issue:
-                    # 根據第一步選擇，動態計算比當前更早的歷史期數
                     curr_idx = all_issues.index(curr_issue)
                     history_issues = all_issues[curr_idx + 1:]
                     
@@ -269,9 +279,7 @@ with main_tabs[1]:
                     st.selectbox("🔍 第二步：選擇對比歷史週榜", ["請先選擇第一步當期週榜"], index=0, disabled=True, key="m2_comp_issue_waiting")
                     compare_issue = None
 
-            # 根據使用者的選擇進行狀態判斷與提示
             if compare_issue:
-                # 撈取對應期數最新的那一天資料作為代表
                 curr_dates = [d for d in dates if get_issue_label(d) == curr_issue]
                 comp_dates = [d for d in dates if get_issue_label(d) == compare_issue]
                 
@@ -305,8 +313,6 @@ with main_tabs[1]:
                         return "➡️ 持平"
                 
                 merged['名次變動'] = merged.apply(calc_status, axis=1)
-                
-                # 轉為字串並靠左對齊，None 改為 未入榜
                 merged['當期週榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
                 merged['對比歷史週榜排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
                 
@@ -323,9 +329,6 @@ with main_tabs[1]:
         else:
             st.info(f"💡 **週榜比對說明**：【{chart_option}】為週榜。目前資料區間皆屬於同一期，尚無歷史週榜可供跨期比對。")
 
-    # ------------------------------------------
-    # 模式 B：日榜（按「日期」比對）
-    # ------------------------------------------
     else:
         if len(dates) >= 2:
             col1, col2 = st.columns(2)
@@ -360,7 +363,6 @@ with main_tabs[1]:
                     st.selectbox("🔍 第二步：選擇對比歷史日期", ["請先選擇第一步主要基準日期"], index=0, disabled=True, key="m2_comp_date_waiting")
                     compare_date = None
 
-            # 根據選擇呈現提示或分析圖表
             if compare_date:
                 df_now = load_date_data(selected_date)
                 df_prev = load_date_data(compare_date)
@@ -393,7 +395,6 @@ with main_tabs[1]:
                             return "➡️ 持平"
                     
                     merged['名次變動'] = merged.apply(calc_status, axis=1)
-                    
                     merged['當前日榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
                     merged['對比歷史日榜排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
                     
@@ -481,7 +482,6 @@ with main_tabs[2]:
             
         if not target_df.empty:
             if is_weekly_chart:
-                # 計算以週四為起點的榜單期數標籤
                 def get_issue_label(date_str):
                     dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
                     offset = (dt.weekday() - 3) % 7 # 3 代表週四
@@ -500,7 +500,6 @@ with main_tabs[2]:
                     平均名次=('排名', lambda x: round(x.mean(), 1)) if '排名' in target_df.columns else ('抓取日期', 'count')
                 ).reset_index().sort_values(by=['累積上榜天數', '平均名次'], ascending=[False, True])
             
-            # 先計算該區間內涵蓋的總期數 (週榜) 或總天數 (日榜)
             total_units = target_df['榜單期數'].nunique() if is_weekly_chart else target_df['抓取日期'].nunique()
             unit_name = "期" if is_weekly_chart else "天"
 
@@ -526,41 +525,56 @@ with main_tabs[2]:
 with main_tabs[3]:
     st.header("📊 原始各榜單數據瀏覽")
     
-    selected_date = st.selectbox("📅 選擇主要基準日期", dates, key="m4_date")
+    selected_date = st.selectbox(
+        "📅 選擇主要基準日期", 
+        options=dates, 
+        index=None, 
+        placeholder="請選擇主要基準日期...", 
+        key="m4_date"
+    )
     
-    charts = {
-        "新歌榜 (日榜)": "new",
-        "影視金曲榜 (週榜)": "film",
-        "綜藝新歌榜 (週榜)": "show",
-        "抖音熱歌榜 (週榜)": "tik"
-    }
-    
-    sub_tabs = st.tabs(list(charts.keys()))
-    day_path = os.path.join(data_dir, selected_date)
-    
-    for tab, (chart_name, chart_key) in zip(sub_tabs, charts.items()):
-        with tab:
-            file_name = f"{selected_date}_{chart_key}.csv"
-            file_path = os.path.join(day_path, file_name)
-            
-            if os.path.exists(file_path):
-                df = pd.read_csv(file_path)
-                st.success(f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料")
+    if selected_date:
+        charts = {
+            "新歌榜 (日榜)": "new",
+            "影視金曲榜 (週榜)": "film",
+            "綜藝新歌榜 (週榜)": "show",
+            "抖音熱歌榜 (週榜)": "tik"
+        }
+        
+        sub_tabs = st.tabs(list(charts.keys()))
+        day_path = os.path.join(data_dir, selected_date)
+        
+        for tab, (chart_name, chart_key) in zip(sub_tabs, charts.items()):
+            with tab:
+                file_name = f"{selected_date}_{chart_key}.csv"
+                file_path = os.path.join(day_path, file_name)
                 
-                search_term = st.text_input(f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=f"raw_{chart_key}")
-                if search_term:
-                    mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
-                    df = df[mask]
-                
-                st.dataframe(df, hide_index=True, use_container_width=True)
-                
-                csv_data = df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
-                    data=csv_data,
-                    file_name=f"QQ音樂_原始資料_{chart_key}_{selected_date}.csv",
-                    mime="text/csv",
-                    key=f"m4_download_{chart_key}"
-                )
-            else:
-                st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
+                if os.path.exists(file_path):
+                    df = pd.read_csv(file_path)
+                    
+                    # 自動剔除不用在網頁展示的「抓取日期」與「榜單類型」欄位
+                    cols_to_drop = [c for c in ['抓取日期', '榜單類型'] if c in df.columns]
+                    if cols_to_drop:
+                        df = df.drop(columns=cols_to_drop)
+
+                    st.success(f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料")
+                    
+                    search_term = st.text_input(f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=f"raw_{chart_key}")
+                    if search_term:
+                        mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
+                        df = df[mask]
+                    
+                    st.dataframe(df, hide_index=True, use_container_width=True)
+                    
+                    csv_data = df.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
+                        data=csv_data,
+                        file_name=f"QQ音樂_原始資料_{chart_key}_{selected_date}.csv",
+                        mime="text/csv",
+                        key=f"m4_download_{chart_key}"
+                    )
+                else:
+                    st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
+    else:
+        st.info("💡 **請先選擇『主要基準日期』**，即可開始瀏覽原始榜單資料。")
