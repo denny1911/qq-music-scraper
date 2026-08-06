@@ -201,7 +201,7 @@ with main_tabs[1]:
         return issue_start.strftime("%Y-%m-%d 期")
 
     # ------------------------------------------
-    # 模式 A：週榜（按「期數」比對）
+    # 模式 A：週榜（按「週榜期數」比對）
     # ------------------------------------------
     if is_weekly_chart:
         # 蒐集目前所有資料中的期數列表（由新到舊排序）
@@ -211,7 +211,7 @@ with main_tabs[1]:
             col1, col2 = st.columns(2)
             
             with col1:
-                # 💡 第一步：預設為空，設定 placeholder
+                # 第一步：預設為空，設定 placeholder
                 curr_issue = st.selectbox(
                     "📅 第一步：選擇當期週榜", 
                     options=all_issues, 
@@ -219,6 +219,7 @@ with main_tabs[1]:
                     placeholder="請選擇當期週榜...", 
                     key="m2_curr_issue"
                 )
+            
             history_issues = []
             with col2:
                 if curr_issue:
@@ -301,24 +302,33 @@ with main_tabs[1]:
             col1, col2 = st.columns(2)
             
             with col1:
-                selected_date = st.selectbox("📅 第一步：選擇主要基準日期", dates, index=0, key="m2_date")
+                selected_date = st.selectbox(
+                    "📅 第一步：選擇主要基準日期", 
+                    options=dates, 
+                    index=None, 
+                    placeholder="請選擇主要基準日期...", 
+                    key="m2_date"
+                )
             
-            # 排除當前選定日期，僅保留「比主要基準日期更早」的歷史日期
-            curr_idx = dates.index(selected_date)
-            history_dates = dates[curr_idx + 1:]
-            
+            history_dates = []
             with col2:
-                if history_dates:
-                    # 💡 使用 index=None 與 placeholder 達到原生提示文字效果
-                    compare_date = st.selectbox(
-                        "🔍 第二步：選擇對比歷史日期", 
-                        options=history_dates, 
-                        index=None, 
-                        placeholder="請選擇對比歷史日期...", 
-                        key="m2_compare_date"
-                    )
+                if selected_date:
+                    curr_idx = dates.index(selected_date)
+                    history_dates = dates[curr_idx + 1:]
+                    
+                    if history_dates:
+                        compare_date = st.selectbox(
+                            "🔍 第二步：選擇對比歷史日期", 
+                            options=history_dates, 
+                            index=None, 
+                            placeholder="請選擇對比歷史日期...", 
+                            key="m2_compare_date"
+                        )
+                    else:
+                        st.selectbox("🔍 第二步：選擇對比歷史日期", ["無更早的歷史日期"], index=0, disabled=True, key="m2_comp_date_disabled")
+                        compare_date = None
                 else:
-                    st.selectbox("🔍 第二步：選擇對比歷史日期", ["無更早的歷史日期"], index=0, disabled=True, key="m2_comp_date_disabled")
+                    st.selectbox("🔍 第二步：選擇對比歷史日期", ["請先選擇第一步主要基準日期"], index=0, disabled=True, key="m2_comp_date_waiting")
                     compare_date = None
 
             # 根據選擇呈現提示或分析圖表
@@ -355,20 +365,21 @@ with main_tabs[1]:
                     
                     merged['名次變動'] = merged.apply(calc_status, axis=1)
                     
-                    merged['當前排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
-                    merged['對比歷史排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
+                    merged['當前日榜排名'] = merged[f'{rank_col}_當前'].apply(lambda x: str(int(x)) if pd.notna(x) else "")
+                    merged['對比歷史日榜排名'] = merged[f'{rank_col}_前次'].apply(lambda x: "未入榜" if pd.isna(x) else str(int(x)))
                     
                     rising = merged[merged['名次變動'].str.contains('全新進榜|爬升')].sort_values(by=f'{rank_col}_當前')
                     
                     st.success(f"📊 【{chart_option}】對比：{selected_date} vs {compare_date}（共找到 {len(rising)} 首上升或新進榜歌曲）")
-                    st.dataframe(rising[[song_col, singer_col, '對比歷史排名', '當前排名', '名次變動']], hide_index=True, use_container_width=True)
+                    st.dataframe(rising[[song_col, singer_col, '對比歷史日榜排名', '當前日榜排名', '名次變動']], hide_index=True, use_container_width=True)
             elif history_dates:
                 st.info("💡 **請在右上角選取『對比歷史日期』**，即可開始進行名次變動分析。")
+            elif not selected_date:
+                st.info("💡 **請先選擇第一步『主要基準日期』**。")
             else:
                 st.warning("⚠️ 您選擇的『基準日期』為系統內最早的一天，無更早的歷史日期可供對比。")
         else:
             st.info("目前系統內只有單日數據，尚無法進行日榜跨期對比。")
-
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
