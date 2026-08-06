@@ -374,11 +374,11 @@ with main_tabs[1]:
                             song, singer = idx
                             curr_rank = int(row[base_date])
                             
-                            # 檢查歷史對比日 (past_date) 的排名
                             past_rank_val = row.get(past_date, float('nan'))
                             
-                            # 計算區間內的「上升次數」
                             rise_count = 0
+                            max_single_rise = 0  # 🆕 用來記錄單次最大爬升名次
+                            
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
                                 d_curr = range_dates[i]
@@ -386,15 +386,21 @@ with main_tabs[1]:
                                 r_curr = row.get(d_curr, float('nan'))
                                 
                                 if pd.notna(r_prev) and pd.notna(r_curr):
-                                    if r_curr < r_prev: # 排名數字變小代表名次上升
+                                    if r_curr < r_prev: # 排名數字變小代表上升
                                         rise_count += 1
+                                        jump = r_prev - r_curr
+                                        if jump > max_single_rise:
+                                            max_single_rise = jump
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
+                                    # 新進榜當作從 100 名外衝進來計算初次爆發幅度
+                                    jump = max(0, 100 - curr_rank)
+                                    if jump > max_single_rise:
+                                        max_single_rise = jump
 
                             if pd.isna(past_rank_val):
                                 # 🆕 全新進榜
-                                calc_val = max(0, 100 - curr_rank)
-                                display_text = f"🆕 新進榜並上升 {calc_val} 名"
+                                display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
                                 sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
                                 past_display = "🆕 全新進榜"
                             else:
@@ -402,11 +408,11 @@ with main_tabs[1]:
                                 past_rank = int(past_rank_val)
                                 net_change = past_rank - curr_rank
                                 if net_change > 0:
-                                    display_text = f"⬆️ 淨進步 {net_change} 名"
+                                    display_text = f"🚀 單次最高爬升 {max_single_rise} 名"
                                     sort_score = 10000 + (rise_count * 100) + net_change
                                     past_display = str(past_rank)
                                 else:
-                                    continue # 沒進步不列入黑馬
+                                    continue 
 
                             processed_rows.append({
                                 song_col: song,
@@ -414,7 +420,7 @@ with main_tabs[1]:
                                 '對比歷史排名': past_display,
                                 '基準日排名': str(curr_rank),
                                 '區間上升次數': f"📈 {rise_count} 次",
-                                '淨爬升表現': display_text,
+                                '單次最高爬升': display_text,  # 🆕 欄位名稱更新
                                 'sort_score': sort_score,
                                 'raw_song': song,
                                 'raw_singer': singer
@@ -423,16 +429,14 @@ with main_tabs[1]:
                         df_result = pd.DataFrame(processed_rows)
 
                         if not df_result.empty:
-                            # 排序並取前 10 名
                             df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
-
-                            # 🆕 建立最左側的「黑馬綜合排名」(1 到 10)
+                            
+                            # 🆕 加入「黑馬綜合排名」最左直欄
                             df_result['黑馬綜合排名'] = range(1, len(df_result) + 1)
-
-                            # 調整欄位順序，將「黑馬綜合排名」放到最前面
-                            display_df = df_result[['黑馬綜合排名', song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']].copy()
-                            display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '淨爬升表現']
-
+                            
+                            display_df = df_result[['黑馬綜合排名', song_col, singer_col, '對比歷史排名', '基準日排名', '區間上升次數', '單次最高爬升']].copy()
+                            display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '對比歷史排名', '基準日排名', '區間上升次數', '單次最高爬升']
+                            
                             st.success(f"🎯 在【{m2_chart_option}】中，透過多日連續軌跡成功鎖定以下 Top 10 潛力黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
