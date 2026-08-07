@@ -293,28 +293,36 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（介面精簡版）
+# 🚀 模組二：新進黑馬雷達（自動區分 7 天/7 期）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
-    st.markdown("在近 7 天的追蹤週期內，於第 2 至 5 天自榜外新進榜，且具備嚴格 V 型反彈韌性，同時在最後一天保持嚴格上升動態的強勢爆發型歌曲！")
+    st.markdown("連線區間內每日/期數據：強制要求「下跌後必須立刻強勢反彈（且反彈名次超越起點）」，並確保最後階段持續上升！")
 
-    # 1. UI 陳列 (僅保留榜單與基準日期，移除週期選單)
+    # 1. UI 陳列
     m2_chart_option = st.radio("選擇要分析的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_chart_radio")
     base_date = st.selectbox("📅 選擇基準日期 (預設為最新數據)", options=dates, index=0, key="m2_base_date")
     
-    # 🔒 後端預設固定為 7 天短期爆發
-    delta_days = 7
-
     if base_date:
         base_dt = datetime.datetime.strptime(base_date, "%Y-%m-%d")
-        target_past_dt = base_dt - datetime.timedelta(days=delta_days)
         
-        available_past_dates = [d for d in dates if datetime.datetime.strptime(d, "%Y-%m-%d") <= target_past_dt]
-        past_date = max(available_past_dates) if available_past_dates else sorted(dates)[0]
-        st.caption(f"📊 七日連續追蹤：`{past_date}` ➡️ `{base_date}`")
+        # 邏輯區分：新歌榜抓 7 天，其餘三榜抓 7 期 (7 個週四)
+        if m2_chart_option == "新歌榜":
+            target_past_dt = base_dt - datetime.timedelta(days=7)
+            range_dates = sorted([d for d in dates if target_past_dt <= datetime.datetime.strptime(d, "%Y-%m-%d") <= base_dt])
+            label_text = "📊 七日連續追蹤"
+        else:
+            # 篩選出所有週四的日期 (weekday 3 代表週四)
+            all_thursdays = [d for d in dates if datetime.datetime.strptime(d, "%Y-%m-%d").weekday() == 3]
+            if base_date in all_thursdays:
+                base_idx = all_thursdays.index(base_date)
+                range_dates = all_thursdays[max(0, base_idx - 6) : base_idx + 1]
+            else:
+                # 若當天非週四，則取最近一次週四前的 7 期
+                range_dates = [d for d in all_thursdays if d <= base_date][-7:]
+            label_text = "📊 七期連續追蹤"
 
-        range_dates = sorted([d for d in dates if past_date <= d <= base_date])
+        st.caption(f"{label_text}：`{min(range_dates)}` ➡️ `{max(range_dates)}`")
 
         # 讀取資料
         range_dfs = []
@@ -331,25 +339,26 @@ with main_tabs[1]:
             song_col, singer_col, rank_col = '歌名', '歌手', '排名'
             pivot_df = df_all_range.pivot_table(index=[song_col, singer_col], columns='追蹤日期', values=rank_col, aggfunc='min')
 
+            # 計算 V 型反轉
             if base_date in pivot_df.columns:
                 base_active_songs = pivot_df[pivot_df[base_date].notna()].copy()
                 processed_rows = []
-                min_required_days = 3
+                min_required = 3
 
                 for idx, row in base_active_songs.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
                     
-                    if len(valid_history) < min_required_days: continue
+                    if len(valid_history) < min_required: continue
                     
-                    # 1. 檢查首日不在榜 (第 2~5 天才進榜)
+                    # 1. 檢查首期/首日不在榜 (第 2~5 個點才進榜)
                     first_date_idx = range_dates.index(valid_history.index[0])
                     if not (1 <= first_date_idx <= 4): continue
                     
-                    # 2. 檢查倒數最後兩天必須上升
+                    # 2. 檢查倒數最後兩期/天必須上升
                     if valid_history.iloc[-1] >= valid_history.iloc[-2]: continue
 
-                    # 3. 嚴格 V 型反轉邏輯：只要跌，下一步必漲且必超越前高
+                    # 3. 嚴格 V 型反轉邏輯
                     ranks_seq = valid_history.values
                     is_valid_logic = True
                     for i in range(len(ranks_seq) - 2):
@@ -371,14 +380,9 @@ with main_tabs[1]:
                     
                     sort_score = (100 - curr_rank) * 30 + (rise_count * 40) + max_single_rise
                     processed_rows.append({
-                        song_col: song, 
-                        singer_col: singer, 
-                        '歷史最高排名': str(highest_rank),  # 轉為字串靠左對齊
-                        '區間上升次數': f"📈 {rise_count} 次", 
-                        '單次最高爬升': f"🆕 {max_single_rise} 名", 
-                        'sort_score': sort_score,
-                        'raw_song': song, 
-                        'raw_singer': singer
+                        song_col: song, singer_col: singer, '歷史最高排名': str(highest_rank),
+                        '區間上升次數': f"📈 {rise_count} 次", '單次最高爬升': f"🆕 {max_single_rise} 名", 'sort_score': sort_score,
+                        'raw_song': song, 'raw_singer': singer
                     })
 
                 # 顯示結果
@@ -394,34 +398,19 @@ with main_tabs[1]:
                     chart_data = pivot_df.loc[top_keys, range_dates].T
                     
                     chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
-                    chart_data.index = [f"第 {i+1} 天" for i in range(len(range_dates))]
-                    chart_data = chart_data.reset_index().rename(columns={'index': '追蹤天數'})
+                    chart_data.index = [f"第 {i+1} {'天' if m2_chart_option == '新歌榜' else '期'}" for i in range(len(range_dates))]
+                    chart_data = chart_data.reset_index().rename(columns={'index': '追蹤時間'})
                     
-                    df_melted = chart_data.melt(id_vars='追蹤天數', var_name='歌曲', value_name='名次')
+                    df_melted = chart_data.melt(id_vars='追蹤時間', var_name='歌曲', value_name='名次')
                     
                     c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
-                        x=alt.X(
-                            '追蹤天數:N', 
-                            sort=None, 
-                            title='追蹤天數',
-                            axis=alt.Axis(labelAngle=0)
-                        ),
-                        y=alt.Y(
-                            '名次:Q', 
-                            scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
-                            title='名次',
-                            axis=alt.Axis(titleAngle=0)
-                        ),
+                        x=alt.X('追蹤時間:N', sort=None, title='追蹤時間', axis=alt.Axis(labelAngle=0)),
+                        y=alt.Y('名次:Q', scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), title='名次', axis=alt.Axis(titleAngle=0)),
                         color=alt.Color('歌曲:N', title='黑馬排行'),
-                        tooltip=['追蹤天數', '歌曲', '名次']
-                    ).properties(
-                        width='container',
-                        height=450
-                    ).interactive()
+                        tooltip=['追蹤時間', '歌曲', '名次']
+                    ).properties(width='container', height=450).interactive()
                     
                     st.altair_chart(c, use_container_width=True)
-
-                    # 下載按鈕
                     csv = df_result.to_csv(index=False).encode('utf-8-sig')
                     st.download_button("📥 匯出黑馬清單 (CSV)", csv, f"黑馬清單_{base_date}.csv", "text/csv")
                 else:
