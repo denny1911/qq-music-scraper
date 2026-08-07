@@ -378,10 +378,22 @@ with main_tabs[1]:
                             if valid_history.empty:
                                 continue
                             
-                            # 1. 歷史最高排名（數字最小的最佳名次）
+                            # 1. 歷史最高排名
                             highest_rank = int(valid_history.min())
+                            curr_rank = int(row[base_date])  # 基準日（最後一天）的名次
                             
-                            # 2. 歷史最低排名：若期間內有空值(排行榜外)，直接顯示為 "排行榜外"
+                            # 🚨 關鍵過濾一：基準日名次離歷史最高名次不能掉超過 15 名（過濾衝高後大崩盤的歌曲）
+                            if (curr_rank - highest_rank) > 15:
+                                continue
+                            
+                            # 🚨 關鍵過濾二：最後一天（基準日）不能處於急劇下滑狀態（比前一天跌超過 5 名視為退燒）
+                            if len(range_dates) >= 2:
+                                prev_date = range_dates[-2]
+                                prev_rank = row.get(prev_date, float('nan'))
+                                if pd.notna(prev_rank) and (curr_rank - int(prev_rank)) > 5:
+                                    continue
+                            
+                            # 歷史最低排名顯示
                             if song_history.isna().any():
                                 lowest_rank_display = "排行榜外"
                             else:
@@ -404,26 +416,25 @@ with main_tabs[1]:
                                             max_single_rise = jump
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
-                                    # 🎯 內部以 100 作為基準來計算真實暴衝幅度，但不印出公式
                                     target_x = int(r_curr)
                                     jump = int(100 - target_x)
                                     if jump > max_single_rise:
                                         max_single_rise = jump
 
-                            # 💡 維持原本的排序與選歌邏輯，確保折線圖不變
-                            curr_rank = int(row[base_date])
                             past_rank_val = row.get(past_date, float('nan'))
                             
+                            # 🎯 新的合理計分公式：綜合考慮「目前名次高低」、「離頂峰近不近」與「暴衝力道」
+                            peak_closeness = 15 - (curr_rank - highest_rank)  # 越接近最高名次分數越高
+                            current_rank_score = 100 - curr_rank              # 目前名次越靠前分數越高
+                            
                             if pd.isna(past_rank_val):
-                                past_display = "🆕 全新進榜"
-                                sort_score = 20000 + (rise_count * 100) + (101 - curr_rank)
+                                sort_score = 10000 + (current_rank_score * 10) + (peak_closeness * 5) + max_single_rise
                                 display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
                             else:
                                 past_rank = int(past_rank_val)
                                 net_change = past_rank - curr_rank
                                 if net_change > 0:
-                                    past_display = str(past_rank)
-                                    sort_score = 10000 + (rise_count * 100) + net_change
+                                    sort_score = (current_rank_score * 10) + (peak_closeness * 5) + net_change
                                     display_text = f"🚀 單次最高衝 {max_single_rise} 名"
                                 else:
                                     continue 
