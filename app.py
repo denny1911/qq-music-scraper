@@ -1,8 +1,3 @@
-已將程式碼中原本使用下拉選單（st.selectbox）的單日日期選擇部分，全部改為如圖二之直覺式月曆選擇器（st.date_input）。同時加入了日期邊界限制與防呆對應，確保使用者點選月曆時能自動對應到最接近的有效數據日。
-
-以下為修改後的完整程式碼：
-
-Python
 import streamlit as st
 import pandas as pd
 import os
