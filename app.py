@@ -293,7 +293,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（嚴格 V 型反轉與完整圖表）
+# 🚀 模組二：新進黑馬雷達（7天專注版 + 欄位靠左對齊）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -302,11 +302,14 @@ with main_tabs[1]:
     # 1. UI 陳列
     m2_chart_option = st.radio("選擇要分析的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_chart_radio")
     base_date = st.selectbox("📅 選擇基準日期 (預設為最新數據)", options=dates, index=0, key="m2_base_date")
-    m2_preset = st.radio("🗓️ 選擇黑馬分析週期", ["⚡ 近 7 天短期爆發黑馬", "📈 近 30 天中長期逆襲黑馬"], horizontal=True, key="m2_preset_radio")
+    
+    # 🔒 移除 30 天選項，改為固定 7 天短期爆發
+    st.markdown("🗓️ **選擇黑馬分析週期**")
+    st.info("⚡ **近 7 天短期爆發黑馬**（系統已鎖定 7 天短期追蹤區間）")
+    delta_days = 7
 
     if base_date:
         base_dt = datetime.datetime.strptime(base_date, "%Y-%m-%d")
-        delta_days = 7 if "7 天" in m2_preset else 30
         target_past_dt = base_dt - datetime.timedelta(days=delta_days)
         
         available_past_dates = [d for d in dates if datetime.datetime.strptime(d, "%Y-%m-%d") <= target_past_dt]
@@ -333,7 +336,7 @@ with main_tabs[1]:
             if base_date in pivot_df.columns:
                 base_active_songs = pivot_df[pivot_df[base_date].notna()].copy()
                 processed_rows = []
-                min_required_days = 3 if delta_days == 7 else 7
+                min_required_days = 3
 
                 for idx, row in base_active_songs.iterrows():
                     song, singer = idx
@@ -352,9 +355,7 @@ with main_tabs[1]:
                     ranks_seq = valid_history.values
                     is_valid_logic = True
                     for i in range(len(ranks_seq) - 2):
-                        # 如果出現下跌
                         if ranks_seq[i+1] > ranks_seq[i]:
-                            # 下一步必須是反彈 (i+2 < i+1) 且反彈後名次要比下跌前更好 (i+2 < i)
                             if not (ranks_seq[i+2] < ranks_seq[i+1] and ranks_seq[i+2] < ranks_seq[i]):
                                 is_valid_logic = False; break
                     
@@ -372,9 +373,14 @@ with main_tabs[1]:
                     
                     sort_score = (100 - curr_rank) * 30 + (rise_count * 40) + max_single_rise
                     processed_rows.append({
-                        song_col: song, singer_col: singer, '歷史最高排名': str(highest_rank),
-                        '區間上升次數': f"📈 {rise_count} 次", '單次最高爬升': f"🆕 {max_single_rise} 名", 'sort_score': sort_score,
-                        'raw_song': song, 'raw_singer': singer
+                        song_col: song, 
+                        singer_col: singer, 
+                        '歷史最高排名': str(highest_rank),  # 🔑 轉為字串讓它強制靠左對齊
+                        '區間上升次數': f"📈 {rise_count} 次", 
+                        '單次最高爬升': f"🆕 {max_single_rise} 名", 
+                        'sort_score': sort_score,
+                        'raw_song': song, 
+                        'raw_singer': singer
                     })
 
                 # 顯示結果
@@ -384,15 +390,12 @@ with main_tabs[1]:
                     st.success("🎯 已鎖定符合「嚴格 V 型強勢反轉」的黑馬！")
                     st.dataframe(df_result.drop(columns=['sort_score', 'raw_song', 'raw_singer']), hide_index=True, use_container_width=True)
                     
-                    # 📊 繪圖 (改回「第 X 天」表示法，乾淨且不會旋轉)
+                    # 📊 繪圖
                     st.markdown("### 📈 嚴格 V 型反轉黑馬走勢")
                     top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                     chart_data = pivot_df.loc[top_keys, range_dates].T
                     
-                    # 將欄位名稱改為「排名. 歌名」
                     chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
-                    
-                    # 直接將索引改為「第 1 天」、「第 2 天」...
                     chart_data.index = [f"第 {i+1} 天" for i in range(len(range_dates))]
                     chart_data = chart_data.reset_index().rename(columns={'index': '追蹤天數'})
                     
@@ -409,7 +412,7 @@ with main_tabs[1]:
                             '名次:Q', 
                             scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
                             title='名次',
-                            axis=alt.Axis(titleAngle=0)  # 🔑 關鍵：將 Y 軸標題轉回水平橫向
+                            axis=alt.Axis(titleAngle=0)
                         ),
                         color=alt.Color('歌曲:N', title='黑馬排行'),
                         tooltip=['追蹤天數', '歌曲', '名次']
@@ -419,6 +422,12 @@ with main_tabs[1]:
                     ).interactive()
                     
                     st.altair_chart(c, use_container_width=True)
+
+                    # 下載按鈕
+                    csv = df_result.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button("📥 匯出黑馬清單 (CSV)", csv, f"黑馬清單_{base_date}.csv", "text/csv")
+                else:
+                    st.info("暫無符合嚴格 V 型反轉條件的歌曲。")
                     
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
