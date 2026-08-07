@@ -384,28 +384,18 @@ with main_tabs[1]:
                     st.success("🎯 已鎖定符合「嚴格 V 型強勢反轉」的黑馬！")
                     st.dataframe(df_result.drop(columns=['sort_score', 'raw_song', 'raw_singer']), hide_index=True, use_container_width=True)
                     
-                    # 📊 繪圖 (找回來的圖表)
-                    st.markdown("### 📈 嚴格 V 型反轉黑馬走勢")
-                    top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
-                    chart_data = pivot_df.loc[top_keys, range_dates].T
-                    
-                    # 將欄位名稱改為「歌名 (歌手)」
-                    chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
-                    chart_data = chart_data.reset_index()
-                    
-                    # 💡 將 YYYY-MM-DD 轉為簡潔的 M/D 格式（例如 2026-08-02 變成 8/2）
-                    chart_data['追蹤日期'] = chart_data['追蹤日期'].apply(
-                        lambda x: f"{int(x.split('-')[1])}/{int(x.split('-')[2])}"
-                    )
-                    
-                    df_melted = chart_data.melt(id_vars='追蹤日期', var_name='歌曲', value_name='名次')
-                    
+                    # 📊 修正文字方向：X軸日期水平、Y軸標題水平
                     c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
-                        x=alt.X('追蹤日期:N', sort=None, title='追蹤日期'),
+                        x=alt.X(
+                            '追蹤日期:N', 
+                            sort=None, 
+                            title='追蹤日期',
+                            axis=alt.Axis(labelAngle=0)  # 🔑 關鍵：強制 X 軸日期文字保持水平 (0度)
+                        ),
                         y=alt.Y(
                             '名次:Q', 
                             scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
-                            title='名次 (1 在最上方)'
+                            title=alt.TitleParams('名次 (1 在最上方)', angle=0, align='right')  # 🔑 關鍵：將 Y 軸標題轉為橫向
                         ),
                         color=alt.Color('歌曲:N', title='黑馬排行'),
                         tooltip=['追蹤日期', '歌曲', '名次']
