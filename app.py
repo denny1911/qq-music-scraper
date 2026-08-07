@@ -292,20 +292,23 @@ with main_tabs[0]:
         else:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
+沒問題！我們直接把整個「選擇黑馬分析週期」的選項介面拿掉，讓畫面保持乾淨清爽（系統在背景會自動以 7 天短期區間進行運算）。
+
+請直接用這段完整的程式碼替換掉 模組二：
+
+Python
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（7天專注版 + 欄位靠左對齊）
+# 🚀 模組二：新進黑馬雷達（介面精簡版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
-    st.markdown("連線區間內每日數據：強制要求「下跌後必須立刻強勢反彈（且反彈名次超越起點）」，並確保最後階段持續上升！")
+    st.markdown("連線區間內每日數據：強制要求「下跌後必須立刻強勢反轉（且反彈名次超越起點）」，並確保最後階段持續上升！")
 
-    # 1. UI 陳列
+    # 1. UI 陳列 (僅保留榜單與基準日期，移除週期選單)
     m2_chart_option = st.radio("選擇要分析的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_chart_radio")
     base_date = st.selectbox("📅 選擇基準日期 (預設為最新數據)", options=dates, index=0, key="m2_base_date")
     
-    # 🔒 移除 30 天選項，改為固定 7 天短期爆發
-    st.markdown("🗓️ **選擇黑馬分析週期**")
-    st.info("⚡ **近 7 天短期爆發黑馬**（系統已鎖定 7 天短期追蹤區間）")
+    # 🔒 後端預設固定為 7 天短期爆發
     delta_days = 7
 
     if base_date:
@@ -375,7 +378,7 @@ with main_tabs[1]:
                     processed_rows.append({
                         song_col: song, 
                         singer_col: singer, 
-                        '歷史最高排名': str(highest_rank),  # 🔑 轉為字串讓它強制靠左對齊
+                        '歷史最高排名': str(highest_rank),  # 轉為字串靠左對齊
                         '區間上升次數': f"📈 {rise_count} 次", 
                         '單次最高爬升': f"🆕 {max_single_rise} 名", 
                         'sort_score': sort_score,
