@@ -397,7 +397,7 @@ with main_tabs[1]:
                     top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                     chart_data = pivot_df.loc[top_keys, range_dates].T
                     
-                    chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
+                    chart_data.columns = [s for s, si in top_keys]
                     chart_data.index = [f"第 {i+1} {'天' if m2_chart_option == '新歌榜' else '期'}" for i in range(len(range_dates))]
                     chart_data = chart_data.reset_index().rename(columns={'index': '追蹤時間'})
                     
@@ -406,7 +406,7 @@ with main_tabs[1]:
                     c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
                         x=alt.X('追蹤時間:N', sort=None, title='追蹤時間', axis=alt.Axis(labelAngle=0)),
                         y=alt.Y('名次:Q', scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), title='名次', axis=alt.Axis(titleAngle=0)),
-                        color=alt.Color('歌曲:N', title='黑馬排行'),
+                        color=alt.Color('歌曲:N', title='黑馬清單'),
                         tooltip=['追蹤時間', '歌曲', '名次']
                     ).properties(width='container', height=450)
                     
