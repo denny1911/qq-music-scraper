@@ -293,11 +293,11 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（彈性回升版）
+# 🚀 模組二：新進黑馬雷達（波段反彈修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
-    st.markdown("偵測近期竄升且具備強勁反彈動能的黑馬！邏輯：近期新進榜、尾盤上升、且當前名次優於區間內最差排名。")
+    st.markdown("偵測近期新進榜、尾盤持續上升，且具備「累積跌幅後能強勢反彈超車」的潛力黑馬！")
 
     # 1. UI 陳列
     m2_chart_option = st.radio("選擇要分析的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_chart_radio")
@@ -355,12 +355,45 @@ with main_tabs[1]:
                     # 2. 檢查趨勢：最後兩期必須上升
                     if valid_history.iloc[-1] >= valid_history.iloc[-2]: continue
 
-                    # 3. 彈性回升邏輯：當前排名必須優於歷史最差排名
-                    curr_rank = int(row[base_date])
-                    worst_rank = int(valid_history.max())
-                    if curr_rank >= worst_rank: continue # 代表目前名次還沒脫離低谷
+                    # 3. 波段反彈邏輯：檢查是否有發生過「下跌後被強勢反彈超車」的現象
+                    ranks_seq = valid_history.values
+                    has_valid_rebound = False
+                    
+                    # 尋找波段：記錄一個上升段（排名數字變大為跌，變小為漲）
+                    # 簡單檢查：如果曾經有過排名變差（累積上升），隨後是否有出現大於該累積跌幅的強力反彈
+                    i = 0
+                    while i < len(ranks_seq) - 1:
+                        # 發現開始變差（排名數值增加）
+                        if ranks_seq[i+1] > ranks_seq[i]:
+                            start_drop_val = ranks_seq[i]
+                            peak_idx = i + 1
+                            while peak_idx < len(ranks_seq) and ranks_seq[peak_idx] >= ranks_seq[peak_idx-1]:
+                                peak_idx += 1
+                            peak_idx -= 1
+                            max_bad_val = ranks_seq[peak_idx]
+                            cumulative_drop = max_bad_val - start_drop_val
+                            
+                            # 檢查後面有沒有超越起點的反彈
+                            subsequent_surge = False
+                            for j in range(peak_idx + 1, len(ranks_seq)):
+                                if ranks_seq[j] < start_drop_val: # 反彈超越下跌前的起點！
+                                    subsequent_surge = True
+                                    break
+                            if subsequent_surge:
+                                has_valid_rebound = True
+                                break
+                            i = peak_idx
+                        else:
+                            i += 1
+                    
+                    # 如果連下跌段都沒有（一路直升），或者有下跌但沒有強勢反彈超車，則濾掉
+                    # 註：如果它從頭到尾一路直升（沒有跌過），我們也可以視為優質黑馬直接保留
+                    has_any_drop = any(ranks_seq[k+1] > ranks_seq[k] for k in range(len(ranks_seq)-1))
+                    if has_any_drop and not has_valid_rebound:
+                        continue
 
                     # 計算統計
+                    curr_rank = int(row[base_date])
                     highest_rank = int(valid_history.min())
                     rise_count = 0
                     max_single_rise = 0
@@ -380,7 +413,7 @@ with main_tabs[1]:
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
                     df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
-                    st.success("🎯 已鎖定具備反彈潛力的黑馬！")
+                    st.success("🎯 已鎖定具備波段反彈超車能力的黑馬！")
                     st.dataframe(df_result.drop(columns=['sort_score', 'raw_song', 'raw_singer']), hide_index=True, use_container_width=True)
                     
                     # 📊 繪圖 (無編號、鎖定圖表)
@@ -388,7 +421,6 @@ with main_tabs[1]:
                     top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                     chart_data = pivot_df.loc[top_keys, range_dates].T
                     
-                    # 移除編號，直接使用歌名
                     chart_data.columns = [s for s, si in top_keys]
                     chart_data.index = [f"第 {i+1} {'天' if m2_chart_option == '新歌榜' else '期'}" for i in range(len(range_dates))]
                     chart_data = chart_data.reset_index().rename(columns={'index': '追蹤時間'})
@@ -398,9 +430,9 @@ with main_tabs[1]:
                     c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
                         x=alt.X('追蹤時間:N', sort=None, title='追蹤時間', axis=alt.Axis(labelAngle=0)),
                         y=alt.Y('名次:Q', scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), title='名次', axis=alt.Axis(titleAngle=0)),
-                        color=alt.Color('歌曲:N', title='黑馬清單'), # 標題更名
+                        color=alt.Color('歌曲:N', title='黑馬清單'),
                         tooltip=['追蹤時間', '歌曲', '名次']
-                    ).properties(width='container', height=450) # 移除 .interactive()
+                    ).properties(width='container', height=450)
                     
                     st.altair_chart(c, use_container_width=True)
                     csv = df_result.to_csv(index=False).encode('utf-8-sig')
