@@ -388,20 +388,34 @@ with main_tabs[1]:
                     st.markdown("### 📈 嚴格 V 型反轉黑馬走勢")
                     top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                     chart_data = pivot_df.loc[top_keys, range_dates].T
-                    chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
-                    chart_data = chart_data.reset_index().melt(id_vars='追蹤日期', var_name='歌曲', value_name='名次')
                     
-                    c = alt.Chart(chart_data).mark_line(point=True).encode(
-                        x='追蹤日期:T', y=alt.Y('名次:Q', scale=alt.Scale(reverse=True)),
-                        color='歌曲:N', tooltip=['追蹤日期', '歌曲', '名次']
-                    ).properties(width='container', height=400).interactive()
+                    # 將欄位名稱改為「歌名 (歌手)」
+                    chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
+                    chart_data = chart_data.reset_index()
+                    
+                    # 💡 將 YYYY-MM-DD 轉為簡潔的 M/D 格式（例如 2026-08-02 變成 8/2）
+                    chart_data['追蹤日期'] = chart_data['追蹤日期'].apply(
+                        lambda x: f"{int(x.split('-')[1])}/{int(x.split('-')[2])}"
+                    )
+                    
+                    df_melted = chart_data.melt(id_vars='追蹤日期', var_name='歌曲', value_name='名次')
+                    
+                    c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
+                        x=alt.X('追蹤日期:N', sort=None, title='追蹤日期'),
+                        y=alt.Y(
+                            '名次:Q', 
+                            scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
+                            title='名次 (1 在最上方)'
+                        ),
+                        color=alt.Color('歌曲:N', title='黑馬排行'),
+                        tooltip=['追蹤日期', '歌曲', '名次']
+                    ).properties(
+                        width='container',
+                        height=450
+                    ).interactive()
+                    
                     st.altair_chart(c, use_container_width=True)
-
-                    # 下載按鈕
-                    csv = df_result.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button("📥 匯出黑馬清單 (CSV)", csv, f"黑馬清單_{base_date}.csv", "text/csv")
-                else:
-                    st.info("暫無符合嚴格 V 型反轉條件的歌曲。")
+                    
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
