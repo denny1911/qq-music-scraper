@@ -293,11 +293,11 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（整齊垂直介面排版）
+# 🚀 模組二：新進黑馬雷達（精準突破與尾盤上升邏輯）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
-    st.markdown("連線區間內**每日數據**，鎖定**追蹤首日不在榜上**、於追蹤期間內強勢闖入並展現「跌後突破新高 + 尾盤持續上升」的真實黑馬！")
+    st.markdown("連線區間內**每日數據**：第 2~5 天自榜外新進榜，允許中途震盪但要求「跌後超額反彈（創高）」，且尾盤最後一刻必須呈現上升狀態！")
 
     # 1. 選擇要分析的榜單
     m2_chart_option = st.radio(
@@ -370,69 +370,67 @@ with main_tabs[1]:
                         
                         processed_rows = []
                         min_required_days = 3 if delta_days == 7 else 7
-                        first_day_date = range_dates[0]
 
                         for idx, row in base_active_songs.iterrows():
                             song, singer = idx
                             
-                            # 🚨 門檻一：首日不在榜上
-                            if pd.notna(row.get(first_day_date)):
-                                continue
-
                             song_history = row[range_dates]
                             valid_history = song_history.dropna()
                             
-                            # 🚨 門檻二：最低在榜天數門檻
+                            # 最低在榜天數檢驗
                             if len(valid_history) < min_required_days:
                                 continue
                             
-                            curr_rank = int(row[base_date])
+                            # 🎯 條件一：首日不在榜上，且首次進榜必須在第 2、3、4 或 5 天內 (index 1 到 4)
+                            first_date_in_history = valid_history.index[0]
+                            first_appear_idx = range_dates.index(first_date_in_history)
+                            if not (1 <= first_appear_idx <= min(4, len(range_dates) - 1)):
+                                continue
                             
-                            # 🚨 門檻三：【尾盤強制上升】倒數第二次到最後一次必須是「名次上升」
+                            # 🎯 條件二：倒數第二次與最後一次比必定是上升
                             valid_dates = valid_history.index.tolist()
                             if len(valid_dates) >= 2:
-                                last_date = valid_dates[-1]
-                                second_last_date = valid_dates[-2]
-                                rank_last = row[last_date]
-                                rank_prev = row[second_last_date]
-                                
-                                if rank_last >= rank_prev:
+                                last_rank = valid_history.iloc[-1]
+                                second_last_rank = valid_history.iloc[-2]
+                                if last_rank >= second_last_rank:  # 沒上升直接排除
                                     continue
 
-                            # 🚨 門檻四：【高點突破檢驗】若中間發生過下跌，後續爬升必須突破下跌前的高點
-                            ranks_sequence = valid_history.values
-                            is_valid_breakthrough = True
+                            # 🎯 條件三：每下降一次之後，隨後的上升必須超越下跌前的起點 (上升幅度 > 下降幅度)
+                            ranks_seq = valid_history.values
+                            is_valid_logic = True
                             
-                            prev_peak = ranks_sequence[0]
-                            had_drop = False
-                            
-                            for r in ranks_sequence[1:]:
-                                if r > prev_peak:  # 發生名次下滑
-                                    had_drop = True
-                                elif r < prev_peak:  # 發生名次上升
-                                    if had_drop:
-                                        if r <= prev_peak:
-                                            prev_peak = r  # 突破成功
-                                            had_drop = False
-                                        else:
-                                            is_valid_breakthrough = False
+                            i = 0
+                            while i < len(ranks_seq) - 1:
+                                if ranks_seq[i+1] > ranks_seq[i]:  # 發生下跌 (數字變大)
+                                    pre_drop_rank = ranks_seq[i]
+                                    found_higher_recovery = False
+                                    
+                                    # 尋找後續是否有上升且超越 pre_drop_rank
+                                    for j in range(i+2, len(ranks_seq)):
+                                        if ranks_seq[j] < pre_drop_rank:  # 成功超越下跌前的起點水位
+                                            found_higher_recovery = True
+                                            i = j - 1
                                             break
-                                    else:
-                                        prev_peak = r  # 持續刷新高點
+                                            
+                                    if not found_higher_recovery:
+                                        is_valid_logic = False
+                                        break
+                                i += 1
 
-                            if not is_valid_breakthrough:
+                            if not is_valid_logic:
                                 continue
 
-                            # 指標計算
+                            # 計算相關統計數據
                             highest_rank = int(valid_history.min())
                             lowest_rank_display = "排行榜外"
+                            curr_rank = int(row[base_date])
                             
                             rise_count = 0
                             max_single_rise = 0
                             
-                            for i in range(1, len(range_dates)):
-                                d_prev = range_dates[i-1]
-                                d_curr = range_dates[i]
+                            for k in range(1, len(range_dates)):
+                                d_prev = range_dates[k-1]
+                                d_curr = range_dates[k]
                                 r_prev = row.get(d_prev, float('nan'))
                                 r_curr = row.get(d_curr, float('nan'))
                                 
@@ -472,12 +470,12 @@ with main_tabs[1]:
                             display_df = df_result[['黑馬綜合排名', song_col, singer_col, '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']].copy()
                             display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']
                             
-                            st.success(f"🎯 在【{m2_chart_option}】中，已鎖定 Top {len(df_result)} 具備突破動能且尾盤持續上升的黑馬！")
+                            st.success(f"🎯 在【{m2_chart_option}】中，已鎖定 Top {len(df_result)} 符合高彈性逆襲條件的新進黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
                             # 📊 走勢圖繪製
-                            st.markdown("### 📈 突破型黑馬每日名次走勢圖")
-                            st.caption("💡 註：展現『跌後突破新高』且『最後一天保持上升』的真實黑馬軌跡。")
+                            st.markdown("### 📈 精準黑馬每日名次走勢圖")
+                            st.caption("💡 註：第 2~5 天新進榜，且具備「跌後超額突破 + 尾盤上升」的標準黑馬動態軌跡。")
                             
                             top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                             chart_subset = pivot_df.loc[top_keys, range_dates].T
@@ -524,12 +522,12 @@ with main_tabs[1]:
                             st.download_button(
                                 label=f"📥 匯出【{m2_chart_option}】黑馬清單 (CSV)",
                                 data=csv_data,
-                                file_name=f"QQ音樂_突破型黑馬_{m2_chart_option}_{base_date}.csv",
+                                file_name=f"QQ音樂_精準黑馬_{m2_chart_option}_{base_date}.csv",
                                 mime="text/csv",
                                 key="m2_download_btn"
                             )
                         else:
-                            st.info(f"在當前區間內，【{m2_chart_option}】暫無符合「跌後突破新高 + 尾盤上升」條件的黑馬歌曲。")
+                            st.info(f"在當前區間內，【{m2_chart_option}】暫無符合該嚴格逆襲條件的新進黑馬歌曲。")
                     else:
                         st.warning(f"在基準日 {base_date} 找不到對應的榜單資料。")
                 else:
