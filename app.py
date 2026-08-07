@@ -384,31 +384,34 @@ with main_tabs[1]:
                     st.success("🎯 已鎖定符合「嚴格 V 型強勢反轉」的黑馬！")
                     st.dataframe(df_result.drop(columns=['sort_score', 'raw_song', 'raw_singer']), hide_index=True, use_container_width=True)
                     
-                    # 📊 繪圖 (修復 X 軸日期顯示格式)
+                    # 📊 繪圖 (改回「第 X 天」表示法，乾淨且不會旋轉)
                     st.markdown("### 📈 嚴格 V 型反轉黑馬走勢")
                     top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                     chart_data = pivot_df.loc[top_keys, range_dates].T
                     
-                    # 將欄位名稱改為「歌名 (歌手)」
+                    # 將欄位名稱改為「排名. 歌名」
                     chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
-                    chart_data = chart_data.reset_index()
                     
-                    # 💡 將 YYYY-MM-DD 轉為簡潔的 M/D 格式（例如 2026-08-02 變成 8/2）
-                    chart_data['追蹤日期'] = chart_data['追蹤日期'].apply(
-                        lambda x: f"{int(x.split('-')[1])}/{int(x.split('-')[2])}"
-                    )
+                    # 直接將索引改為「第 1 天」、「第 2 天」...
+                    chart_data.index = [f"第 {i+1} 天" for i in range(len(range_dates))]
+                    chart_data = chart_data.reset_index().rename(columns={'index': '追蹤天數'})
                     
-                    df_melted = chart_data.melt(id_vars='追蹤日期', var_name='歌曲', value_name='名次')
+                    df_melted = chart_data.melt(id_vars='追蹤天數', var_name='歌曲', value_name='名次')
                     
                     c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
-                        x=alt.X('追蹤日期:N', sort=None, title='追蹤日期'),
+                        x=alt.X(
+                            '追蹤天數:N', 
+                            sort=None, 
+                            title='追蹤天數',
+                            axis=alt.Axis(labelAngle=0)  # 保持水平
+                        ),
                         y=alt.Y(
                             '名次:Q', 
                             scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
                             title='名次 (1 在最上方)'
                         ),
                         color=alt.Color('歌曲:N', title='黑馬排行'),
-                        tooltip=['追蹤日期', '歌曲', '名次']
+                        tooltip=['追蹤天數', '歌曲', '名次']
                     ).properties(
                         width='container',
                         height=450
