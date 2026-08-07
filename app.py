@@ -293,25 +293,27 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：黑馬雷達與動態追蹤（含每日走勢折線圖）
+# 🚀 模組二：黑馬雷達與動態追蹤（條件二：高韌性黑馬）
 # ==========================================
 with main_tabs[1]:
-    st.header("🚀 模組二：黑馬雷達與動態追蹤")
-    st.markdown("連線期間內**每日數據**，完整計算**「區間內上升次數」**與**「新進榜優先排序」**，並透過互動折線圖透視完整成長軌跡！")
+    st.header("🚀 模組二：高韌性黑馬雷達與動態追蹤")
+    st.markdown("連線區間內**每日數據**，全面套用**高韌性篩選機制**（嚴格過濾暴跌與退燒歌曲），鎖定真正具備抗壓性與持續上升動能的潛力黑馬！")
 
-    m2_chart_option = st.radio(
-        "選擇要分析的榜單",
-        ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
-        horizontal=True,
-        key="m2_chart_radio"
-    )
-
-    m2_preset = st.radio(
-        "🗓️ 選擇黑馬分析週期",
-        ["⚡ 近 7 天短期爆發黑馬", "📈 近 30 天中長期逆襲黑馬"],
-        horizontal=True,
-        key="m2_preset_radio"
-    )
+    col_m2_1, col_m2_2 = st.columns(2)
+    with col_m2_1:
+        m2_chart_option = st.radio(
+            "選擇要分析的榜單",
+            ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
+            horizontal=True,
+            key="m2_chart_radio"
+        )
+    with col_m2_2:
+        m2_preset = st.radio(
+            "🗓️ 選擇黑馬分析週期",
+            ["⚡ 近 7 天短期爆發黑馬", "📈 近 30 天中長期逆襲黑馬"],
+            horizontal=True,
+            key="m2_preset_radio"
+        )
 
     base_date = st.selectbox(
         "📅 選擇基準日期 (預設為最新數據)", 
@@ -378,21 +380,20 @@ with main_tabs[1]:
                             if valid_history.empty:
                                 continue
                             
-                            # 1. 歷史最高排名
                             highest_rank = int(valid_history.min())
-                            curr_rank = int(row[base_date])  # 基準日（最後一天）的名次
+                            curr_rank = int(row[base_date])
                             
-                            # 🚨 關鍵過濾一：基準日名次離歷史最高名次不能掉超過 15 名（過濾衝高後大崩盤的歌曲）
-                            if (curr_rank - highest_rank) > 15:
+                            # 🛑 門檻一：最後一天（基準日）名次離歷史最高不能超過 10 名（過濾掉頂峰回落歌）
+                            if (curr_rank - highest_rank) > 10:
                                 continue
                             
-                            # 🚨 關鍵過濾二：最後一天（基準日）不能處於急劇下滑狀態（比前一天跌超過 5 名視為退燒）
+                            # 🛑 門檻二：最後一天不能處於下跌狀態（與前一天比跌幅不能 > 5 名）
                             if len(range_dates) >= 2:
                                 prev_date = range_dates[-2]
                                 prev_rank = row.get(prev_date, float('nan'))
                                 if pd.notna(prev_rank) and (curr_rank - int(prev_rank)) > 5:
                                     continue
-                            
+
                             # 歷史最低排名顯示
                             if song_history.isna().any():
                                 lowest_rank_display = "排行榜外"
@@ -401,6 +402,7 @@ with main_tabs[1]:
                             
                             rise_count = 0
                             max_single_rise = 0
+                            is_resilient = True  # 🛡️ 條件二抗壓檢驗
                             
                             for i in range(1, len(range_dates)):
                                 d_prev = range_dates[i-1]
@@ -408,36 +410,53 @@ with main_tabs[1]:
                                 r_prev = row.get(d_prev, float('nan'))
                                 r_curr = row.get(d_curr, float('nan'))
                                 
+                                # 兩天都在榜上
                                 if pd.notna(r_prev) and pd.notna(r_curr):
-                                    if r_curr < r_prev:
+                                    if r_curr < r_prev:  # 名次上升
                                         rise_count += 1
                                         jump = int(r_prev - r_curr)
                                         if jump > max_single_rise:
                                             max_single_rise = jump
+                                    elif r_curr > r_prev:  # 名次下跌
+                                        drop = int(r_curr - r_prev)
+                                        # 🛡️ 條件二檢驗 A：單日下跌絕對不能超過 10 名
+                                        if drop > 10:
+                                            is_resilient = False
+                                            break
+                                        
+                                        # 🛡️ 條件二檢驗 B：下跌後的下一天必須展現強勁反彈
+                                        if i + 1 < len(range_dates):
+                                            d_next = range_dates[i+1]
+                                            r_next = row.get(d_next, float('nan'))
+                                            if pd.notna(r_next):
+                                                bounce = int(r_curr - r_next)
+                                                required_bounce = 5 if r_curr <= 20 else 10
+                                                if bounce < required_bounce:
+                                                    is_resilient = False
+                                                    break
+
+                                # 榜外衝進榜內
                                 elif pd.notna(r_curr) and pd.isna(r_prev):
                                     rise_count += 1
-                                    target_x = int(r_curr)
-                                    jump = int(100 - target_x)
+                                    jump = int(100 - r_curr)
                                     if jump > max_single_rise:
                                         max_single_rise = jump
 
+                            # 如果未通過高韌性過濾條件，排除此歌
+                            if not is_resilient:
+                                continue
+
+                            # 淨上升計算與排序分數
                             past_rank_val = row.get(past_date, float('nan'))
+                            net_change = (100 - curr_rank) if pd.isna(past_rank_val) else (int(past_rank_val) - curr_rank)
                             
-                            # 🎯 新的合理計分公式：綜合考慮「目前名次高低」、「離頂峰近不近」與「暴衝力道」
-                            peak_closeness = 15 - (curr_rank - highest_rank)  # 越接近最高名次分數越高
-                            current_rank_score = 100 - curr_rank              # 目前名次越靠前分數越高
-                            
-                            if pd.isna(past_rank_val):
-                                sort_score = 10000 + (current_rank_score * 10) + (peak_closeness * 5) + max_single_rise
-                                display_text = f"🆕 新進榜 (單次最高衝 {max_single_rise} 名)"
-                            else:
-                                past_rank = int(past_rank_val)
-                                net_change = past_rank - curr_rank
-                                if net_change > 0:
-                                    sort_score = (current_rank_score * 10) + (peak_closeness * 5) + net_change
-                                    display_text = f"🚀 單次最高衝 {max_single_rise} 名"
-                                else:
-                                    continue 
+                            # 只有真正上升的歌曲才納入
+                            if net_change <= 0:
+                                continue
+
+                            # 綜合計分：強調「目前高名次」+「持續上升次數」+「單次暴衝力」
+                            sort_score = (100 - curr_rank) * 20 + rise_count * 50 + max_single_rise
+                            display_text = f"🆕 新進榜 (最高衝 {max_single_rise} 名)" if pd.isna(past_rank_val) else f"🚀 最高衝 {max_single_rise} 名"
 
                             processed_rows.append({
                                 song_col: song,
@@ -455,22 +474,20 @@ with main_tabs[1]:
 
                         if not df_result.empty:
                             df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
-                            
                             df_result['黑馬綜合排名'] = range(1, len(df_result) + 1)
                             
                             display_df = df_result[['黑馬綜合排名', song_col, singer_col, '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']].copy()
                             display_df.columns = ['黑馬綜合排名', '歌名', '歌手', '歷史最低排名', '歷史最高排名', '區間上升次數', '單次最高爬升']
                             
-                            st.success(f"🎯 在【{m2_chart_option}】中，已成功鎖定 Top 10 潛力黑馬！")
+                            st.success(f"🎯 在【{m2_chart_option}】中，已成功鎖定 Top {len(df_result)} 高韌性黑馬！")
                             st.dataframe(format_df_for_display(display_df), hide_index=True, use_container_width=True)
                             
-                            # 📊 Top 10 黑馬每日名次走勢圖
-                            st.markdown("### 📈 Top 10 黑馬每日名次走勢圖")
-                            st.caption("💡 註：X 軸為追蹤序列天數，Y 軸已固定範圍（1 在最上方，100 在最下方）。")
+                            # 📊 Top 10 高韌性黑馬每日名次走勢圖
+                            st.markdown("### 📈 高韌性黑馬每日名次走勢圖")
+                            st.caption("💡 註：X 軸為追蹤天數序列，Y 軸精準固定於 1 至 100 名（1 在最上方）。")
                             
                             top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
                             chart_subset = pivot_df.loc[top_keys, range_dates].T
-                            
                             chart_subset.index = [f"第 {i+1} 天" for i in range(len(chart_subset))]
                             
                             column_names = []
@@ -484,16 +501,17 @@ with main_tabs[1]:
                                 value_name='名次'
                             ).rename(columns={'index': '追蹤天數'})
                             
-                            c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2).encode(
+                            # 修正 Altair Y軸 domain 設定，加上 clamp=True 避免刻度超出 1~100 範圍
+                            c = alt.Chart(df_melted).mark_line(point=True, strokeWidth=2.5).encode(
                                 x=alt.X('追蹤天數:N', sort=None, title='追蹤天數'),
                                 y=alt.Y(
                                     '名次:Q', 
-                                    scale=alt.Scale(domain=[1, 100], reverse=True, nice=False), 
+                                    scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
                                     title='名次 (1 在最上方)'
                                 ),
                                 color=alt.Color(
                                     '黑馬綜合排名:N', 
-                                    title='Top 10 黑馬排行',
+                                    title='黑馬排行',
                                     sort=column_names
                                 ),
                                 tooltip=['黑馬綜合排名', '追蹤天數', '名次']
@@ -504,7 +522,7 @@ with main_tabs[1]:
                             
                             st.altair_chart(c, use_container_width=True)
                             
-                            # 準備匯出資料
+                            # 匯出按鈕
                             base_chart = df_all_range[df_all_range['追蹤日期'] == base_date]
                             keys_to_export = df_result[['raw_song', 'raw_singer']].rename(columns={'raw_song': song_col, 'raw_singer': singer_col})
                             display_top_raw = pd.merge(keys_to_export, base_chart, on=[song_col, singer_col], how='inner')
@@ -512,21 +530,20 @@ with main_tabs[1]:
                             export_df = get_clean_export_df(base_chart, display_top_raw)
                             csv_data = export_df.to_csv(index=False).encode('utf-8-sig')
                             st.download_button(
-                                label=f"📥 匯出【{m2_chart_option}】Top 10 黑馬清單 (CSV)",
+                                label=f"📥 匯出【{m2_chart_option}】高韌性黑馬清單 (CSV)",
                                 data=csv_data,
-                                file_name=f"QQ音樂_黑馬雷達_{m2_chart_option}_{base_date}.csv",
+                                file_name=f"QQ音樂_高韌性黑馬_{m2_chart_option}_{base_date}.csv",
                                 mime="text/csv",
                                 key="m2_download_btn"
                             )
                         else:
-                            st.info(f"在所選區間內，【{m2_chart_option}】暫無名次正成長的黑馬歌曲。")
+                            st.info(f"在當前區間內，【{m2_chart_option}】無符合高韌性條件（無大跌且強勁爬升）的黑馬歌曲。")
                     else:
                         st.warning(f"在基準日 {base_date} 找不到對應的榜單資料。")
                 else:
                     st.warning("資料欄位解析異常。")
             else:
                 st.warning("區間內找不到可用的榜單檔案。")
-
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
