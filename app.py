@@ -163,7 +163,7 @@ with main_tabs[0]:
     
     if m1_preset == "⚡ 單日即時":
         selected_date_obj = st.date_input(
-            "📅 選擇基準日期", 
+            "📅 選擇基準日期 (預設為最新數據)", 
             value=latest_date_obj,
             min_value=earliest_date_obj,
             max_value=latest_date_obj,
@@ -557,7 +557,7 @@ with main_tabs[3]:
     st.header("📊 原始各榜單數據瀏覽")
     
     selected_date_obj = st.date_input(
-        "📅 選擇基準日期", 
+        "📅 選擇基準日期 (預設為最新數據)", 
         value=latest_date_obj,
         min_value=earliest_date_obj,
         max_value=latest_date_obj,
