@@ -293,27 +293,29 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（嚴格 V 型反轉邏輯）
+# 🚀 模組二：新進黑馬雷達（嚴格 V 型反轉與完整圖表）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
-    st.markdown("連線區間內每日數據：強制要求「下跌後必須立刻強勢反彈（且反彈名次超越起點）」，嚴禁任何下跌後的連續下跌！")
+    st.markdown("連線區間內每日數據：強制要求「下跌後必須立刻強勢反彈（且反彈名次超越起點）」，並確保最後階段持續上升！")
 
+    # 1. UI 陳列
     m2_chart_option = st.radio("選擇要分析的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_chart_radio")
-    base_date = st.selectbox("📅 選擇基準日期", options=dates, index=0, key="m2_base_date")
+    base_date = st.selectbox("📅 選擇基準日期 (預設為最新數據)", options=dates, index=0, key="m2_base_date")
     m2_preset = st.radio("🗓️ 選擇黑馬分析週期", ["⚡ 近 7 天短期爆發黑馬", "📈 近 30 天中長期逆襲黑馬"], horizontal=True, key="m2_preset_radio")
 
     if base_date:
         base_dt = datetime.datetime.strptime(base_date, "%Y-%m-%d")
         delta_days = 7 if "7 天" in m2_preset else 30
         target_past_dt = base_dt - datetime.timedelta(days=delta_days)
+        
         available_past_dates = [d for d in dates if datetime.datetime.strptime(d, "%Y-%m-%d") <= target_past_dt]
         past_date = max(available_past_dates) if available_past_dates else sorted(dates)[0]
         st.caption(f"📊 多日連續追蹤：`{past_date}` ➡️ `{base_date}`")
 
         range_dates = sorted([d for d in dates if past_date <= d <= base_date])
-        
-        # [省略讀取資料部分，保持不變]
+
+        # 讀取資料
         range_dfs = []
         for d in range_dates:
             d_full = load_date_data(d)
@@ -325,7 +327,7 @@ with main_tabs[1]:
 
         if range_dfs:
             df_all_range = pd.concat(range_dfs, ignore_index=True)
-            song_col, singer_col, rank_col = '歌名', '歌手', '排名' # 假設欄位統一
+            song_col, singer_col, rank_col = '歌名', '歌手', '排名'
             pivot_df = df_all_range.pivot_table(index=[song_col, singer_col], columns='追蹤日期', values=rank_col, aggfunc='min')
 
             if base_date in pivot_df.columns:
@@ -339,38 +341,28 @@ with main_tabs[1]:
                     
                     if len(valid_history) < min_required_days: continue
                     
-                    # 1. 檢查首日進榜條件
+                    # 1. 檢查首日不在榜 (第 2~5 天才進榜)
                     first_date_idx = range_dates.index(valid_history.index[0])
                     if not (1 <= first_date_idx <= 4): continue
                     
-                    # 2. 檢查尾盤必須上升
+                    # 2. 檢查倒數最後兩天必須上升
                     if valid_history.iloc[-1] >= valid_history.iloc[-2]: continue
 
-                    # 3. 嚴格 V 型反轉邏輯：跌 -> 必升 -> 必超越前高
+                    # 3. 嚴格 V 型反轉邏輯：只要跌，下一步必漲且必超越前高
                     ranks_seq = valid_history.values
                     is_valid_logic = True
-                    
-                    for i in range(len(ranks_seq) - 1):
-                        # 如果出現下跌 (rank 變大)
+                    for i in range(len(ranks_seq) - 2):
+                        # 如果出現下跌
                         if ranks_seq[i+1] > ranks_seq[i]:
-                            # 檢查是否存在「下一天」
-                            if i + 2 >= len(ranks_seq):
-                                is_valid_logic = False; break
-                            
-                            after_next_rank = ranks_seq[i+2]
-                            
-                            # 條件 A: 下一次必須是上升 (next < current_drop)
-                            if after_next_rank >= ranks_seq[i+1]:
-                                is_valid_logic = False; break
-                            
-                            # 條件 B: 反彈後名次必須超越下跌前的水位 (after_next < pre_drop)
-                            if after_next_rank >= ranks_seq[i]:
+                            # 下一步必須是反彈 (i+2 < i+1) 且反彈後名次要比下跌前更好 (i+2 < i)
+                            if not (ranks_seq[i+2] < ranks_seq[i+1] and ranks_seq[i+2] < ranks_seq[i]):
                                 is_valid_logic = False; break
                     
                     if not is_valid_logic: continue
 
-                    # 計算分數 (邏輯不變)
+                    # 計算統計與計分
                     curr_rank = int(row[base_date])
+                    highest_rank = int(valid_history.min())
                     rise_count = 0
                     max_single_rise = 0
                     for k in range(1, len(valid_history)):
@@ -380,18 +372,34 @@ with main_tabs[1]:
                     
                     sort_score = (100 - curr_rank) * 30 + (rise_count * 40) + max_single_rise
                     processed_rows.append({
-                        song_col: song, singer_col: singer, '歷史最高排名': int(valid_history.min()),
+                        song_col: song, singer_col: singer, '歷史最高排名': highest_rank,
                         '區間上升次數': f"📈 {rise_count} 次", '單次最高爬升': f"🆕 {max_single_rise} 名", 'sort_score': sort_score,
                         'raw_song': song, 'raw_singer': singer
                     })
 
-                # 顯示結果 (邏輯不變)
+                # 顯示結果
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
                     df_result = df_result.sort_values(by='sort_score', ascending=False).head(10).reset_index(drop=True)
                     st.success("🎯 已鎖定符合「嚴格 V 型強勢反轉」的黑馬！")
-                    st.dataframe(df_result, hide_index=True, use_container_width=True)
-                    # [走勢圖與下載按鈕省略，保持原樣]
+                    st.dataframe(df_result.drop(columns=['sort_score', 'raw_song', 'raw_singer']), hide_index=True, use_container_width=True)
+                    
+                    # 📊 繪圖 (找回來的圖表)
+                    st.markdown("### 📈 嚴格 V 型反轉黑馬走勢")
+                    top_keys = list(zip(df_result['raw_song'], df_result['raw_singer']))
+                    chart_data = pivot_df.loc[top_keys, range_dates].T
+                    chart_data.columns = [f"{i+1}. {s}" for i, (s, si) in enumerate(top_keys)]
+                    chart_data = chart_data.reset_index().melt(id_vars='追蹤日期', var_name='歌曲', value_name='名次')
+                    
+                    c = alt.Chart(chart_data).mark_line(point=True).encode(
+                        x='追蹤日期:T', y=alt.Y('名次:Q', scale=alt.Scale(reverse=True)),
+                        color='歌曲:N', tooltip=['追蹤日期', '歌曲', '名次']
+                    ).properties(width='container', height=400).interactive()
+                    st.altair_chart(c, use_container_width=True)
+
+                    # 下載按鈕
+                    csv = df_result.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button("📥 匯出黑馬清單 (CSV)", csv, f"黑馬清單_{base_date}.csv", "text/csv")
                 else:
                     st.info("暫無符合嚴格 V 型反轉條件的歌曲。")
 # ==========================================
