@@ -372,7 +372,7 @@ with main_tabs[1]:
                     
                     sort_score = (100 - curr_rank) * 30 + (rise_count * 40) + max_single_rise
                     processed_rows.append({
-                        song_col: song, singer_col: singer, '歷史最高排名': highest_rank,
+                        song_col: song, singer_col: singer, '歷史最高排名': str(highest_rank),
                         '區間上升次數': f"📈 {rise_count} 次", '單次最高爬升': f"🆕 {max_single_rise} 名", 'sort_score': sort_score,
                         'raw_song': song, 'raw_singer': singer
                     })
