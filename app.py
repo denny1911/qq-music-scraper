@@ -403,12 +403,13 @@ with main_tabs[1]:
                             '追蹤天數:N', 
                             sort=None, 
                             title='追蹤天數',
-                            axis=alt.Axis(labelAngle=0)  # 保持水平
+                            axis=alt.Axis(labelAngle=0)
                         ),
                         y=alt.Y(
                             '名次:Q', 
                             scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), 
-                            title='名次 (1 在最上方)'
+                            title='名次',
+                            axis=alt.Axis(titleAngle=0)  # 🔑 關鍵：將 Y 軸標題轉回水平橫向
                         ),
                         color=alt.Color('歌曲:N', title='黑馬排行'),
                         tooltip=['追蹤天數', '歌曲', '名次']
