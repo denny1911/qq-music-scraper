@@ -408,7 +408,7 @@ with main_tabs[1]:
                         y=alt.Y('名次:Q', scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), title='名次', axis=alt.Axis(titleAngle=0)),
                         color=alt.Color('歌曲:N', title='黑馬排行'),
                         tooltip=['追蹤時間', '歌曲', '名次']
-                    ).properties(width='container', height=450).interactive()
+                    ).properties(width='container', height=450)
                     
                     st.altair_chart(c, use_container_width=True)
                     csv = df_result.to_csv(index=False).encode('utf-8-sig')
