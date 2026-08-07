@@ -312,7 +312,7 @@ with main_tabs[1]:
         
         available_past_dates = [d for d in dates if datetime.datetime.strptime(d, "%Y-%m-%d") <= target_past_dt]
         past_date = max(available_past_dates) if available_past_dates else sorted(dates)[0]
-        st.caption(f"📊 多日連續追蹤：`{past_date}` ➡️ `{base_date}`")
+        st.caption(f"📊 七日連續追蹤：`{past_date}` ➡️ `{base_date}`")
 
         range_dates = sorted([d for d in dates if past_date <= d <= base_date])
 
