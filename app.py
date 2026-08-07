@@ -1,3 +1,8 @@
+已將程式碼中原本使用下拉選單（st.selectbox）的單日日期選擇部分，全部改為如圖二之直覺式月曆選擇器（st.date_input）。同時加入了日期邊界限制與防呆對應，確保使用者點選月曆時能自動對應到最接近的有效數據日。
+
+以下為修改後的完整程式碼：
+
+Python
 import streamlit as st
 import pandas as pd
 import os
@@ -41,6 +46,11 @@ dates = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(da
 if not dates:
     st.info("目前 `data/` 資料夾內尚無日期數據。")
     st.stop()
+
+# 全域共用日期邊界物件
+sorted_dates_asc = sorted(dates)
+earliest_date_obj = datetime.datetime.strptime(sorted_dates_asc[0], "%Y-%m-%d").date()
+latest_date_obj = datetime.datetime.strptime(sorted_dates_asc[-1], "%Y-%m-%d").date()
 
 # 輔助函式：計算週榜期數標籤 (週四為起算點)
 def get_issue_label(date_str):
@@ -156,18 +166,19 @@ with main_tabs[0]:
         key="m1_preset_radio"
     )
     
-    sorted_dates_asc = sorted(dates)
-    earliest_date_obj = datetime.datetime.strptime(sorted_dates_asc[0], "%Y-%m-%d").date()
-    latest_date_obj = datetime.datetime.strptime(sorted_dates_asc[-1], "%Y-%m-%d").date()
-    
     if m1_preset == "⚡ 單日即時":
-        selected_date = st.selectbox(
-            "📅 選擇主要基準日期", 
-            options=dates, 
-            index=None, 
-            placeholder="請選擇主要基準日期...", 
-            key="m1_date"
+        selected_date_obj = st.date_input(
+            "📅 選擇基準日期", 
+            value=latest_date_obj,
+            min_value=earliest_date_obj,
+            max_value=latest_date_obj,
+            key="m1_single_date_picker"
         )
+        selected_date = selected_date_obj.strftime("%Y-%m-%d") if isinstance(selected_date_obj, datetime.date) else None
+        if selected_date and selected_date not in dates:
+            valid_dates = [d for d in dates if d <= selected_date]
+            selected_date = valid_dates[0] if valid_dates else dates[0]
+
         if selected_date:
             df_curr = load_date_data(selected_date)
             if not df_curr.empty:
@@ -208,7 +219,7 @@ with main_tabs[0]:
             else:
                 st.warning(f"{selected_date} 尚無榜單資料。")
         else:
-            st.info("💡 **請先選擇『主要基準日期』**，即可開始進行單日霸榜池分析。")
+            st.info("💡 **請先選擇『基準日期』**，即可開始進行單日霸榜池分析。")
 
     else:
         if m1_preset == "⚡ 近 7 天":
@@ -301,7 +312,18 @@ with main_tabs[1]:
 
     # 1. UI 陳列
     m2_chart_option = st.radio("選擇要分析的榜單", ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"], horizontal=True, key="m2_chart_radio")
-    base_date = st.selectbox("📅 選擇基準日期 (預設為最新數據)", options=dates, index=0, key="m2_base_date")
+    
+    base_date_obj = st.date_input(
+        "📅 選擇基準日期 (預設為最新數據)",
+        value=latest_date_obj,
+        min_value=earliest_date_obj,
+        max_value=latest_date_obj,
+        key="m2_base_date_picker"
+    )
+    base_date = base_date_obj.strftime("%Y-%m-%d") if isinstance(base_date_obj, datetime.date) else dates[0]
+    if base_date not in dates:
+        valid_dates = [d for d in dates if d <= base_date]
+        base_date = valid_dates[0] if valid_dates else dates[0]
     
     if base_date:
         base_dt = datetime.datetime.strptime(base_date, "%Y-%m-%d")
@@ -359,11 +381,8 @@ with main_tabs[1]:
                     ranks_seq = valid_history.values
                     has_valid_rebound = False
                     
-                    # 尋找波段：記錄一個上升段（排名數字變大為跌，變小為漲）
-                    # 簡單檢查：如果曾經有過排名變差（累積上升），隨後是否有出現大於該累積跌幅的強力反彈
                     i = 0
                     while i < len(ranks_seq) - 1:
-                        # 發現開始變差（排名數值增加）
                         if ranks_seq[i+1] > ranks_seq[i]:
                             start_drop_val = ranks_seq[i]
                             peak_idx = i + 1
@@ -373,10 +392,9 @@ with main_tabs[1]:
                             max_bad_val = ranks_seq[peak_idx]
                             cumulative_drop = max_bad_val - start_drop_val
                             
-                            # 檢查後面有沒有超越起點的反彈
                             subsequent_surge = False
                             for j in range(peak_idx + 1, len(ranks_seq)):
-                                if ranks_seq[j] < start_drop_val: # 反彈超越下跌前的起點！
+                                if ranks_seq[j] < start_drop_val: 
                                     subsequent_surge = True
                                     break
                             if subsequent_surge:
@@ -386,8 +404,6 @@ with main_tabs[1]:
                         else:
                             i += 1
                     
-                    # 如果連下跌段都沒有（一路直升），或者有下跌但沒有強勢反彈超車，則濾掉
-                    # 註：如果它從頭到尾一路直升（沒有跌過），我們也可以視為優質黑馬直接保留
                     has_any_drop = any(ranks_seq[k+1] > ranks_seq[k] for k in range(len(ranks_seq)-1))
                     if has_any_drop and not has_valid_rebound:
                         continue
@@ -462,10 +478,6 @@ with main_tabs[2]:
         horizontal=True,
         key="m3_preset_radio"
     )
-    
-    sorted_dates_asc = sorted(dates)
-    earliest_date_obj = datetime.datetime.strptime(sorted_dates_asc[0], "%Y-%m-%d").date()
-    latest_date_obj = datetime.datetime.strptime(sorted_dates_asc[-1], "%Y-%m-%d").date()
     
     if m3_preset == "⚡ 近 7 天":
         start_date_obj = max(earliest_date_obj, latest_date_obj - datetime.timedelta(days=6))
@@ -549,13 +561,17 @@ with main_tabs[2]:
 with main_tabs[3]:
     st.header("📊 原始各榜單數據瀏覽")
     
-    selected_date = st.selectbox(
-        "📅 選擇主要基準日期", 
-        options=dates, 
-        index=None, 
-        placeholder="請選擇主要基準日期...", 
-        key="m4_date"
+    selected_date_obj = st.date_input(
+        "📅 選擇基準日期", 
+        value=latest_date_obj,
+        min_value=earliest_date_obj,
+        max_value=latest_date_obj,
+        key="m4_date_picker"
     )
+    selected_date = selected_date_obj.strftime("%Y-%m-%d") if isinstance(selected_date_obj, datetime.date) else None
+    if selected_date and selected_date not in dates:
+        valid_dates = [d for d in dates if d <= selected_date]
+        selected_date = valid_dates[0] if valid_dates else dates[0]
     
     if selected_date:
         charts = {
@@ -600,4 +616,4 @@ with main_tabs[3]:
                 else:
                     st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
     else:
-        st.info("💡 **請先選擇『主要基準日期』**，即可開始瀏覽原始榜單資料。")
+        st.info("💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。")
