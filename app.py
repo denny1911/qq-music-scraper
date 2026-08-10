@@ -833,35 +833,36 @@ with main_tabs[2]:
 # ==========================================
 st.subheader("🚀 模組四：YouTube 點閱測繪")
 
-# 1. 嘗試取得榜單資料 (支援全域變數或 session_state)
-df_target = None
-if "df_new" in locals() or "df_new" in globals():
-    df_target = df_new
-elif "df_new" in st.session_state:
-    df_target = st.session_state["df_new"]
-
-# 2. 如果還是沒有資料，提示使用者；若有資料則正常顯示介面
-if df_target is None or df_target.empty:
-    st.warning(
-        "⚠️ 尚未偵測到新歌榜資料，請先確認首頁或原始榜單已成功載入資料！"
+# 1. 永遠展示控制介面（滑桿與執行按鈕）
+col1, col2 = st.columns([2, 1])
+with col1:
+    test_limit = st.slider(
+        "選擇要測試的歌曲數量", min_value=1, max_value=50, value=10
     )
-else:
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        test_limit = st.slider(
-            "選擇要測試的歌曲數量", min_value=1, max_value=50, value=10
-        )
-    with col2:
-        start_btn = st.button("🚀 開始執行 yt-dlp 點閱測繪", type="primary")
+with col2:
+    start_btn = st.button("🚀 開始執行 yt-dlp 點閱測繪", type="primary")
 
-    if start_btn:
+# 2. 按下按鈕後才執行運算
+if start_btn:
+    # 取得榜單資料（優先使用 df_new，若無則嘗試從 session_state 或全域取得）
+    df_target = None
+    if "df_new" in locals() or "df_new" in globals():
+        df_target = df_new
+    elif "df_new" in st.session_state:
+        df_target = st.session_state["df_new"]
+
+    if df_target is None or df_target.empty:
+        st.error(
+            "❌ 找不到新歌榜資料 (`df_new`)，請確認榜單資料已載入！"
+        )
+    else:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         results = []
         test_songs = df_target.head(test_limit)
 
-        # ydl 配置：extract_flat = False 確保點閱數欄位不遺失（可抓到 Topic 觀看次數）
+        # extract_flat = False：完整讀取頁面資訊（包含 Topic 頻道真實觀看次數）
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
