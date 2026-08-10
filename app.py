@@ -833,12 +833,31 @@ import pandas as pd
 import streamlit as st
 import yt_dlp
 
+import pandas as pd
+import streamlit as st
+import yt_dlp
+
 # ==========================================
 # 模組四：YouTube 點閱測繪
 # ==========================================
 st.subheader("🚀 模組四：YouTube 點閱測繪")
 
-# 1. 永遠展示控制介面
+# 1. 填入你 GitHub 上自動更新榜單的 RAW CSV 網址
+# (如果模組一至三有寫好的載入函式，例如 load_data()，也可以直接在此呼叫)
+GITHUB_CSV_URL = "https://raw.githubusercontent.com/你的帳號/你的專案/main/8月10日新歌榜.csv"
+
+
+@st.cache_data(ttl=3600)  # 快取 1 小時，避免重複請求 Git
+def fetch_git_chart():
+    try:
+        # 如果你原本載入 Git 資料的程式碼不同，可以直接改寫這行
+        return pd.read_csv(GITHUB_CSV_URL)
+    except Exception:
+        # 備援機制：嘗試拿全域已載入的 df_new
+        return globals().get("df_new", None)
+
+
+# 2. 控制介面
 col1, col2 = st.columns([2, 1])
 with col1:
     test_limit = st.slider(
@@ -847,47 +866,13 @@ with col1:
 with col2:
     start_btn = st.button("🚀 開始執行 yt-dlp 點閱測繪", type="primary")
 
-
-# 2. 建立自動尋找 8/10 新歌榜 CSV 的函式
-def get_song_dataset():
-    # 策略 A: 從 Session State 取得
-    if "df_new" in st.session_state and st.session_state["df_new"] is not None:
-        return st.session_state["df_new"]
-
-    # 策略 B: 嘗試從全域變數取得
-    try:
-        if "df_new" in globals() and df_new is not None:
-            return df_new
-    except NameError:
-        pass
-
-    # 策略 C: 自動搜尋當前目錄下的 CSV 檔案（包含 8/10 新歌榜相關檔名）
-    possible_files = [
-        f for f in os.listdir(".") if f.endswith(".csv") or f.endswith(".xlsx")
-    ]
-    for file in possible_files:
-        try:
-            df = (
-                pd.read_csv(file)
-                if file.endswith(".csv")
-                else pd.read_excel(file)
-            )
-            # 檢查欄位是否符合榜單結構
-            if any(col in df.columns for col in ["歌名", "song", "歌曲名稱"]):
-                return df
-        except Exception:
-            continue
-
-    return None
-
-
 if start_btn:
-    # 取得榜單資料
-    df_target = get_song_dataset()
+    # 直接從 Git 載入最新的 8/10 榜單
+    df_target = fetch_git_chart()
 
     if df_target is None or df_target.empty:
         st.error(
-            "❌ 找不到榜單檔案！請確認專案資料夾內有 8/10 新歌榜 CSV，或在頂端重新上傳資料。"
+            "❌ 無法讀取 GitHub 榜單資料，請確認 GITHUB_CSV_URL 連結是否正確。"
         )
     else:
         progress_bar = st.progress(0)
@@ -896,7 +881,7 @@ if start_btn:
         results = []
         test_songs = df_target.head(test_limit)
 
-        # extract_flat = False：完整讀取頁面資訊（包含 Topic 官方頻道真實觀看次數）
+        # ydl 配置：extract_flat = False 確保能完整讀取 Topic 頻道的真實觀看次數
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
@@ -906,6 +891,7 @@ if start_btn:
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             for idx, row in test_songs.iterrows():
+                # 兼容不同的欄位名稱命名
                 song = str(
                     row.get(
                         "歌名", row.get("song", row.get("歌曲名稱", "Unknown"))
@@ -931,7 +917,6 @@ if start_btn:
                 matched_url = None
 
                 try:
-                    # 抓取搜尋結果前 5 筆
                     search_res = ydl.extract_info(
                         f"ytsearch5:{query}", download=False
                     )
@@ -957,7 +942,7 @@ if start_btn:
                             }
                         )
 
-                    # 依據真實點閱數從高到低排序，選第一名（ Topic 觀看次數可被正常讀取）
+                    # 依據真實點閱數排序（Topic 頻道的 1.3 萬點閱將可被正確還原並排序）
                     if candidates:
                         candidates.sort(key=lambda x: x["views"], reverse=True)
                         best = candidates[0]
