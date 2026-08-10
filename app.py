@@ -829,81 +829,43 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 模組四：YouTube 點閱追蹤測試（測試版）
+# 模組四：YouTube 點閱測繪
 # ==========================================
-with main_tabs[3]:
-    st.header("📺 模組四：YouTube 點閱測繪 (測試版)")
-    st.markdown(
-        "本模組為測試功能：專注於讀取指定日期（預設測試 **2026-08-10**）的**「新歌榜」**，並使用 `yt-dlp` 自動搜尋前 5 筆最熱門與相關影片，進行標題與長度清洗過濾後，自動鎖定最佳 Video ID 並讀取最新點閱率！"
-    )
+st.subheader("🚀 模組四：YouTube 點閱測繪")
 
-    target_test_date = "2026-08-10"
-    if target_test_date in dates:
-        test_date = target_test_date
-    else:
-        test_date = latest_date_obj.strftime("%Y-%m-%d")
-        st.warning(
-            f"⚠️ 找不到 `{target_test_date}` 的資料，已自動切換為最新可用日期 `{test_date}` 進行測試。"
+# 假設 df_new 為載入的榜單資料
+if "df_new" in locals() or "df_new" in globals():
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        test_limit = st.slider(
+            "選擇要測試的歌曲數量", min_value=1, max_value=50, value=10
         )
+    with col2:
+        start_btn = st.button("🚀 開始執行 yt-dlp 點閱測繪", type="primary")
 
-    st.info(f"📅 當前測試資料集：`{test_date}` 新歌榜")
+    if start_btn:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
 
-    fpath = os.path.join(data_dir, test_date, f"{test_date}_new.csv")
+        results = []
+        test_songs = df_new.head(test_limit)
 
-    if os.path.exists(fpath):
-        df_new = pd.read_csv(fpath)
-        st.write(f"📊 `{test_date}` 新歌榜共有 **{len(df_new)}** 首歌。")
+        # ydl 配置：核心在於 extract_flat = False，確保點閱數欄位不遺失
+        ydl_opts = {
+            "quiet": True,
+            "skip_download": True,
+            "extract_flat": False,  # 完整讀取頁面資訊（包含 Topic 頻道觀看次數）
+            "no_warnings": True,
+        }
 
-        col_opt1, col_opt2 = st.columns([1, 2])
-        with col_opt1:
-            test_limit = st.number_input(
-                "測試抓取前幾首歌曲（預設 10 首以節省測試時間）：",
-                min_value=1,
-                max_value=len(df_new),
-                value=min(10, len(df_new)),
-                key="m4_test_limit",
-            )
-
-        if st.button("🚀 開始執行 yt-dlp 點閱測繪", key="m4_run_btn"):
-            try:
-                import yt_dlp
-            except ImportError:
-                st.error(
-                    "❌ 找不到 `yt-dlp` 套件！請在 Terminal 執行 `pip install yt-dlp` 後重試。"
-                )
-                st.stop()
-
-            # 剔除詞（防止抓到非官方或翻唱版本）
-            filter_keywords = [
-                "cover",
-                "翻唱",
-                "reaction",
-                "純音樂",
-                "鋼琴",
-                "remix",
-                "dance",
-            ]
-
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-
-            results = []
-            test_songs = df_new.head(test_limit)
-
-            ydl_opts = {
-                "quiet": True,
-                "extract_flat": "in_playlist",
-                "skip_download": True,
-                "no_warnings": True,
-            }
-
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             for idx, row in test_songs.iterrows():
                 song = str(row.get("歌名", row.get("song", "Unknown")))
                 singer = str(row.get("歌手", row.get("singer", "Unknown")))
                 rank = row.get("排名", idx + 1)
 
                 status_text.text(
-                    f"🔍 ({idx+1}/{test_limit}) 正在搜尋 YT 點閱: {song} - {singer}..."
+                    f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}..."
                 )
                 progress_bar.progress((idx + 1) / test_limit)
 
@@ -915,67 +877,44 @@ with main_tabs[3]:
                 matched_url = None
 
                 try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        # 用 ytsearch5: 抓取前 5 筆
-                        search_res = ydl.extract_info(
-                            f"ytsearch5:{query}", download=False
+                    # 搜尋前 5 筆結果
+                    search_res = ydl.extract_info(
+                        f"ytsearch5:{query}", download=False
+                    )
+                    entries = (
+                        search_res.get("entries", []) if search_res else []
+                    )
+
+                    candidates = []
+                    for entry in entries:
+                        if not entry:
+                            continue
+
+                        v_id = entry.get("id")
+                        title = entry.get("title", "")
+                        views = entry.get("view_count") or 0
+
+                        candidates.append(
+                            {
+                                "id": v_id,
+                                "title": title,
+                                "views": views,
+                                "url": f"https://www.youtube.com/watch?v={v_id}",
+                            }
                         )
-                        entries = (
-                            search_res.get("entries", []) if search_res else []
-                        )
 
-                        candidates = []
-                        for entry in entries:
-                            if not entry:
-                                continue
-                            v_id = entry.get("id")
-                            title = entry.get("title", "")
-                            views = entry.get("view_count") or 0
-                            duration = entry.get("duration") or 0
-
-                            # 標題與長度檢查
-                            title_lower = title.lower()
-                            is_bad = any(
-                                kw in title_lower for kw in filter_keywords
-                            )
-
-                            if duration > 0 and not (90 <= duration <= 600):
-                                is_bad = True
-
-                            if not is_bad:
-                                candidates.append(
-                                    {
-                                        "id": v_id,
-                                        "title": title,
-                                        "views": views,
-                                        "url": f"https://www.youtube.com/watch?v={v_id}",
-                                    }
-                                )
-
-                        # 篩選後按點閱率從高到低排，選第 1 名
-                        if candidates:
-                            candidates.sort(
-                                key=lambda x: x["views"], reverse=True
-                            )
-                            best = candidates[0]
-                            matched_id = best["id"]
-                            matched_title = best["title"]
-                            matched_views = best["views"]
-                            matched_url = best["url"]
-                        elif entries:
-                            # 降級條款：如果全被過濾光，退而求其次採用搜尋第 1 筆
-                            fallback = entries[0]
-                            matched_id = fallback.get("id")
-                            matched_title = fallback.get("title")
-                            matched_views = fallback.get("view_count") or 0
-                            matched_url = (
-                                f"https://www.youtube.com/watch?v={matched_id}"
-                            )
+                    # 若有搜尋到影片，依「真實觀看次數」從高到低排序，選第一名
+                    if candidates:
+                        candidates.sort(key=lambda x: x["views"], reverse=True)
+                        best = candidates[0]
+                        matched_id = best["id"]
+                        matched_title = best["title"]
+                        matched_views = best["views"]
+                        matched_url = best["url"]
 
                 except Exception as e:
-                    pass
+                    st.warning(f"搜尋 {song} 時發生錯誤: {e}")
 
-                # 將 Video ID 移至原本「匹配狀態」的位置（第 4 欄），並移除「匹配狀態」
                 results.append(
                     {
                         "榜單排名": rank,
@@ -988,30 +927,28 @@ with main_tabs[3]:
                     }
                 )
 
-            status_text.success("🎉 點閱率測繪完成！")
-            progress_bar.empty()
+        status_text.success("✅ 點閱測繪完成！")
+        progress_bar.progress(100)
 
-            res_df = pd.DataFrame(results)
+        # 轉換為 DataFrame 展示
+        df_result = pd.DataFrame(results)
 
-            display_res = res_df.copy()
-            display_res["YT 觀看次數"] = display_res["YT 觀看次數"].apply(
-                lambda x: f"{x:,}" if isinstance(x, (int, float)) else str(x)
-            )
+        # 格式化觀看次數欄位（加上千分位）
+        df_display = df_result.copy()
+        df_display["YT 觀看次數"] = df_display["YT 觀看次數"].apply(
+            lambda x: f"{x:,}" if isinstance(x, (int, float)) else x
+        )
 
-            st.dataframe(
-                display_res, hide_index=True, use_container_width=True
-            )
+        st.dataframe(df_display, use_container_width=True)
 
-            csv_out = res_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                label="📥 匯出 YouTube ID 綁定對照表 (CSV)",
-                data=csv_out,
-                file_name=f"QQ音樂_YT對照表_{test_date}.csv",
-                mime="text/csv",
-                key="m4_export_btn",
-            )
-    else:
-        st.error(f"❌ 找不到 `{test_date}` 的新歌榜 CSV 檔案 (`{fpath}`)。")
+        # 匯出 CSV 按鈕
+        csv_data = df_result.to_csv(index=False, encoding="utf-8-sig")
+        st.download_button(
+            label="📥 匯出 YouTube ID 綁定對照表 (CSV)",
+            data=csv_data,
+            file_name="youtube_mapping_result.csv",
+            mime="text/csv",
+        )
 
 # ==========================================
 # 📊 原始榜單瀏覽
