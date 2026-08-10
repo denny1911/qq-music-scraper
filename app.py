@@ -834,7 +834,9 @@ with main_tabs[2]:
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
-    st.markdown("自動向 Git 數據源讀取最新榜單資料，並進行 YouTube 影片搜尋與點閱數據測繪。")
+    st.markdown(
+        "自動向 Git 數據源讀取最新榜單資料，並進行 YouTube 影片搜尋與點閱數據測繪。"
+    )
 
     m4_col_a, m4_col_b = st.columns(2)
     with m4_col_a:
@@ -909,12 +911,16 @@ with main_tabs[3]:
                     # 兼容不同的欄位名稱命名
                     song = str(
                         row.get(
-                            "歌名", row.get("song", row.get("歌曲名稱", "Unknown"))
+                            "歌名",
+                            row.get("song", row.get("歌曲名稱", "Unknown")),
                         )
                     )
                     singer = str(
                         row.get(
-                            "歌手", row.get("singer", row.get("歌手名稱", "Unknown"))
+                            "歌手",
+                            row.get(
+                                "singer", row.get("歌手名稱", "Unknown")
+                            ),
                         )
                     )
                     rank = row.get("排名", idx + 1)
@@ -924,43 +930,69 @@ with main_tabs[3]:
                     )
                     progress_bar.progress((idx + 1) / test_limit)
 
-                    query = f"{song} {singer}"
-
                     matched_id = None
                     matched_title = None
                     matched_views = 0
                     matched_url = None
 
+                    # 搜尋策略：1. 優先搜尋帶 Topic 的字串  2. 一般關鍵字搜尋
+                    search_queries = [
+                        f"{song} {singer} Topic",
+                        f"{song} {singer}",
+                    ]
+
                     try:
-                        search_res = ydl.extract_info(
-                            f"ytsearch10:{query}", download=False
-                        )
-                        entries = (
-                            search_res.get("entries", []) if search_res else []
-                        )
-
                         candidates = []
-                        for entry in entries:
-                            if not entry:
-                                continue
-
-                            v_id = entry.get("id")
-                            title = entry.get("title", "")
-                            views = entry.get("view_count") or 0
-
-                            candidates.append(
-                                {
-                                    "id": v_id,
-                                    "title": title,
-                                    "views": views,
-                                    "url": f"https://www.youtube.com/watch?v={v_id}",
-                                }
+                        for query in search_queries:
+                            search_res = ydl.extract_info(
+                                f"ytsearch10:{query}", download=False
+                            )
+                            entries = (
+                                search_res.get("entries", [])
+                                if search_res
+                                else []
                             )
 
-                        # 依據真實點閱數排序
+                            for entry in entries:
+                                if not entry:
+                                    continue
+
+                                v_id = entry.get("id")
+                                title = entry.get("title", "").strip()
+                                uploader = (
+                                    entry.get("uploader", "")
+                                    or entry.get("channel", "")
+                                    or ""
+                                ).strip()
+                                views = entry.get("view_count") or 0
+
+                                # 判定是否為 Topic 官方頻道（包含 Release - Topic, 歌手名 - Topic 等）
+                                is_topic = (
+                                    "Topic" in uploader or "主題" in uploader
+                                )
+
+                                candidates.append(
+                                    {
+                                        "id": v_id,
+                                        "title": title,
+                                        "uploader": uploader,
+                                        "views": views,
+                                        "url": f"https://www.youtube.com/watch?v={v_id}",
+                                        "is_topic": is_topic,
+                                    }
+                                )
+
+                            # 如果在帶 Topic 的搜尋中已找到 Topic 音源，即停止第二階段搜尋
+                            if any(c["is_topic"] for c in candidates):
+                                break
+
+                        # 雙重排序邏輯：
+                        # 第一順位：is_topic == True 優先排前
+                        # 第二順位：點閱數 (views) 高到低
                         if candidates:
                             candidates.sort(
-                                key=lambda x: x["views"], reverse=True
+                                key=lambda x: (x["is_topic"], x["views"]),
+                                reverse=True,
                             )
                             best = candidates[0]
                             matched_id = best["id"]
