@@ -899,11 +899,11 @@ with main_tabs[3]:
             results = []
             test_songs = df_target.head(test_limit)
 
-            # 將 extract_flat 改為 True，避免 yt-dlp 點進每支影片頁面而被 YouTube 判定為機器人
+            # extract_flat 設為 "in_playlist"：不訪問影片內頁，但能直接從搜尋列表中拿到正確的 view_count
             ydl_opts = {
                 "quiet": True,
                 "skip_download": True,
-                "extract_flat": True,
+                "extract_flat": "in_playlist",
                 "no_warnings": True,
             }
 
@@ -935,8 +935,8 @@ with main_tabs[3]:
                     matched_views = 0
                     matched_url = None
 
-                    # 搜尋字串加上 Topic
-                    query = f"{song} {singer} Topic"
+                    # 使用最自然且涵蓋廣的關鍵字組合（不強制加上 Topic）
+                    query = f"{song} {singer}"
 
                     try:
                         search_res = ydl.extract_info(
@@ -953,17 +953,7 @@ with main_tabs[3]:
 
                             v_id = entry.get("id")
                             title = entry.get("title", "").strip()
-                            uploader = (
-                                entry.get("uploader", "")
-                                or entry.get("channel", "")
-                                or ""
-                            ).strip()
                             views = entry.get("view_count") or 0
-
-                            # 判斷是否為 Topic 官方頻道
-                            is_topic = (
-                                "Topic" in uploader or "主題" in uploader
-                            )
 
                             candidates.append(
                                 {
@@ -971,17 +961,14 @@ with main_tabs[3]:
                                     "title": title,
                                     "views": views,
                                     "url": f"https://www.youtube.com/watch?v={v_id}",
-                                    "is_topic": is_topic,
                                 }
                             )
 
                         if candidates:
-                            # 優先選擇 Topic 影片，若皆無則取第一筆
-                            candidates.sort(
-                                key=lambda x: (x["is_topic"], x["views"]),
-                                reverse=True,
-                            )
+                            # 直接以真實點閱數高低進行排序，選取最高觀看次數的影片
+                            candidates.sort(key=lambda x: x["views"], reverse=True)
                             best = candidates[0]
+
                             matched_id = best["id"]
                             matched_title = best["title"]
                             matched_views = best["views"]
@@ -1002,7 +989,6 @@ with main_tabs[3]:
                         }
                     )
 
-                    # 每次搜尋後小睡 1 秒，降速避免觸發 API 封鎖
                     time.sleep(1)
 
             status_text.success("✅ 點閱測繪完成！")
