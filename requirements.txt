@@ -2,3 +2,5 @@ requests
 pandas
 openpyxl
 streamlit
+altair
+yt-dlp
