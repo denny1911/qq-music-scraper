@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime, timedelta
+from googleapiclient.discovery import build
 import urllib.parse
 import altair as alt
 import pandas as pd
@@ -832,7 +833,7 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪
+# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -876,12 +877,25 @@ with main_tabs[3]:
         )
     with col2:
         start_btn = st.button(
-            "🚀 開始執行 yt-dlp 點閱測繪",
+            "🚀 開始執行 YouTube API 點閱測繪",
             type="primary",
             key="m4_start_btn",
         )
 
     if start_btn:
+        # 1. 自動相容單組與多組 API Key 格式
+        raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
+        if isinstance(raw_keys, str):
+            api_keys = [raw_keys]
+        elif isinstance(raw_keys, list):
+            api_keys = raw_keys
+        else:
+            api_keys = []
+
+        if not api_keys:
+            st.error("❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets 設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`！")
+            st.stop()
+
         df_curr = load_date_data(m4_date)
 
         if not df_curr.empty and m4_chart_type != "全部榜單":
@@ -894,82 +908,114 @@ with main_tabs[3]:
                 f"❌ 無法讀取 `{m4_date}` 的榜單資料，請確認 GitHub Actions 是否已下載該日期之數據。"
             )
         else:
+            from googleapiclient.discovery import build
+            from googleapiclient.errors import HttpError
+
             progress_bar = st.progress(0)
             status_text = st.empty()
 
             results = []
             test_songs = df_target.head(test_limit)
 
-            # 調整 ydl 參數：新增客戶端偽裝 (player_client)
-            ydl_opts = {
-                "quiet": True,
-                "skip_download": True,
-                "no_warnings": True,
-                "extract_flat": False,
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android", "ios", "mweb"]
-                    }
-                },
-            }
+            current_key_idx = 0
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                for idx, row in test_songs.reset_index(drop=True).iterrows():
-                    song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown"))))
-                    singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
-                    rank = row.get("排名", idx + 1)
+            def build_yt_service(key_idx):
+                if key_idx < len(api_keys):
+                    return build("youtube", "v3", developerKey=api_keys[key_idx])
+                return None
 
-                    status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
-                    progress_bar.progress((idx + 1) / test_limit)
+            youtube_service = build_yt_service(current_key_idx)
 
-                    matched_id = None
-                    matched_title = None
-                    matched_views = 0
-                    matched_url = None
+            for idx, row in test_songs.reset_index(drop=True).iterrows():
+                song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown"))))
+                singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
+                rank = row.get("排名", idx + 1)
 
-                    search_query = f"ytsearch5:{song} {singer}"
+                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
+                progress_bar.progress((idx + 1) / test_limit)
 
+                matched_id = None
+                matched_title = None
+                matched_views = 0
+                matched_url = None
+
+                query_str = f"{song} {singer}"
+                success = False
+
+                # 輪詢 Key 重試機制
+                while current_key_idx < len(api_keys) and not success:
                     try:
-                        search_res = ydl.extract_info(search_query, download=False)
-                        entries = search_res.get("entries", []) if search_res else []
+                        # Step A: 搜尋前 5 筆，直接要求以「觀看數」排序
+                        search_res = youtube_service.search().list(
+                            q=query_str,
+                            part="id",
+                            maxResults=5,
+                            type="video",
+                            order="viewCount"
+                        ).execute()
 
-                        candidates = []
-                        for entry in entries:
-                            if not entry:
-                                continue
+                        v_ids = [
+                            item["id"]["videoId"]
+                            for item in search_res.get("items", [])
+                            if "videoId" in item.get("id", {})
+                        ]
 
-                            v_id = entry.get("id")
-                            title = entry.get("title", "").strip()
-                            views = entry.get("view_count") or 0
+                        if v_ids:
+                            # Step B: 傳入 ID 取得精確點閱數與詳細標題
+                            video_res = youtube_service.videos().list(
+                                part="snippet,statistics",
+                                id=",".join(v_ids)
+                            ).execute()
 
-                            candidates.append({
-                                "id": v_id,
-                                "title": title,
-                                "views": views,
-                                "url": f"https://www.youtube.com/watch?v={v_id}",
-                            })
+                            candidates = []
+                            for item in video_res.get("items", []):
+                                v_id = item["id"]
+                                v_title = item["snippet"]["title"]
+                                v_views = int(item["statistics"].get("viewCount", 0))
 
-                        if candidates:
-                            best = max(candidates, key=lambda x: x["views"])
-                            matched_id = best["id"]
-                            matched_title = best["title"]
-                            matched_views = best["views"]
-                            matched_url = best["url"]
+                                candidates.append({
+                                    "id": v_id,
+                                    "title": v_title,
+                                    "views": v_views,
+                                    "url": f"https://www.youtube.com/watch?v={v_id}"
+                                })
 
+                            if candidates:
+                                best = max(candidates, key=lambda x: x["views"])
+                                matched_id = best["id"]
+                                matched_title = best["title"]
+                                matched_views = best["views"]
+                                matched_url = best["url"]
+
+                        success = True
+
+                    except HttpError as e:
+                        # 觸發 403 額度耗盡時自動換 Key
+                        if e.resp.status == 403 and "quotaExceeded" in str(e):
+                            st.warning(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
+                            current_key_idx += 1
+                            youtube_service = build_yt_service(current_key_idx)
+                            if not youtube_service:
+                                st.error("❌ 所有 API Key 的每日額度皆已耗盡！")
+                                break
+                        else:
+                            st.warning(f"搜尋 {song} 時發生 API 錯誤: {e}")
+                            break
                     except Exception as e:
-                        st.warning(f"搜尋 {song} 時發生錯誤: {e}")
+                        st.warning(f"搜尋 {song} 時發生未知錯誤: {e}")
+                        break
 
-                    results.append({
-                        "榜單排名": rank,
-                        "歌名": song,
-                        "歌手": singer,
-                        "Video ID": matched_id or "-",
-                        "YT 觀看次數": matched_views,
-                        "YT 影片標題": matched_title or "-",
-                        "影片連結": matched_url or "-",
-                    })
+                results.append({
+                    "榜單排名": rank,
+                    "歌名": song,
+                    "歌手": singer,
+                    "Video ID": matched_id or "-",
+                    "YT 觀看次數": matched_views,
+                    "YT 影片標題": matched_title or "-",
+                    "影片連結": matched_url or "-",
+                })
 
-                    time.sleep(1)
+                time.sleep(0.1)
 
             status_text.success("✅ 點閱測繪完成！")
             progress_bar.progress(100)
