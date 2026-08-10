@@ -958,7 +958,7 @@ with main_tabs[3]:
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # Step A: 搜尋前 10 筆，以「觀看數」排序，並鎖定台灣地區
+                        # Step A: 搜尋前 10 筆，以「觀看數」排序，並加入台灣地區鎖定
                         search_res = (
                             youtube_service.search()
                             .list(
@@ -967,7 +967,7 @@ with main_tabs[3]:
                                 maxResults=10,
                                 type="video",
                                 order="viewCount",
-                                regionCode="TW",
+                                regionCode="TW",  # 👈 這裡已成功加入台灣地區鎖定
                             )
                             .execute()
                         )
