@@ -833,7 +833,6 @@ with main_tabs[2]:
 # ==========================================
 st.subheader("🚀 模組四：YouTube 點閱測繪")
 
-# 1. 永遠展示控制介面（滑桿與執行按鈕）
 col1, col2 = st.columns([2, 1])
 with col1:
     test_limit = st.slider(
@@ -842,19 +841,17 @@ with col1:
 with col2:
     start_btn = st.button("🚀 開始執行 yt-dlp 點閱測繪", type="primary")
 
-# 2. 按下按鈕後才執行運算
 if start_btn:
-    # 取得榜單資料（優先使用 df_new，若無則嘗試從 session_state 或全域取得）
+    # 1. 精準讀取 df_new 變數（優先抓取全域變數，若失敗則讀取 session_state）
     df_target = None
-    if "df_new" in locals() or "df_new" in globals():
+    try:
         df_target = df_new
-    elif "df_new" in st.session_state:
-        df_target = st.session_state["df_new"]
+    except NameError:
+        df_target = st.session_state.get("df_new", None)
 
+    # 2. 資料安全檢查
     if df_target is None or df_target.empty:
-        st.error(
-            "❌ 找不到新歌榜資料 (`df_new`)，請確認榜單資料已載入！"
-        )
+        st.error("❌ 系統找不到榜單資料！請確認頂端資料載入區域正常執行。")
     else:
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -862,7 +859,7 @@ if start_btn:
         results = []
         test_songs = df_target.head(test_limit)
 
-        # extract_flat = False：完整讀取頁面資訊（包含 Topic 頻道真實觀看次數）
+        # extract_flat = False 確保能夠讀取到 Topic 官方頻道的真實點閱數
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
