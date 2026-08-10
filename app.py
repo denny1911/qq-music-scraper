@@ -969,19 +969,16 @@ with main_tabs[3]:
                                 .execute()
                             )
 
-                            # ===== [轉譯自 JS: 步驟 C & D] 傳統迴圈比對：找出前 5 名中觀看數最高者 =====
-                            max_views = -1  # 設為 -1 確保第一支影片能順利寫入預設值
+                            max_views = 0
                             for item in video_res.get("items", []):
                                 v_views = int(item["statistics"].get("viewCount", 0))
-
-                                # 與 JS 一模一樣的比對邏輯：遇到更高的點閱就覆蓋變數
+                                # 邏輯與 JS 的 if (views > maxViews) 完全相同
                                 if v_views > max_views:
                                     max_views = v_views
                                     matched_id = item["id"]
                                     matched_title = item["snippet"]["title"]
                                     matched_views = v_views
                                     matched_url = f"https://www.youtube.com/watch?v={item['id']}"
-
                         success = True
 
                     except HttpError as e:
