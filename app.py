@@ -68,7 +68,7 @@ latest_date_obj = datetime.strptime(
 def get_issue_label(date_str):
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     offset = (dt.weekday() - 3) % 7  # 3 代表週四
-    issue_start = dt - datetime.timedelta(days=offset)
+    issue_start = dt - timedelta(days=offset)
     return issue_start.strftime("%Y-%m-%d 期")
 
 
@@ -310,13 +310,13 @@ with main_tabs[0]:
     else:
         if m1_preset == "⚡ 近 7 天":
             start_date_obj = max(
-                earliest_date_obj, latest_date_obj - datetime.timedelta(days=6)
+                earliest_date_obj, latest_date_obj - timedelta(days=6)
             )
             end_date_obj = latest_date_obj
         elif m1_preset == "⚡ 近 30 天":
             start_date_obj = max(
                 earliest_date_obj,
-                latest_date_obj - datetime.timedelta(days=29),
+                latest_date_obj - timedelta(days=29),
             )
             end_date_obj = latest_date_obj
         elif m1_preset == "🌐 全部歷史區間":
@@ -470,7 +470,7 @@ with main_tabs[1]:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
-            target_past_dt = base_dt - datetime.timedelta(days=7)
+            target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
                     d
@@ -716,12 +716,12 @@ with main_tabs[2]:
 
     if m3_preset == "⚡ 近 7 天":
         start_date_obj = max(
-            earliest_date_obj, latest_date_obj - datetime.timedelta(days=6)
+            earliest_date_obj, latest_date_obj - timedelta(days=6)
         )
         end_date_obj = latest_date_obj
     elif m3_preset == "⚡ 近 30 天":
         start_date_obj = max(
-            earliest_date_obj, latest_date_obj - datetime.timedelta(days=29)
+            earliest_date_obj, latest_date_obj - timedelta(days=29)
         )
         end_date_obj = latest_date_obj
     elif m3_preset == "🌐 全部歷史區間":
