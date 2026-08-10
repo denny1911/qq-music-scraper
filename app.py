@@ -833,8 +833,19 @@ with main_tabs[2]:
 # ==========================================
 st.subheader("🚀 模組四：YouTube 點閱測繪")
 
-# 假設 df_new 為載入的榜單資料
+# 1. 嘗試取得榜單資料 (支援全域變數或 session_state)
+df_target = None
 if "df_new" in locals() or "df_new" in globals():
+    df_target = df_new
+elif "df_new" in st.session_state:
+    df_target = st.session_state["df_new"]
+
+# 2. 如果還是沒有資料，提示使用者；若有資料則正常顯示介面
+if df_target is None or df_target.empty:
+    st.warning(
+        "⚠️ 尚未偵測到新歌榜資料，請先確認首頁或原始榜單已成功載入資料！"
+    )
+else:
     col1, col2 = st.columns([2, 1])
     with col1:
         test_limit = st.slider(
@@ -848,13 +859,13 @@ if "df_new" in locals() or "df_new" in globals():
         status_text = st.empty()
 
         results = []
-        test_songs = df_new.head(test_limit)
+        test_songs = df_target.head(test_limit)
 
-        # ydl 配置：核心在於 extract_flat = False，確保點閱數欄位不遺失
+        # ydl 配置：extract_flat = False 確保點閱數欄位不遺失（可抓到 Topic 觀看次數）
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
-            "extract_flat": False,  # 完整讀取頁面資訊（包含 Topic 頻道觀看次數）
+            "extract_flat": False,
             "no_warnings": True,
         }
 
@@ -877,7 +888,6 @@ if "df_new" in locals() or "df_new" in globals():
                 matched_url = None
 
                 try:
-                    # 搜尋前 5 筆結果
                     search_res = ydl.extract_info(
                         f"ytsearch5:{query}", download=False
                     )
@@ -903,7 +913,6 @@ if "df_new" in locals() or "df_new" in globals():
                             }
                         )
 
-                    # 若有搜尋到影片，依「真實觀看次數」從高到低排序，選第一名
                     if candidates:
                         candidates.sort(key=lambda x: x["views"], reverse=True)
                         best = candidates[0]
@@ -930,10 +939,8 @@ if "df_new" in locals() or "df_new" in globals():
         status_text.success("✅ 點閱測繪完成！")
         progress_bar.progress(100)
 
-        # 轉換為 DataFrame 展示
         df_result = pd.DataFrame(results)
 
-        # 格式化觀看次數欄位（加上千分位）
         df_display = df_result.copy()
         df_display["YT 觀看次數"] = df_display["YT 觀看次數"].apply(
             lambda x: f"{x:,}" if isinstance(x, (int, float)) else x
@@ -941,7 +948,6 @@ if "df_new" in locals() or "df_new" in globals():
 
         st.dataframe(df_display, use_container_width=True)
 
-        # 匯出 CSV 按鈕
         csv_data = df_result.to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
             label="📥 匯出 YouTube ID 綁定對照表 (CSV)",
