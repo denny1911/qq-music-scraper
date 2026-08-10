@@ -1,3 +1,4 @@
+from datetime import date, datetime, timedelta
 import os
 import altair as alt
 import pandas as pd
@@ -55,17 +56,17 @@ if not dates:
 
 # 全域共用日期邊界物件
 sorted_dates_asc = sorted(dates)
-earliest_date_obj = datetime.datetime.strptime(
+earliest_date_obj = datetime.strptime(
     sorted_dates_asc[0], "%Y-%m-%d"
 ).date()
-latest_date_obj = datetime.datetime.strptime(
+latest_date_obj = datetime.strptime(
     sorted_dates_asc[-1], "%Y-%m-%d"
 ).date()
 
 
 # 輔助函式：計算週榜期數標籤 (週四為起算點)
 def get_issue_label(date_str):
-    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
     offset = (dt.weekday() - 3) % 7  # 3 代表週四
     issue_start = dt - datetime.timedelta(days=offset)
     return issue_start.strftime("%Y-%m-%d 期")
@@ -466,7 +467,7 @@ with main_tabs[1]:
         base_date = valid_dates[0] if valid_dates else dates[0]
 
     if base_date:
-        base_dt = datetime.datetime.strptime(base_date, "%Y-%m-%d")
+        base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
             target_past_dt = base_dt - datetime.timedelta(days=7)
@@ -475,7 +476,7 @@ with main_tabs[1]:
                     d
                     for d in dates
                     if target_past_dt
-                    <= datetime.datetime.strptime(d, "%Y-%m-%d")
+                    <= datetime.strptime(d, "%Y-%m-%d")
                     <= base_dt
                 ]
             )
@@ -484,7 +485,7 @@ with main_tabs[1]:
             all_thursdays = [
                 d
                 for d in dates
-                if datetime.datetime.strptime(d, "%Y-%m-%d").weekday() == 3
+                if datetime.strptime(d, "%Y-%m-%d").weekday() == 3
             ]
             if base_date in all_thursdays:
                 base_idx = all_thursdays.index(base_date)
