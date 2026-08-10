@@ -974,28 +974,18 @@ with main_tabs[3]:
                                 .execute()
                             )
 
-                            # ===== [轉譯自 JS: 步驟 C & D] 比較並找出前 5 名中觀看數最高者 =====
-                            candidates = []
+                            # ===== [轉譯自 JS: 步驟 C & D] 傳統迴圈比對：找出前 5 名中觀看數最高者 =====
+                            max_views = -1  # 設為 -1 確保第一支影片能順利寫入預設值
                             for item in video_res.get("items", []):
-                                v_id = item["id"]
-                                v_title = item["snippet"]["title"]
                                 v_views = int(item["statistics"].get("viewCount", 0))
 
-                                candidates.append(
-                                    {
-                                        "id": v_id,
-                                        "title": v_title,
-                                        "views": v_views,
-                                        "url": f"https://www.youtube.com/watch?v={v_id}",
-                                    }
-                                )
-
-                            if candidates:
-                                best = max(candidates, key=lambda x: x["views"])
-                                matched_id = best["id"]
-                                matched_title = best["title"]
-                                matched_views = best["views"]
-                                matched_url = best["url"]
+                                # 與 JS 一模一樣的比對邏輯：遇到更高的點閱就覆蓋變數
+                                if v_views > max_views:
+                                    max_views = v_views
+                                    matched_id = item["id"]
+                                    matched_title = item["snippet"]["title"]
+                                    matched_views = v_views
+                                    matched_url = f"https://www.youtube.com/watch?v={item['id']}"
 
                         success = True
 
