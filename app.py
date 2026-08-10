@@ -214,7 +214,7 @@ with main_tabs[0]:
         )
         selected_date = (
             selected_date_obj.strftime("%Y-%m-%d")
-            if isinstance(selected_date_obj, datetime.date)
+            if isinstance(selected_date_obj, date)
             else None
         )
         if selected_date and selected_date not in dates:
@@ -459,7 +459,7 @@ with main_tabs[1]:
     )
     base_date = (
         base_date_obj.strftime("%Y-%m-%d")
-        if isinstance(base_date_obj, datetime.date)
+        if isinstance(base_date_obj, date)
         else dates[0]
     )
     if base_date not in dates:
@@ -1035,7 +1035,7 @@ with main_tabs[4]:
     )
     selected_date = (
         selected_date_obj.strftime("%Y-%m-%d")
-        if isinstance(selected_date_obj, datetime.date)
+        if isinstance(selected_date_obj, date)
         else None
     )
     if selected_date and selected_date not in dates:
