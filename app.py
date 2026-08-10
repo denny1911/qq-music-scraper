@@ -902,98 +902,72 @@ with main_tabs[3]:
 
             # extract_flat 設為 "in_playlist"：保持安全、高速、不點進內頁
             ydl_opts = {
-                "quiet": True,
-                "skip_download": True,
-                "extract_flat": "in_playlist",
-                "no_warnings": True,
-            }
+            "quiet": True,
+            "skip_download": True,
+            "extract_flat": False,  # 設為 False 才能拿到準確的 view_count
+            "no_warnings": True,
+        }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                for idx, row in test_songs.reset_index(drop=True).iterrows():
-                    song = str(
-                        row.get(
-                            "歌名",
-                            row.get("song", row.get("歌曲名稱", "Unknown")),
-                        )
-                    )
-                    singer = str(
-                        row.get(
-                            "歌手",
-                            row.get(
-                                "singer", row.get("歌手名稱", "Unknown")
-                            ),
-                        )
-                    )
-                    rank = row.get("排名", idx + 1)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            for idx, row in test_songs.reset_index(drop=True).iterrows():
+                song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown"))))
+                singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
+                rank = row.get("排名", idx + 1)
 
-                    status_text.text(
-                        f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}..."
-                    )
-                    progress_bar.progress((idx + 1) / test_limit)
+                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
+                progress_bar.progress((idx + 1) / test_limit)
 
-                    matched_id = None
-                    matched_title = None
-                    matched_views = 0
-                    matched_url = None
+                matched_id = None
+                matched_title = None
+                matched_views = 0
+                matched_url = None
 
-                    # 組合查詢字串並進行 URL 編碼
-                    raw_query = f"{song} {singer}"
-                    encoded_query = urllib.parse.quote(raw_query)
+                # 2. 改用 yt-dlp 原生搜尋語法，一次抓取前 5 筆候選影片
+                search_query = f"ytsearch5:{song} {singer}"
 
-                    # 直接使用 YouTube 官方搜尋網址，並加上 sp=CAMSAhAB 參數（強制指定以「熱門程度/觀看次數」排序）
-                    search_url = f"https://www.youtube.com/results?search_query={encoded_query}&sp=CAMSAhAB"
+                try:
+                    search_res = ydl.extract_info(search_query, download=False)
+                    entries = search_res.get("entries", []) if search_res else []
 
-                    try:
-                        search_res = ydl.extract_info(
-                            search_url, download=False
-                        )
-                        entries = (
-                            search_res.get("entries", []) if search_res else []
-                        )
+                    candidates = []
+                    for entry in entries:
+                        if not entry:
+                            continue
 
-                        candidates = []
-                        for entry in entries:
-                            if not entry:
-                                continue
+                        v_id = entry.get("id")
+                        title = entry.get("title", "").strip()
+                        views = entry.get("view_count") or 0  # 若拿不到則預設為 0
 
-                            v_id = entry.get("id")
-                            title = entry.get("title", "").strip()
-                            views = entry.get("view_count") or 0
+                        candidates.append({
+                            "id": v_id,
+                            "title": title,
+                            "views": views,
+                            "url": f"https://www.youtube.com/watch?v={v_id}",
+                        })
 
-                            candidates.append(
-                                {
-                                    "id": v_id,
-                                    "title": title,
-                                    "views": views,
-                                    "url": f"https://www.youtube.com/watch?v={v_id}",
-                                }
-                            )
+                    if candidates:
+                        # 3. 在 Python 端顯式比較：從前 5 筆結果中強制抓取觀看次數最高的影片
+                        best = max(candidates, key=lambda x: x["views"])
 
-                        if candidates:
-                            # 因為網址本身已經用「熱門程度」排序，直接抓第一筆就是點閱最高的（包含 Topic）
-                            best = candidates[0]
+                        matched_id = best["id"]
+                        matched_title = best["title"]
+                        matched_views = best["views"]
+                        matched_url = best["url"]
 
-                            matched_id = best["id"]
-                            matched_title = best["title"]
-                            matched_views = best["views"]
-                            matched_url = best["url"]
+                except Exception as e:
+                    st.warning(f"搜尋 {song} 時發生錯誤: {e}")
 
-                    except Exception as e:
-                        st.warning(f"搜尋 {song} 時發生錯誤: {e}")
+                results.append({
+                    "榜單排名": rank,
+                    "歌名": song,
+                    "歌手": singer,
+                    "Video ID": matched_id or "-",
+                    "YT 觀看次數": matched_views,
+                    "YT 影片標題": matched_title or "-",
+                    "影片連結": matched_url or "-",
+                })
 
-                    results.append(
-                        {
-                            "榜單排名": rank,
-                            "歌名": song,
-                            "歌手": singer,
-                            "Video ID": matched_id or "-",
-                            "YT 觀看次數": matched_views,
-                            "YT 影片標題": matched_title or "-",
-                            "影片連結": matched_url or "-",
-                        }
-                    )
-
-                    time.sleep(1)
+                time.sleep(1)
 
             status_text.success("✅ 點閱測繪完成！")
             progress_bar.progress(100)
