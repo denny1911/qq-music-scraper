@@ -833,7 +833,7 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本 - 含 Shorts 過濾)
+# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 精準相關性+點閱最大化版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -951,21 +951,22 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
+                # 乾淨的關鍵字，讓 YouTube 演算法自動對齊 MV 與 Topic 音訊
                 query_str = f"{song} {singer}"
                 success = False
 
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # Step A: 搜尋前 10 筆，以「觀看數」排序
+                        # Step A: 採用預設 relevance (相關性) 排序，抓取前 12 筆最相關結果
                         search_res = (
                             youtube_service.search()
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=10,
+                                maxResults=12,
                                 type="video",
-                                order="viewCount",
+                                order="relevance",  # 👈 關鍵：用相關性抓取，確保池子裡都是這首歌的 MV/Topic/歌詞版
                             )
                             .execute()
                         )
@@ -977,7 +978,7 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # Step B: 批量取得 10 筆影片詳細數據（含 contentDetails 用於計算片長）
+                            # Step B: 批量取得這 12 筆影片詳細數據（含觀看數與片長）
                             video_res = (
                                 youtube_service.videos()
                                 .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
@@ -1008,7 +1009,7 @@ with main_tabs[3]:
                                 )
 
                             if candidates:
-                                # 排除 Shorts 後，挑選長影片中點閱數最高者
+                                # 💡 關鍵：在最相關的 12 筆合格長影片中，挑選點閱率最高者（成功涵蓋 Topic 或 MV）
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_title = best["title"]
