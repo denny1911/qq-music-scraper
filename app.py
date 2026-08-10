@@ -899,7 +899,7 @@ with main_tabs[3]:
             results = []
             test_songs = df_target.head(test_limit)
 
-            # extract_flat 設為 "in_playlist"：不訪問影片內頁，但能直接從搜尋列表中拿到正確的 view_count
+            # extract_flat 設為 "in_playlist"：不訪問影片內頁（防機器人封鎖），同時拿回觀看次數
             ydl_opts = {
                 "quiet": True,
                 "skip_download": True,
@@ -935,7 +935,7 @@ with main_tabs[3]:
                     matched_views = 0
                     matched_url = None
 
-                    # 使用最自然且涵蓋廣的關鍵字組合（不強制加上 Topic）
+                    # 不限制搜尋字串，直接以 歌名 + 歌手 檢索前 5 筆
                     query = f"{song} {singer}"
 
                     try:
@@ -965,7 +965,7 @@ with main_tabs[3]:
                             )
 
                         if candidates:
-                            # 直接以真實點閱數高低進行排序，選取最高觀看次數的影片
+                            # 不分影片類型，直接依「觀看次數」由高到低排序，選取第一名
                             candidates.sort(key=lambda x: x["views"], reverse=True)
                             best = candidates[0]
 
