@@ -945,14 +945,18 @@ with main_tabs[3]:
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # Step A: 搜尋前 5 筆，直接要求以「觀看數」排序
-                        search_res = youtube_service.search().list(
-                            q=query_str,
-                            part="id",
-                            maxResults=5,
-                            type="video",
-                            order="viewCount"
-                        ).execute()
+                        # Step A: 搜尋前 10 筆，以「觀看數」排序
+                        search_res = (
+                            youtube_service.search()
+                            .list(
+                                q=query_str,
+                                part="id",
+                                maxResults=10,  # 👈 已改為 10 筆
+                                type="video",
+                                order="viewCount",
+                            )
+                            .execute()
+                        )
 
                         v_ids = [
                             item["id"]["videoId"]
@@ -961,11 +965,12 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # Step B: 傳入 ID 取得精確點閱數與詳細標題
-                            video_res = youtube_service.videos().list(
-                                part="snippet,statistics",
-                                id=",".join(v_ids)
-                            ).execute()
+                            # Step B: 批量傳入 10 筆 ID 取得詳細點閱數據
+                            video_res = (
+                                youtube_service.videos()
+                                .list(part="snippet,statistics", id=",".join(v_ids))
+                                .execute()
+                            )
 
                             candidates = []
                             for item in video_res.get("items", []):
@@ -973,14 +978,17 @@ with main_tabs[3]:
                                 v_title = item["snippet"]["title"]
                                 v_views = int(item["statistics"].get("viewCount", 0))
 
-                                candidates.append({
-                                    "id": v_id,
-                                    "title": v_title,
-                                    "views": v_views,
-                                    "url": f"https://www.youtube.com/watch?v={v_id}"
-                                })
+                                candidates.append(
+                                    {
+                                        "id": v_id,
+                                        "title": v_title,
+                                        "views": v_views,
+                                        "url": f"https://www.youtube.com/watch?v={v_id}",
+                                    }
+                                )
 
                             if candidates:
+                                # 挑選 10 筆中點閱數最高者
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_title = best["title"]
