@@ -1,5 +1,5 @@
-from datetime import date, datetime, timedelta
 import os
+from datetime import date, datetime, timedelta
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -56,12 +56,8 @@ if not dates:
 
 # 全域共用日期邊界物件
 sorted_dates_asc = sorted(dates)
-earliest_date_obj = datetime.strptime(
-    sorted_dates_asc[0], "%Y-%m-%d"
-).date()
-latest_date_obj = datetime.strptime(
-    sorted_dates_asc[-1], "%Y-%m-%d"
-).date()
+earliest_date_obj = datetime.strptime(sorted_dates_asc[0], "%Y-%m-%d").date()
+latest_date_obj = datetime.strptime(sorted_dates_asc[-1], "%Y-%m-%d").date()
 
 
 # 輔助函式：計算週榜期數標籤 (週四為起算點)
@@ -917,7 +913,6 @@ with main_tabs[3]:
                 matched_title = None
                 matched_views = 0
                 matched_url = None
-                status_tag = "❌ 未匹配"
 
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -967,7 +962,6 @@ with main_tabs[3]:
                             matched_title = best["title"]
                             matched_views = best["views"]
                             matched_url = best["url"]
-                            status_tag = "✅ 匹配成功"
                         elif entries:
                             # 降級條款：如果全被過濾光，退而求其次採用搜尋第 1 筆
                             fallback = entries[0]
@@ -977,20 +971,19 @@ with main_tabs[3]:
                             matched_url = (
                                 f"https://www.youtube.com/watch?v={matched_id}"
                             )
-                            status_tag = "⚠️ 降級備用匹配"
 
                 except Exception as e:
-                    status_tag = f"❌ 錯誤: {str(e)}"
+                    pass
 
+                # 將 Video ID 移至原本「匹配狀態」的位置（第 4 欄），並移除「匹配狀態」
                 results.append(
                     {
                         "榜單排名": rank,
                         "歌名": song,
                         "歌手": singer,
-                        "匹配狀態": status_tag,
+                        "Video ID": matched_id or "-",
                         "YT 觀看次數": matched_views,
                         "YT 影片標題": matched_title or "-",
-                        "Video ID": matched_id or "-",
                         "影片連結": matched_url or "-",
                     }
                 )
