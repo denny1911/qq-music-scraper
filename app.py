@@ -1,4 +1,3 @@
-這裡為你將 「模組四：YouTube 點閱追蹤測繪 (測試版)」 整合進現有的 Streamlit 程式碼中。我們將主頁面擴充為 5 個 Tab，新加入的模組四會自動切換至 2026-08-10（若資料夾尚無該日資料，會貼心提示並自動改載入最新可用日期）的「新歌榜」，並透過 yt-dlp 執行搜尋 5 筆 $\rightarrow$ 自動過濾 $\rightarrow$ 點閱率排序 $\rightarrow$ 產出綁定對照表。完整 Streamlit 程式碼Pythonimport datetime
 import os
 import altair as alt
 import pandas as pd
