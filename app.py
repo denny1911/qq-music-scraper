@@ -933,7 +933,7 @@ with main_tabs[3]:
 
                     try:
                         search_res = ydl.extract_info(
-                            f"ytsearch5:{query}", download=False
+                            f"ytsearch10:{query}", download=False
                         )
                         entries = (
                             search_res.get("entries", []) if search_res else []
