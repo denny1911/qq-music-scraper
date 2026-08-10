@@ -833,7 +833,7 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (JavaScript 邏輯轉譯 Python 版)
+# 📺 模組四：YouTube 點閱測繪 (JavaScript 邏輯轉譯 Python 版 - 終極修正版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -865,6 +865,17 @@ with main_tabs[3]:
             ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜", "全部榜單"],
             key="m4_chart_select",
         )
+
+    # 【新增】搜尋模式選單（針對 Topic 抓取優化）
+    m4_query_mode = st.selectbox(
+        "🔍 選擇 YouTube 搜尋策略",
+        [
+            "歌名 + Topic (專搜自動生成主題頻道，推薦)",
+            "純歌名 (較易抓到官方或 Topic)",
+            "歌名 + 歌手 (傳統 MV 搜尋)",
+        ],
+        key="m4_query_mode_select",
+    )
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -934,7 +945,15 @@ with main_tabs[3]:
                 singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
                 rank = row.get("排名", idx + 1)
 
-                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
+                # 【修改】根據選單動態決定 query_str
+                if m4_query_mode == "歌名 + Topic (專搜自動生成主題頻道，推薦)":
+                    query_str = f"{song} Topic"
+                elif m4_query_mode == "純歌名 (較易抓到官方或 Topic)":
+                    query_str = song
+                else:
+                    query_str = f"{song} {singer}"
+
+                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索：{song}（策略: {query_str}）...")
                 progress_bar.progress((idx + 1) / test_limit)
 
                 matched_id = None
@@ -942,16 +961,21 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
-                query_str = f"{song} {singer}"
                 success = False
 
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # 改成 part="snippet" 以確保與 JS 請求的 API 參數完全一致
+                        # 【修改 1】maxResults 擴大到 15，並加入 regionCode="TW" 鎖定台灣地區
                         search_res = (
                             youtube_service.search()
-                            .list(q=query_str, part="snippet", maxResults=5, type="video")
+                            .list(
+                                q=query_str, 
+                                part="snippet", 
+                                maxResults=15, 
+                                type="video", 
+                                regionCode="TW"
+                            )
                             .execute()
                         )
 
@@ -962,23 +986,40 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # ===== [轉譯自 JS: 步驟 B] 呼叫 Videos API 批次取得這 5 支影片數據 =====
+                            # 批次取得這 15 支影片的詳細數據
                             video_res = (
                                 youtube_service.videos()
                                 .list(part="snippet,statistics", id=",".join(v_ids))
                                 .execute()
                             )
 
-                            max_views = 0
+                            # 【修改 2】改用「智慧評分權重」取代原本單純比大小的 max_views
+                            best_score = -1
                             for item in video_res.get("items", []):
                                 v_views = int(item["statistics"].get("viewCount", 0))
-                                # 邏輯與 JS 的 if (views > maxViews) 完全相同
-                                if v_views > max_views:
-                                    max_views = v_views
+                                v_title = item["snippet"]["title"]
+                                channel_title = item["snippet"].get("channelTitle", "")
+
+                                score = 0
+                                
+                                # 核心：如果頻道名稱包含 Topic（自動生成頻道的特徵），給予巨大加權，確保優先入選
+                                if "topic" in channel_title.lower():
+                                    score += 1000000000
+                                    
+                                # 歌名吻合加權
+                                if song in v_title:
+                                    score += 100000000
+                                    
+                                # 觀看數作為微調評分依據
+                                score += v_views
+
+                                if score > best_score:
+                                    best_score = score
                                     matched_id = item["id"]
-                                    matched_title = item["snippet"]["title"]
+                                    matched_title = v_title
                                     matched_views = v_views
                                     matched_url = f"https://www.youtube.com/watch?v={item['id']}"
+
                         success = True
 
                     except HttpError as e:
@@ -1001,6 +1042,7 @@ with main_tabs[3]:
                     "榜單排名": rank,
                     "歌名": song,
                     "歌手": singer,
+                    "使用策略": query_str,
                     "Video ID": matched_id or "-",
                     "YT 觀看次數": matched_views,
                     "YT 影片標題": matched_title or "-",
