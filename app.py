@@ -833,7 +833,7 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (JS 1:1 獨立函式與彈性輸入版)
+# 📺 模組四：YouTube 點閱測繪 (JavaScript 邏輯轉譯 Python 版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -866,18 +866,6 @@ with main_tabs[3]:
             key="m4_chart_select",
         )
 
-    # 新增：搜尋關鍵字組合模式選單（模擬 JS 傳入各種 keyword 的情況）
-    m4_query_mode = st.selectbox(
-        "🔍 選擇搜尋關鍵字模式 (Keyword Mode)",
-        [
-            "僅歌名 (純歌名搜尋)",
-            "歌名 + 歌手 (預設模組格式)",
-            "歌名 + Topic (專搜 Topic 頻道)",
-            '歌名 + "Provided to YouTube by" (官方發行商語法)',
-        ],
-        key="m4_query_mode_select",
-    )
-
     col1, col2 = st.columns([2, 1])
     with col1:
         test_limit = st.slider(
@@ -894,70 +882,12 @@ with main_tabs[3]:
             key="m4_start_btn",
         )
 
-    # ===== [完全對等 JS 的 Python 核心函式] =====
-    def fetch_top_yt_views(keyword, youtube_service):
-        """
-        轉換自原始 JS: fetchTopYTViews(keyword, apiKey)
-        傳入純字串 keyword，取前 5 筆後用迴圈找 maxViews
-        """
-        if not youtube_service or not keyword:
-            return None, None, 0, None
-
-        # 步驟 A: 呼叫 Search API 搜尋前 5 名影片 (q = keyword)
-        search_res = (
-            youtube_service.search()
-            .list(
-                q=keyword,
-                part="id",
-                maxResults=5,
-                type="video",
-            )
-            .execute()
-        )
-
-        v_ids = [
-            item["id"]["videoId"]
-            for item in search_res.get("items", [])
-            if "videoId" in item.get("id", {})
-        ]
-
-        if not v_ids:
-            return None, None, 0, None
-
-        # 步驟 B: 呼叫 Videos API 批次取得這 5 支影片數據
-        video_res = (
-            youtube_service.videos()
-            .list(part="snippet,statistics", id=",".join(v_ids))
-            .execute()
-        )
-
-        # 步驟 C & D: JS 傳統迴圈比對：找出前 5 名中觀看數最高者
-        max_views = -1
-        best_v_id = None
-        best_title = None
-        best_url = None
-
-        for item in video_res.get("items", []):
-            v_views = int(item["statistics"].get("viewCount", 0))
-
-            if v_views > max_views:
-                max_views = v_views
-                best_v_id = item["id"]
-                best_title = item["snippet"]["title"]
-                best_url = f"https://www.youtube.com/watch?v={item['id']}"
-
-        return best_v_id, best_title, max_views, best_url
-
     if start_btn:
         import time
         import pandas as pd
-        from googleapiclient.discovery import build
-        from googleapiclient.errors import HttpError
 
         # 1. 自動相容單組與多組 API Key 格式
-        raw_keys = st.secrets.get(
-            "YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", [])
-        )
+        raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
         if isinstance(raw_keys, str):
             api_keys = [raw_keys]
         elif isinstance(raw_keys, list):
@@ -966,10 +896,7 @@ with main_tabs[3]:
             api_keys = []
 
         if not api_keys:
-            st.error(
-                "❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets"
-                " 設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`！"
-            )
+            st.error("❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets 設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`！")
             st.stop()
 
         df_curr = load_date_data(m4_date)
@@ -981,10 +908,12 @@ with main_tabs[3]:
 
         if df_target is None or df_target.empty:
             st.error(
-                f"❌ 無法讀取 `{m4_date}` 的榜單資料，請確認 GitHub Actions"
-                " 是否已下載該日期之數據。"
+                f"❌ 無法讀取 `{m4_date}` 的榜單資料，請確認 GitHub Actions 是否已下載該日期之數據。"
             )
         else:
+            from googleapiclient.discovery import build
+            from googleapiclient.errors import HttpError
+
             progress_bar = st.progress(0)
             status_text = st.empty()
 
@@ -995,43 +924,17 @@ with main_tabs[3]:
 
             def build_yt_service(key_idx):
                 if key_idx < len(api_keys):
-                    return build(
-                        "youtube", "v3", developerKey=api_keys[key_idx]
-                    )
+                    return build("youtube", "v3", developerKey=api_keys[key_idx])
                 return None
 
             youtube_service = build_yt_service(current_key_idx)
 
             for idx, row in test_songs.reset_index(drop=True).iterrows():
-                song = str(
-                    row.get(
-                        "歌名", row.get("song", row.get("歌曲名稱", "Unknown"))
-                    )
-                )
-                singer = str(
-                    row.get(
-                        "歌手",
-                        row.get("singer", row.get("歌手名稱", "Unknown")),
-                    )
-                )
+                song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown"))))
+                singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
                 rank = row.get("排名", idx + 1)
 
-                # 根據下拉選單決定帶入 JS 函式的 keyword 字串格式
-                if m4_query_mode == "僅歌名 (純歌名搜尋)":
-                    keyword_input = song
-                elif m4_query_mode == "歌名 + Topic (專搜 Topic 頻道)":
-                    keyword_input = f"{song} Topic"
-                elif (
-                    m4_query_mode
-                    == '歌名 + "Provided to YouTube by" (官方發行商語法)'
-                ):
-                    keyword_input = f'{song} "Provided to YouTube by"'
-                else:
-                    keyword_input = f"{song} {singer}"
-
-                status_text.text(
-                    f"🔍 ({idx+1}/{test_limit}) 正在檢索（關鍵字: {keyword_input}）..."
-                )
+                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
                 progress_bar.progress((idx + 1) / test_limit)
 
                 matched_id = None
@@ -1039,26 +942,57 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
+                query_str = f"{song} {singer}"
                 success = False
 
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # 直接呼叫 JS 對等函式
-                        (
-                            matched_id,
-                            matched_title,
-                            matched_views,
-                            matched_url,
-                        ) = fetch_top_yt_views(keyword_input, youtube_service)
+                        # ===== [轉譯自 JS: 步驟 A] 呼叫 Search API 搜尋前 5 名影片 =====
+                        search_res = (
+                            youtube_service.search()
+                            .list(
+                                q=query_str,
+                                part="id",
+                                maxResults=5,
+                                type="video",
+                            )
+                            .execute()
+                        )
+
+                        v_ids = [
+                            item["id"]["videoId"]
+                            for item in search_res.get("items", [])
+                            if "videoId" in item.get("id", {})
+                        ]
+
+                        if v_ids:
+                            # ===== [轉譯自 JS: 步驟 B] 呼叫 Videos API 批次取得這 5 支影片數據 =====
+                            video_res = (
+                                youtube_service.videos()
+                                .list(part="snippet,statistics", id=",".join(v_ids))
+                                .execute()
+                            )
+
+                            # ===== [轉譯自 JS: 步驟 C & D] 傳統迴圈比對：找出前 5 名中觀看數最高者 =====
+                            max_views = -1  # 設為 -1 確保第一支影片能順利寫入預設值
+                            for item in video_res.get("items", []):
+                                v_views = int(item["statistics"].get("viewCount", 0))
+
+                                # 與 JS 一模一樣的比對邏輯：遇到更高的點閱就覆蓋變數
+                                if v_views > max_views:
+                                    max_views = v_views
+                                    matched_id = item["id"]
+                                    matched_title = item["snippet"]["title"]
+                                    matched_views = v_views
+                                    matched_url = f"https://www.youtube.com/watch?v={item['id']}"
+
                         success = True
 
                     except HttpError as e:
+                        # 觸發 403 額度耗盡時自動換 Key
                         if e.resp.status == 403 and "quotaExceeded" in str(e):
-                            st.warning(
-                                f"⚠️ 第 {current_key_idx + 1} 組 API Key"
-                                " 額度用盡，自動切換至下一組 Key..."
-                            )
+                            st.warning(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
                             current_key_idx += 1
                             youtube_service = build_yt_service(current_key_idx)
                             if not youtube_service:
@@ -1075,7 +1009,6 @@ with main_tabs[3]:
                     "榜單排名": rank,
                     "歌名": song,
                     "歌手": singer,
-                    "搜尋關鍵字": keyword_input,
                     "Video ID": matched_id or "-",
                     "YT 觀看次數": matched_views,
                     "YT 影片標題": matched_title or "-",
