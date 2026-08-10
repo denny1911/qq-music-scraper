@@ -899,7 +899,7 @@ with main_tabs[3]:
             results = []
             test_songs = df_target.head(test_limit)
 
-            # extract_flat 設為 "in_playlist"：不訪問影片內頁（防機器人封鎖），同時拿回觀看次數
+            # extract_flat 設為 "in_playlist"：保持安全、高速、不點進內頁
             ydl_opts = {
                 "quiet": True,
                 "skip_download": True,
@@ -935,12 +935,16 @@ with main_tabs[3]:
                     matched_views = 0
                     matched_url = None
 
-                    # 不限制搜尋字串，直接以 歌名 + 歌手 檢索前 5 筆
-                    query = f"{song} {singer}"
+                    # 組合查詢字串並進行 URL 編碼
+                    raw_query = f"{song} {singer}"
+                    encoded_query = urllib.parse.quote(raw_query)
+
+                    # 直接使用 YouTube 官方搜尋網址，並加上 sp=CAMSAhAB 參數（強制指定以「熱門程度/觀看次數」排序）
+                    search_url = f"https://www.youtube.com/results?search_query={encoded_query}&sp=CAMSAhAB"
 
                     try:
                         search_res = ydl.extract_info(
-                            f"ytsearch10:{query}", download=False
+                            search_url, download=False
                         )
                         entries = (
                             search_res.get("entries", []) if search_res else []
@@ -965,8 +969,7 @@ with main_tabs[3]:
                             )
 
                         if candidates:
-                            # 不分影片類型，直接依「觀看次數」由高到低排序，選取第一名
-                            candidates.sort(key=lambda x: x["views"], reverse=True)
+                            # 因為網址本身已經用「熱門程度」排序，直接抓第一筆就是點閱最高的（包含 Topic）
                             best = candidates[0]
 
                             matched_id = best["id"]
