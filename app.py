@@ -898,10 +898,11 @@ with main_tabs[3]:
             results = []
             test_songs = df_target.head(test_limit)
 
+            # 將 extract_flat 改為 True，避免 yt-dlp 點進每支影片頁面而被 YouTube 判定為機器人
             ydl_opts = {
                 "quiet": True,
                 "skip_download": True,
-                "extract_flat": False,
+                "extract_flat": True,
                 "no_warnings": True,
             }
 
@@ -933,7 +934,7 @@ with main_tabs[3]:
                     matched_views = 0
                     matched_url = None
 
-                    # 單次搜尋：包含歌手與 Topic，減少 HTTP 請求次數以防封鎖
+                    # 搜尋字串加上 Topic
                     query = f"{song} {singer} Topic"
 
                     try:
@@ -958,7 +959,7 @@ with main_tabs[3]:
                             ).strip()
                             views = entry.get("view_count") or 0
 
-                            # 判定是否為 Topic 官方音源頻道
+                            # 判斷是否為 Topic 官方頻道
                             is_topic = (
                                 "Topic" in uploader or "主題" in uploader
                             )
@@ -974,7 +975,7 @@ with main_tabs[3]:
                             )
 
                         if candidates:
-                            # 優先排 Topic，若皆非 Topic 則比對觀看數
+                            # 優先選擇 Topic 影片，若皆無則取第一筆
                             candidates.sort(
                                 key=lambda x: (x["is_topic"], x["views"]),
                                 reverse=True,
@@ -1000,6 +1001,9 @@ with main_tabs[3]:
                         }
                     )
 
+                    # 每次搜尋後小睡 1 秒，降速避免觸發 API 封鎖
+                    time.sleep(1)
+
             status_text.success("✅ 點閱測繪完成！")
             progress_bar.progress(100)
 
@@ -1020,6 +1024,7 @@ with main_tabs[3]:
                 mime="text/csv",
                 key="m4_download_csv",
             )
+            
 # ==========================================
 # 📊 原始榜單瀏覽
 # ==========================================
