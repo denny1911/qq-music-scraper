@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 import altair as alt
 import pandas as pd
 import streamlit as st
+import time
 import yt_dlp
 
 # 1. 頁面基本設定
