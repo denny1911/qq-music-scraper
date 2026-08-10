@@ -942,7 +942,7 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
-                query_str = f"{song} {singer}"
+                query_str = song
                 success = False
 
                 # 輪詢 Key 重試機制
