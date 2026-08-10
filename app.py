@@ -832,8 +832,9 @@ with main_tabs[2]:
     else:
         st.info("選定日期區間內無數據。")
 
+Python
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (JavaScript 邏輯轉譯 Python 版 - 終極修正版)
+# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本 - 含 Shorts 過濾與台灣地區鎖定)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -866,17 +867,6 @@ with main_tabs[3]:
             key="m4_chart_select",
         )
 
-    # 【新增】搜尋模式選單（針對 Topic 抓取優化）
-    m4_query_mode = st.selectbox(
-        "🔍 選擇 YouTube 搜尋策略",
-        [
-            "歌名 + Topic (專搜自動生成主題頻道，推薦)",
-            "純歌名 (較易抓到官方或 Topic)",
-            "歌名 + 歌手 (傳統 MV 搜尋)",
-        ],
-        key="m4_query_mode_select",
-    )
-
     col1, col2 = st.columns([2, 1])
     with col1:
         test_limit = st.slider(
@@ -894,8 +884,17 @@ with main_tabs[3]:
         )
 
     if start_btn:
-        import time
-        import pandas as pd
+        import re
+
+        def parse_duration(duration_str):
+            """將 YouTube ISO 8601 時間字串 (例如 PT3M45S) 轉為總秒數"""
+            match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str or "")
+            if not match:
+                return 0
+            hours = int(match.group(1) or 0)
+            minutes = int(match.group(2) or 0)
+            seconds = int(match.group(3) or 0)
+            return hours * 3600 + minutes * 60 + seconds
 
         # 1. 自動相容單組與多組 API Key 格式
         raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
@@ -945,15 +944,7 @@ with main_tabs[3]:
                 singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
                 rank = row.get("排名", idx + 1)
 
-                # 【修改】根據選單動態決定 query_str
-                if m4_query_mode == "歌名 + Topic (專搜自動生成主題頻道，推薦)":
-                    query_str = f"{song} Topic"
-                elif m4_query_mode == "純歌名 (較易抓到官方或 Topic)":
-                    query_str = song
-                else:
-                    query_str = f"{song} {singer}"
-
-                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索：{song}（策略: {query_str}）...")
+                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
                 progress_bar.progress((idx + 1) / test_limit)
 
                 matched_id = None
@@ -961,20 +952,22 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
+                query_str = f"{song} {singer}"
                 success = False
 
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # 【修改 1】maxResults 擴大到 15，並加入 regionCode="TW" 鎖定台灣地區
+                        # Step A: 搜尋前 10 筆，以「觀看數」排序，並鎖定台灣地區
                         search_res = (
                             youtube_service.search()
                             .list(
-                                q=query_str, 
-                                part="snippet", 
-                                maxResults=15, 
-                                type="video", 
-                                regionCode="TW"
+                                q=query_str,
+                                part="id",
+                                maxResults=10,
+                                type="video",
+                                order="viewCount",
+                                regionCode="TW",
                             )
                             .execute()
                         )
@@ -986,39 +979,43 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # 批次取得這 15 支影片的詳細數據
+                            # Step B: 批量取得 10 筆影片詳細數據（含 contentDetails 用於計算片長）
                             video_res = (
                                 youtube_service.videos()
-                                .list(part="snippet,statistics", id=",".join(v_ids))
+                                .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
                                 .execute()
                             )
 
-                            # 【修改 2】改用「智慧評分權重」取代原本單純比大小的 max_views
-                            best_score = -1
+                            candidates = []
                             for item in video_res.get("items", []):
-                                v_views = int(item["statistics"].get("viewCount", 0))
+                                v_id = item["id"]
                                 v_title = item["snippet"]["title"]
-                                channel_title = item["snippet"].get("channelTitle", "")
+                                v_views = int(item["statistics"].get("viewCount", 0))
 
-                                score = 0
-                                
-                                # 核心：如果頻道名稱包含 Topic（自動生成頻道的特徵），給予巨大加權，確保優先入選
-                                if "topic" in channel_title.lower():
-                                    score += 1000000000
-                                    
-                                # 歌名吻合加權
-                                if song in v_title:
-                                    score += 100000000
-                                    
-                                # 觀看數作為微調評分依據
-                                score += v_views
+                                # 取得片長並計算秒數
+                                duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
+                                duration_sec = parse_duration(duration_str)
 
-                                if score > best_score:
-                                    best_score = score
-                                    matched_id = item["id"]
-                                    matched_title = v_title
-                                    matched_views = v_views
-                                    matched_url = f"https://www.youtube.com/watch?v={item['id']}"
+                                # 🚫 自動過濾長度 <= 60 秒的 Shorts 短影片
+                                if duration_sec <= 60:
+                                    continue
+
+                                candidates.append(
+                                    {
+                                        "id": v_id,
+                                        "title": v_title,
+                                        "views": v_views,
+                                        "url": f"https://www.youtube.com/watch?v={v_id}",
+                                    }
+                                )
+
+                            if candidates:
+                                # 排除 Shorts 後，挑選長影片中點閱數最高者
+                                best = max(candidates, key=lambda x: x["views"])
+                                matched_id = best["id"]
+                                matched_title = best["title"]
+                                matched_views = best["views"]
+                                matched_url = best["url"]
 
                         success = True
 
@@ -1042,7 +1039,6 @@ with main_tabs[3]:
                     "榜單排名": rank,
                     "歌名": song,
                     "歌手": singer,
-                    "使用策略": query_str,
                     "Video ID": matched_id or "-",
                     "YT 觀看次數": matched_views,
                     "YT 影片標題": matched_title or "-",
