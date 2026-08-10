@@ -833,7 +833,7 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本 - 含 Shorts 過濾)
+# 📺 模組四：YouTube 點閱測繪 (JavaScript 邏輯轉譯 Python 版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -883,17 +883,8 @@ with main_tabs[3]:
         )
 
     if start_btn:
-        import re
-
-        def parse_duration(duration_str):
-            """將 YouTube ISO 8601 時間字串 (例如 PT3M45S) 轉為總秒數"""
-            match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str or "")
-            if not match:
-                return 0
-            hours = int(match.group(1) or 0)
-            minutes = int(match.group(2) or 0)
-            seconds = int(match.group(3) or 0)
-            return hours * 3600 + minutes * 60 + seconds
+        import time
+        import pandas as pd
 
         # 1. 自動相容單組與多組 API Key 格式
         raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
@@ -957,15 +948,14 @@ with main_tabs[3]:
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # Step A: 搜尋前 10 筆，以「觀看數」排序
+                        # ===== [轉譯自 JS: 步驟 A] 呼叫 Search API 搜尋前 5 名影片 =====
                         search_res = (
                             youtube_service.search()
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=10,
+                                maxResults=5,
                                 type="video",
-                                order="viewCount",
                             )
                             .execute()
                         )
@@ -977,26 +967,19 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # Step B: 批量取得 10 筆影片詳細數據（含 contentDetails 用於計算片長）
+                            # ===== [轉譯自 JS: 步驟 B] 呼叫 Videos API 批次取得這 5 支影片數據 =====
                             video_res = (
                                 youtube_service.videos()
-                                .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
+                                .list(part="snippet,statistics", id=",".join(v_ids))
                                 .execute()
                             )
 
+                            # ===== [轉譯自 JS: 步驟 C & D] 比較並找出前 5 名中觀看數最高者 =====
                             candidates = []
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
                                 v_title = item["snippet"]["title"]
                                 v_views = int(item["statistics"].get("viewCount", 0))
-
-                                # 取得片長並計算秒數
-                                duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
-                                duration_sec = parse_duration(duration_str)
-
-                                # 🚫 自動過濾長度 <= 60 秒的 Shorts 短影片
-                                if duration_sec <= 60:
-                                    continue
 
                                 candidates.append(
                                     {
@@ -1008,7 +991,6 @@ with main_tabs[3]:
                                 )
 
                             if candidates:
-                                # 排除 Shorts 後，挑選長影片中點閱數最高者
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_title = best["title"]
