@@ -948,15 +948,10 @@ with main_tabs[3]:
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # ===== [轉譯自 JS: 步驟 A] 呼叫 Search API 搜尋前 5 名影片 =====
+                        # 改成 part="snippet" 以確保與 JS 請求的 API 參數完全一致
                         search_res = (
                             youtube_service.search()
-                            .list(
-                                q=query_str,
-                                part="id",
-                                maxResults=5,
-                                type="video",
-                            )
+                            .list(q=query_str, part="snippet", maxResults=5, type="video")
                             .execute()
                         )
 
