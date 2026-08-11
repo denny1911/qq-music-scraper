@@ -1,12 +1,12 @@
+from datetime import datetime, timedelta, timezone
 import os
 import re
 import time
-from datetime import datetime, timedelta, timezone
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import pandas as pd
 import requests
 import zhconv
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 # ==========================================
 # 1. 基礎設定與輔助函式
@@ -14,6 +14,9 @@ from googleapiclient.errors import HttpError
 DATA_DIR = "data"
 MAPPING_FILE = os.path.join(DATA_DIR, "yt_mapping.csv")
 BASELINE_FILE = os.path.join(DATA_DIR, "yt_baseline.csv")
+
+REQ_MAPPING_COLS = ["歌名", "歌手", "Video ID", "YT 影片標題", "影片連結"]
+REQ_BASELINE_COLS = ["歌名", "歌手", "Initial Views", "Initial Date"]
 
 # 非歌曲噪音黑名單關鍵字
 NOISE_KEYWORDS = [
@@ -158,22 +161,32 @@ def main():
       df_today_all[["歌名", "歌手"]].drop_duplicates().reset_index(drop=True)
   )
 
-  # 步驟 B：讀取中央對照表與基準表
+  # 步驟 B：讀取中央對照表與基準表（若檔案或欄位缺乏則自動初始化補齊）
   if os.path.exists(MAPPING_FILE):
-    df_mapping = pd.read_csv(MAPPING_FILE)
+    try:
+      df_mapping = pd.read_csv(MAPPING_FILE, dtype=str)
+    except Exception:
+      df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
   else:
-    df_mapping = pd.DataFrame(
-        columns=["歌名", "歌手", "Video ID", "YT 影片標題", "影片連結"]
-    )
+    df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
+
+  for col in REQ_MAPPING_COLS:
+    if col not in df_mapping.columns:
+      df_mapping[col] = "-"
 
   if os.path.exists(BASELINE_FILE):
-    df_baseline = pd.read_csv(BASELINE_FILE)
+    try:
+      df_baseline = pd.read_csv(BASELINE_FILE, dtype=str)
+    except Exception:
+      df_baseline = pd.DataFrame(columns=REQ_BASELINE_COLS)
   else:
-    df_baseline = pd.DataFrame(
-        columns=["歌名", "歌手", "Initial Views", "Initial Date"]
-    )
+    df_baseline = pd.DataFrame(columns=REQ_BASELINE_COLS)
 
-  # 步驟 C：檢查是否有新歌，透過 YouTube API 進行測繪補抓 ID
+  for col in REQ_BASELINE_COLS:
+    if col not in df_baseline.columns:
+      df_baseline[col] = "-"
+
+  # 步驟 C：檢查今日榜單歌曲，若缺少有效 ID 則發起 API 搜尋重試
   current_key_idx = 0
 
   def get_yt_service(idx):
@@ -182,29 +195,38 @@ def main():
     return None
 
   youtube_service = get_yt_service(current_key_idx)
+  mapping_updated = False
+  baseline_updated = False
 
   if api_keys:
-    new_mappings = []
-    new_baselines = []
-
-    print("🔍 開始檢查今日榜單是否有新歌需要進行 YouTube 點閱測繪...")
+    print(
+        "🔍 開始檢查今日榜單歌曲是否需要建立對照或補抓 YouTube Video ID..."
+    )
 
     for idx, row in df_unique_songs.iterrows():
       song = str(row["歌名"]).strip()
       singer = str(row["歌手"]).strip()
 
-      exists = not df_mapping[
+      # 檢查對照表中是否已存在「有效 Video ID」（即非 '-'、非空白與 nan）
+      matched_row = df_mapping[
           (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
-      ].empty
-      if exists:
+      ]
+      has_valid_id = False
+      if not matched_row.empty:
+        vid_val = str(matched_row.iloc[0]["Video ID"]).strip()
+        if vid_val not in ["-", "", "nan", "None"]:
+          has_valid_id = True
+
+      # 若已有有效 ID，代表以前已搜到且正確，直接跳過搜尋
+      if has_valid_id:
         continue
 
-      # 💡 清理歌名前綴供搜尋與標題匹配使用
+      # 清理歌名前綴（如 '歌曲：'）供搜尋與標題匹配使用
       clean_song = clean_song_title(song)
 
       print(
-          f"🆕 發現新歌：{song} (搜尋關鍵字: {clean_song}) - {singer}，正在向"
-          " YouTube 檢索..."
+          f"🔄 [在榜歌曲補抓/搜尋]：{song} - {singer} (搜尋關鍵字:"
+          f" {clean_song})..."
       )
 
       query_str = f"{clean_song} {singer}"
@@ -214,7 +236,7 @@ def main():
       matched_url = None
       success = False
 
-      # 比對時使用清理與正規化後的歌名與歌手名
+      # 比對時使用正規化與簡繁轉換字串
       song_sim_norm = normalize_text(zhconv.convert(clean_song, "zh-hans"))
       song_tra_norm = normalize_text(zhconv.convert(clean_song, "zh-hant"))
       singer_sim_norm = normalize_text(zhconv.convert(singer, "zh-hans"))
@@ -275,7 +297,6 @@ def main():
               v_title_lower = v_title.lower()
               channel_lower = channel_title.lower()
 
-              # 正規化後的標題與頻道名稱 (用於比對歌名與歌手)
               v_title_norm = normalize_text(v_title)
               channel_norm = normalize_text(channel_title)
 
@@ -285,7 +306,6 @@ def main():
               if not is_topic and has_noise:
                 continue
 
-              # 比對標題是否包含歌名 (使用正規化字串)
               if not (
                   (song_sim_norm in v_title_norm)
                   or (song_tra_norm in v_title_norm)
@@ -346,48 +366,82 @@ def main():
           print(f"⚠️ 發生未知錯誤: {e}")
           break
 
-      # 記錄新找到的對照與基準 (歌名仍維持原本帶有前綴的名稱以利 merged)
+      # --------------------------------------------------
+      # 更新對照表 (df_mapping) 與 基準表 (df_baseline)
+      # --------------------------------------------------
+      mask = (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
+
       if matched_id:
-        new_mappings.append({
-            "歌名": song,
-            "歌手": singer,
-            "Video ID": matched_id,
-            "YT 影片標題": matched_title,
-            "影片連結": matched_url,
-        })
-        new_baselines.append({
-            "歌名": song,
-            "歌手": singer,
-            "Initial Views": matched_views,
-            "Initial Date": date_str,
-        })
+        print(f"  ✅ 成功匹配 ID: {matched_id} | 點閱: {matched_views:,}")
+
+        # 若原本對照表有舊資料 (為 '-') 則更新，否則新增
+        if mask.any():
+          df_mapping.loc[mask, "Video ID"] = matched_id
+          df_mapping.loc[mask, "YT 影片標題"] = matched_title
+          df_mapping.loc[mask, "影片連結"] = matched_url
+        else:
+          new_m_row = pd.DataFrame([{
+              "歌名": song,
+              "歌手": singer,
+              "Video ID": matched_id,
+              "YT 影片標題": matched_title,
+              "影片連結": matched_url,
+          }])
+          df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
+        mapping_updated = True
+
+        # 同步檢查/新增至基準表
+        b_mask = (df_baseline["歌名"] == song) & (df_baseline["歌手"] == singer)
+        if not b_mask.any():
+          new_b_row = pd.DataFrame([{
+              "歌名": song,
+              "歌手": singer,
+              "Initial Views": str(matched_views),
+              "Initial Date": date_str,
+          }])
+          df_baseline = pd.concat([df_baseline, new_b_row], ignore_index=True)
+          baseline_updated = True
+
+      else:
+        print(
+            "  ❌ 未找到匹配影片。對照表保持"
+            " '-'（若明日仍在榜上將繼續嘗試重試）。"
+        )
+        # 若原先對照表完全沒有此首歌，新增一筆 '-'
+        if not mask.any():
+          new_m_row = pd.DataFrame([{
+              "歌名": song,
+              "歌手": singer,
+              "Video ID": "-",
+              "YT 影片標題": "-",
+              "影片連結": "-",
+          }])
+          df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
+          mapping_updated = True
 
       time.sleep(0.1)
 
-    # 更新並寫回中央對照表與基準表
-    if new_mappings:
-      df_new_m = pd.DataFrame(new_mappings)
-      df_mapping = pd.concat([df_mapping, df_new_m], ignore_index=True)
+    # 儲存更新後的對照表與基準表檔案
+    if mapping_updated:
       df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
-      print(f"✨ 成功新增 {len(new_mappings)} 筆新歌至 yt_mapping.csv")
+      print(f"💾 對照表更新完成 ➔ {MAPPING_FILE}")
 
-    if new_baselines:
-      df_new_b = pd.DataFrame(new_baselines)
-      df_baseline = pd.concat([df_baseline, df_new_b], ignore_index=True)
+    if baseline_updated:
       df_baseline.to_csv(BASELINE_FILE, index=False, encoding="utf-8-sig")
-      print(f"✨ 成功新增 {len(new_baselines)} 筆初始數據至 yt_baseline.csv")
+      print(f"💾 基準表更新完成 ➔ {BASELINE_FILE}")
 
-  # 步驟 D：批次查詢所有歌曲當下的最新點閱率
+  # 步驟 D：批次查詢今日榜單所有有效 Video ID 當下的最新點閱率
   all_today_mapped = pd.merge(
       df_unique_songs,
       df_mapping[["歌名", "歌手", "Video ID"]],
       on=["歌名", "歌手"],
       how="left",
   )
+
   unique_vids = [
-      str(vid)
+      str(vid).strip()
       for vid in all_today_mapped["Video ID"].dropna().unique()
-      if str(vid) != "-" and str(vid) != "nan"
+      if str(vid).strip() not in ["-", "", "nan", "None"]
   ]
 
   view_counts_dict = {}
@@ -427,10 +481,9 @@ def main():
           print(f"⚠️ 批次抓取點閱率未知錯誤: {e}")
           break
 
-  # 步驟 E：保留原 QQ 音樂所有欄位，並「附加」新增 YouTube ID 與點閱率欄位寫入 CSV
+  # 步驟 E：將 YouTube ID 與點閱率附加寫入每日榜單 CSV
   print("💾 正在附加 YouTube 資訊並儲存今日榜單 CSV 檔案...")
   for tag, (chart_name, df_chart) in fetched_charts.items():
-    # 合併 Video ID
     df_final = pd.merge(
         df_chart,
         df_mapping[["歌名", "歌手", "Video ID"]],
@@ -438,22 +491,18 @@ def main():
         how="left",
     )
 
-    # 額外新增「YouTube ID」欄位 (不覆蓋專輯)
     df_final["YouTube ID"] = df_final["Video ID"].fillna("-")
 
-    # 額外新增「點閱率」欄位 (不覆蓋發行日期)
     raw_views = df_final["Video ID"].map(view_counts_dict).fillna(0)
     df_final["點閱率"] = raw_views.apply(
         lambda x: f"{int(x):,}" if x > 0 else "-"
     )
 
-    # 移除中間輔助欄位
     df_final = df_final.drop(columns=["Video ID"], errors="ignore")
 
-    # 寫入 CSV 檔案
     csv_filename = os.path.join(target_dir, f"{date_str}_{tag}.csv")
     df_final.to_csv(csv_filename, index=False, encoding="utf-8-sig")
-    print(f"  ✓ [{chart_name}] 已成功儲存 ➔ {csv_filename}")
+    print(f"   ✓ [{chart_name}] 已成功儲存 ➔ {csv_filename}")
 
   print("✅ 每日排程、YouTube 對照與點閱率附加寫入全部完成！")
 
