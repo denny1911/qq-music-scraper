@@ -834,7 +834,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (精準 Topic/音源過濾與多 Key 自動輪詢版)
+# 📺 模組四：YouTube 點閱測繪 (精準 Topic/音源過濾、簡繁雙向比對與多 Key 自動輪詢版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -885,6 +885,7 @@ with main_tabs[3]:
 
     if start_btn:
         import re
+        import zhconv  # 引入簡繁轉換套件
 
         def parse_duration(duration_str):
             """將 YouTube ISO 8601 時間字串 (例如 PT3M45S) 轉為總秒數"""
@@ -958,6 +959,16 @@ with main_tabs[3]:
                 query_str = f"{song} {singer}"
                 success = False
 
+                # 簡繁雙向對照字串生成
+                song_sim = zhconv.convert(song, "zh-hans").lower()  # 簡體歌名
+                song_tra = zhconv.convert(song, "zh-hant").lower()  # 繁體歌名
+
+                singer_sim = zhconv.convert(singer, "zh-hans").lower()  # 簡體歌手
+                singer_tra = zhconv.convert(singer, "zh-hant").lower()  # 繁體歌手
+
+                # 拆分多位歌手 (以 / & , + 等符號分割)
+                singer_tokens = [s.strip() for s in re.split(r'[/&,\+]', singer) if s.strip()]
+
                 while current_key_idx < len(api_keys) and not success:
                     if youtube_service is None:
                         youtube_service = build_yt_service(current_key_idx)
@@ -996,9 +1007,6 @@ with main_tabs[3]:
 
                             candidates = []
 
-                            song_clean = song.lower()
-                            singer_clean = singer.lower()
-
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
                                 v_title = item["snippet"]["title"]
@@ -1024,13 +1032,24 @@ with main_tabs[3]:
                                 if not is_topic and has_noise:
                                     continue
 
-                                song_in_title = song_clean in v_title_lower
-                                singer_in_title = singer_clean in v_title_lower
-                                singer_in_channel = singer_clean in channel_lower
-
-                                # 3. 欄位驗證：標題必須含有歌名
+                                # 3. 簡繁雙向比對歌名 (只要命中簡體或繁體即可)
+                                song_in_title = (song_sim in v_title_lower) or (song_tra in v_title_lower)
                                 if not song_in_title:
                                     continue
+
+                                # 4. 簡繁雙向比對歌手
+                                singer_in_title = (singer_sim in v_title_lower) or (singer_tra in v_title_lower)
+                                singer_in_channel = (singer_sim in channel_lower) or (singer_tra in channel_lower)
+
+                                # 若完整歌手字串沒命中，嘗試比對個別拆分出的歌手 (例："王赫野/黄龄")
+                                if not (singer_in_title or singer_in_channel) and singer_tokens:
+                                    for stkn in singer_tokens:
+                                        stkn_sim = zhconv.convert(stkn, "zh-hans").lower()
+                                        stkn_tra = zhconv.convert(stkn, "zh-hant").lower()
+                                        if (stkn_sim in v_title_lower) or (stkn_tra in v_title_lower) or \
+                                           (stkn_sim in channel_lower) or (stkn_tra in channel_lower):
+                                            singer_in_title = True
+                                            break
 
                                 cand = {
                                     "id": v_id,
@@ -1040,13 +1059,12 @@ with main_tabs[3]:
                                     "url": f"https://www.youtube.com/watch?v={v_id}",
                                 }
 
-                                # 條件 A: Topic 頻道 (只要歌名對即通過)
+                                # 條件 A: Topic 頻道 (只要歌名命中即放行)
                                 if is_topic:
                                     candidates.append(cand)
-                                # 條件 B: 非 Topic，但標題或頻道有歌手名字 (排除如愛奇藝花絮等無關影片)
+                                # 條件 B: 非 Topic，但標題或頻道名稱包含歌手 (排除無關同名歌)
                                 elif singer_in_title or singer_in_channel:
                                     candidates.append(cand)
-                                # 條件 C: 標題僅有歌名但無歌手且非 Topic ➔ 判定無關影片不予採納
 
                             # 從合格候選池中挑選點閱最高者
                             if candidates:
@@ -1059,7 +1077,7 @@ with main_tabs[3]:
                         success = True
 
                     except HttpError as e:
-                        # 判定 403 或 429，且包含額度用盡關鍵字
+                        # 判定 403 或 429，且包含額度用盡關鍵字 (自動切換 Key)
                         is_quota_error = e.resp.status in [403, 429] or any(
                             k in str(e) for k in ["quotaExceeded", "rateLimitExceeded", "Quota exceeded"]
                         )
