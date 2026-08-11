@@ -92,11 +92,11 @@ def main():
     target_dir = os.path.join(DATA_DIR, date_str)
     os.makedirs(target_dir, exist_ok=True)
 
-    # 準備讀取多組 API Keys (從 GitHub Secrets 注入的環境變數)
+    # 準備讀取多組 API Keys
     raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
     api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
     if not api_keys:
-        print("❌ 警告：未找到 YOUTUBE_API_KEYS 環境變數，YouTube 搜尋功能將無法運作！")
+        print("❌ 警告：未找到 YOUTUBE_API_KEYS 環境變數，YouTube 搜尋與點閱抓取功能將無法運作！")
 
     # 定義 4 個榜單
     charts = {
@@ -106,15 +106,14 @@ def main():
         "tik": {"top_id": 60, "name": "抖音熱歌榜"},
     }
 
+    fetched_charts = {}
     all_charts_df_list = []
 
-    # 步驟 A：抓取今日所有榜單並儲存每日 CSV
+    # 步驟 A：撈取今日 4 個榜單資料，暫存記憶體
     for tag, info in charts.items():
         df = fetch_qq_music_chart(info["top_id"], info["name"], date_str)
         if df is not None and not df.empty:
-            csv_filename = os.path.join(target_dir, f"{date_str}_{tag}.csv")
-            df.to_csv(csv_filename, index=False, encoding="utf-8-sig")
-            print(f" ✓ [{info['name']}] 儲存成功 ➔ {csv_filename}")
+            fetched_charts[tag] = (info["name"], df)
             all_charts_df_list.append(df)
 
     if not all_charts_df_list:
@@ -136,15 +135,16 @@ def main():
     else:
         df_baseline = pd.DataFrame(columns=["歌名", "歌手", "Initial Views", "Initial Date"])
 
-    # 步驟 C：檢查哪些歌是新面孔，需要透過 YouTube API 補抓 ID
-    if api_keys:
-        current_key_idx = 0
-        def get_yt_service(idx):
-            if idx < len(api_keys):
-                return build("youtube", "v3", developerKey=api_keys[idx])
-            return None
+    # 步驟 C：檢查是否有新歌，透過 YouTube API 進行測繪補抓 ID
+    current_key_idx = 0
+    def get_yt_service(idx):
+        if idx < len(api_keys):
+            return build("youtube", "v3", developerKey=api_keys[idx])
+        return None
 
-        youtube_service = get_yt_service(current_key_idx)
+    youtube_service = get_yt_service(current_key_idx)
+
+    if api_keys:
         new_mappings = []
         new_baselines = []
 
@@ -154,13 +154,12 @@ def main():
             song = str(row["歌名"]).strip()
             singer = str(row["歌手"]).strip()
 
-            # 檢查是否已經存在於中央對照表中
             exists = not df_mapping[(df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)].empty
             if exists:
-                continue  # 已經有了就跳過，省下 API 額度！
+                continue
 
-            print(發現新歌：{song} - {singer}，正在向 YouTube 檢索...)
-            
+            print(f"🆕 發現新歌：{song} - {singer}，正在向 YouTube 檢索...")
+
             query_str = f"{song} {singer}"
             matched_id = None
             matched_title = None
@@ -243,7 +242,7 @@ def main():
                     success = True
                 except HttpError as e:
                     if e.resp.status in [403, 429]:
-                        print(f"⚠️ API Key 額度用盡，自動切換下一組...")
+                        print("⚠️ API Key 額度用盡，自動切換下一組...")
                         current_key_idx += 1
                         youtube_service = get_yt_service(current_key_idx)
                     else:
@@ -266,7 +265,7 @@ def main():
             
             time.sleep(0.1)
 
-        # 步驟 D：更新並寫回中央對照表與基準表
+        # 更新並寫回中央對照表與基準表
         if new_mappings:
             df_new_m = pd.DataFrame(new_mappings)
             df_mapping = pd.concat([df_mapping, df_new_m], ignore_index=True)
@@ -279,7 +278,64 @@ def main():
             df_baseline.to_csv(BASELINE_FILE, index=False, encoding="utf-8-sig")
             print(f"✨ 成功新增 {len(new_baselines)} 筆初始數據至 yt_baseline.csv")
 
-    print("✅ 每日排程與 YouTube 對照更新全部完成！")
+    # 步驟 D：批次查詢所有歌曲當下的最新點閱率
+    all_today_mapped = pd.merge(df_unique_songs, df_mapping[["歌名", "歌手", "Video ID"]], on=["歌名", "歌手"], how="left")
+    unique_vids = [str(vid) for vid in all_today_mapped["Video ID"].dropna().unique() if str(vid) != "-" and str(vid) != "nan"]
+    
+    view_counts_dict = {}
+    if unique_vids and api_keys:
+        print(f"📊 正在批次向 YouTube 查詢 {len(unique_vids)} 首歌曲的最新點閱率...")
+        for i in range(0, len(unique_vids), 50):
+            chunk = unique_vids[i:i+50]
+            fetched = False
+            while current_key_idx < len(api_keys) and not fetched:
+                if youtube_service is None:
+                    youtube_service = get_yt_service(current_key_idx)
+                    if not youtube_service:
+                        break
+                try:
+                    v_res = youtube_service.videos().list(
+                        part="statistics", id=",".join(chunk)
+                    ).execute()
+                    for item in v_res.get("items", []):
+                        v_id = item["id"]
+                        v_views = int(item["statistics"].get("viewCount", 0))
+                        view_counts_dict[v_id] = v_views
+                    fetched = True
+                except HttpError as e:
+                    if e.resp.status in [403, 429]:
+                        print("⚠️ API Key 額度用盡，自動切換下一組...")
+                        current_key_idx += 1
+                        youtube_service = get_yt_service(current_key_idx)
+                    else:
+                        print(f"⚠️ 批次抓取點閱率錯誤: {e}")
+                        break
+                except Exception as e:
+                    print(f"⚠️ 批次抓取點閱率未知錯誤: {e}")
+                    break
+
+    # 步驟 E：保留原 QQ 音樂所有欄位，並「附加」新增 YouTube ID 與點閱率欄位寫入 CSV
+    print("💾 正在附加 YouTube 資訊並儲存今日榜單 CSV 檔案...")
+    for tag, (chart_name, df_chart) in fetched_charts.items():
+        # 合併 Video ID
+        df_final = pd.merge(df_chart, df_mapping[["歌名", "歌手", "Video ID"]], on=["歌名", "歌手"], how="left")
+        
+        # 額外新增「YouTube ID」欄位 (不覆蓋專輯)
+        df_final["YouTube ID"] = df_final["Video ID"].fillna("-")
+        
+        # 額外新增「點閱率」欄位 (不覆蓋發行日期)
+        raw_views = df_final["Video ID"].map(view_counts_dict).fillna(0)
+        df_final["點閱率"] = raw_views.apply(lambda x: f"{int(x):,}" if x > 0 else "-")
+
+        # 移除中間輔助欄位
+        df_final = df_final.drop(columns=["Video ID"], errors="ignore")
+
+        # 寫入 CSV 檔案
+        csv_filename = os.path.join(target_dir, f"{date_str}_{tag}.csv")
+        df_final.to_csv(csv_filename, index=False, encoding="utf-8-sig")
+        print(f"  ✓ [{chart_name}] 已成功儲存 ➔ {csv_filename}")
+
+    print("✅ 每日排程、YouTube 對照與點閱率附加寫入全部完成！")
 
 if __name__ == "__main__":
     main()
