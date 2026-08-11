@@ -1059,8 +1059,9 @@ with main_tabs[3]:
                         success = True
 
                     except HttpError as e:
-                        is_quota_error = e.resp.status == 403 and (
-                            "quotaExceeded" in str(e) or "rateLimitExceeded" in str(e)
+                        # 判定 403 或 429，且包含額度用盡關鍵字
+                        is_quota_error = e.resp.status in [403, 429] or any(
+                            k in str(e) for k in ["quotaExceeded", "rateLimitExceeded", "Quota exceeded"]
                         )
                         if is_quota_error:
                             st.warning(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
