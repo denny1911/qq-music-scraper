@@ -1,7 +1,11 @@
 name: Run YT Mapping Initialization
 
 on:
-  workflow_dispatch: # 允許在網頁上記錄點擊按鈕手動觸發
+  workflow_dispatch:
+
+# 賦予 Actions 寫入 GitHub 儲存庫的權限
+permissions:
+  contents: write
 
 jobs:
   run-init:
