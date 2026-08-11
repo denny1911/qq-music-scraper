@@ -1169,6 +1169,7 @@ with main_tabs[4]:
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
 
+                    # 1. 移除不必要的內部紀錄欄位
                     cols_to_drop = [
                         c
                         for c in ["抓取日期", "榜單類型", "榜單種類"]
@@ -1177,100 +1178,47 @@ with main_tabs[4]:
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
-                    # --- 整合中央對照表與即時點閱率 ---
-                    mapping_path = os.path.join(data_dir, "yt_mapping.csv")
-                    if os.path.exists(mapping_path):
-                        df_mapping = pd.read_csv(mapping_path)
-                        df = pd.merge(
-                            df,
-                            df_mapping[["歌名", "歌手", "Youtube Id"]],
-                            on=["歌名", "歌手"],
-                            how="left",
-                        )
-                    else:
-                        df["Youtube Id"] = "-"
-
-                    # 批次查詢 YouTube 觀看數
-                    v_ids = [
-                        str(vid)
-                        for vid in df["Youtube Id"].dropna().unique()
-                        if vid != "-" and pd.notna(vid)
-                    ]
-                    view_count_dict = {}
-                    if v_ids:
-                        try:
-                            raw_keys = st.secrets.get(
-                                "YOUTUBE_API_KEYS",
-                                st.secrets.get("YOUTUBE_API_KEY", []),
-                            )
-                            if isinstance(raw_keys, str):
-                                api_keys = [
-                                    k.strip()
-                                    for k in raw_keys.split(",")
-                                    if k.strip()
-                                ]
-                            elif isinstance(raw_keys, list):
-                                api_keys = [
-                                    str(k).strip()
-                                    for k in raw_keys
-                                    if str(k).strip()
-                                ]
-                            else:
-                                api_keys = []
-
-                            if api_keys:
-                                from googleapiclient.discovery import build
-                                yt_service = build(
-                                    "youtube",
-                                    "v3",
-                                    developerKey=api_keys[0],
+                    # 2. 舊資料相容機制（若歷史 CSV 尚未含 YouTube 欄位則從對照表補入）
+                    if "YouTube ID" not in df.columns:
+                        mapping_path = os.path.join(data_dir, "yt_mapping.csv")
+                        if os.path.exists(mapping_path):
+                            df_mapping = pd.read_csv(mapping_path)
+                            if "Video ID" in df_mapping.columns:
+                                df = pd.merge(
+                                    df,
+                                    df_mapping[["歌名", "歌手", "Video ID"]],
+                                    on=["歌名", "歌手"],
+                                    how="left",
                                 )
-                                for i in range(0, len(v_ids), 50):
-                                    chunk = v_ids[i : i + 50]
-                                    res = (
-                                        yt_service.videos()
-                                        .list(
-                                            part="statistics",
-                                            id=",".join(chunk),
-                                        )
-                                        .execute()
-                                    )
-                                    for item in res.get("items", []):
-                                        view_count_dict[item["id"]] = int(
-                                            item["statistics"].get("viewCount", 0)
-                                        )
-                        except Exception:
-                            pass
+                                df = df.rename(columns={"Video ID": "YouTube ID"})
 
-                    df["YT 觀看次數"] = (
-                        df["Youtube Id"].map(view_count_dict).fillna(0)
-                    )
+                        if "YouTube ID" not in df.columns:
+                            df["YouTube ID"] = "-"
+                        else:
+                            df["YouTube ID"] = df["YouTube ID"].fillna("-")
 
-                
-                    df["專輯"] = df["Youtube Id"].fillna("-")
-                    df["發行日期"] = df["YT 觀看次數"].apply(
-                        lambda x: f"{int(x):,}" if x > 0 else "-"
-                    )
+                    if "點閱率" not in df.columns:
+                        df["點閱率"] = "-"
 
-                    # 重新命名欄位呈現
-                    df = df.rename(
-                        columns={
-                            "專輯": "YouTube ID",
-                            "發行日期": "點閱率",
-                        }
-                    )
-
-                    # 移除暫時的輔助欄位
-                    if "Youtube Id" in df.columns:
-                        df = df.drop(columns=["VYoutube Id"])
-                    if "YT 觀看次數" in df.columns:
-                        df = df.drop(columns=["YT 觀看次數"])
-                    # ----------------------------------
+                    # 3. 調整欄位排序（確保依序為：排名, 歌名, 歌手, 專輯, 發行日期, YouTube ID, 點閱率）
+                    expected_order = [
+                        "排名",
+                        "歌名",
+                        "歌手",
+                        "專輯",
+                        "發行日期",
+                        "YouTube ID",
+                        "點閱率",
+                    ]
+                    existing_order = [c for c in expected_order if c in df.columns]
+                    other_cols = [c for c in df.columns if c not in existing_order]
+                    df = df[existing_order + other_cols]
 
                     st.success(
                         f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料"
                     )
 
+                    # 搜尋過濾功能
                     search_term = st.text_input(
                         f"🔍 在【{chart_name}】中搜尋歌名或歌手",
                         key=f"raw_{chart_key}",
@@ -1287,6 +1235,7 @@ with main_tabs[4]:
                         )
                         df = df[mask]
 
+                    # 渲染表格與下載按鈕
                     st.dataframe(
                         format_df_for_display(df),
                         hide_index=True,
@@ -1306,6 +1255,4 @@ with main_tabs[4]:
                         f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。"
                     )
     else:
-        st.info(
-            "💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。"
-        )
+        st.info("💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。")
