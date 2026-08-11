@@ -834,7 +834,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本 - 含 Shorts 過濾、台灣地區鎖定與標題比對)
+# 📺 模組四：YouTube 點閱測繪 (多 Key 自動輪詢與限額自動切換版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -896,17 +896,17 @@ with main_tabs[3]:
             seconds = int(match.group(3) or 0)
             return hours * 3600 + minutes * 60 + seconds
 
-        # 1. 自動相容單組與多組 API Key 格式
+        # 1. 解析 Secrets 中的多組 API Key (自動相容 List 與逗號分隔字串)
         raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
         if isinstance(raw_keys, str):
-            api_keys = [raw_keys]
+            api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
         elif isinstance(raw_keys, list):
-            api_keys = raw_keys
+            api_keys = [str(k).strip() for k in raw_keys if str(k).strip()]
         else:
             api_keys = []
 
         if not api_keys:
-            st.error("❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets 設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`！")
+            st.error("❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets 設定 `YOUTUBE_API_KEYS`！")
             st.stop()
 
         df_curr = load_date_data(m4_date)
@@ -952,14 +952,18 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
-                # 💡 優化 1：將歌名與歌手加上複合搜尋詞，提高精確度
                 query_str = f"{song} {singer}"
                 success = False
 
-                # 輪詢 Key 重試機制
+                # 輪詢 Key 重試機制：只要目前 Key 沒用完且尚未獲取成功就繼續嘗試
                 while current_key_idx < len(api_keys) and not success:
+                    if youtube_service is None:
+                        youtube_service = build_yt_service(current_key_idx)
+                        if youtube_service is None:
+                            break
+
                     try:
-                        # 💡 優化 2：order 改為 "relevance"（按相關度排序），確保撈出最符合歌名的影片
+                        # Step A: 搜尋相關影片
                         search_res = (
                             youtube_service.search()
                             .list(
@@ -980,7 +984,7 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # 批量取得 10 筆影片詳細數據
+                            # Step B: 批量取得影片詳細資訊
                             video_res = (
                                 youtube_service.videos()
                                 .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
@@ -988,7 +992,7 @@ with main_tabs[3]:
                             )
 
                             candidates = []
-                            fallback_candidates = [] # 備用標題比對沒過但相關的項目
+                            fallback_candidates = []
 
                             song_clean = song.lower()
 
@@ -997,11 +1001,10 @@ with main_tabs[3]:
                                 v_title = item["snippet"]["title"]
                                 v_views = int(item["statistics"].get("viewCount", 0))
 
-                                # 取得片長並計算秒數
                                 duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
-                                # 🚫 自動過濾長度 <= 60 秒的 Shorts 短影片
+                                # 過濾 Shorts ( <= 60 秒 )
                                 if duration_sec <= 60:
                                     continue
 
@@ -1012,13 +1015,11 @@ with main_tabs[3]:
                                     "url": f"https://www.youtube.com/watch?v={v_id}",
                                 }
 
-                                # 💡 優化 3：歌名比對保護（避免撈到同歌手的其他歌）
                                 if song_clean in v_title.lower():
                                     candidates.append(cand)
                                 else:
                                     fallback_candidates.append(cand)
 
-                            # 若有標題含歌名的候選項目，優先從中選點閱最高的；若無才退回相關性備用清單
                             target_pool = candidates if candidates else fallback_candidates
 
                             if target_pool:
@@ -1031,7 +1032,11 @@ with main_tabs[3]:
                         success = True
 
                     except HttpError as e:
-                        if e.resp.status == 403 and "quotaExceeded" in str(e):
+                        # 403 且包含 quotaExceeded 或 rateLimitExceeded 代表 Key 額度耗盡
+                        is_quota_error = e.resp.status == 403 and (
+                            "quotaExceeded" in str(e) or "rateLimitExceeded" in str(e)
+                        )
+                        if is_quota_error:
                             st.warning(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
                             current_key_idx += 1
                             youtube_service = build_yt_service(current_key_idx)
