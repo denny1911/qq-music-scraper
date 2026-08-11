@@ -1183,17 +1183,17 @@ with main_tabs[4]:
                         df_mapping = pd.read_csv(mapping_path)
                         df = pd.merge(
                             df,
-                            df_mapping[["歌名", "歌手", "Video ID"]],
+                            df_mapping[["歌名", "歌手", "Youtube Id"]],
                             on=["歌名", "歌手"],
                             how="left",
                         )
                     else:
-                        df["Video ID"] = "-"
+                        df["Youtube Id"] = "-"
 
                     # 批次查詢 YouTube 觀看數
                     v_ids = [
                         str(vid)
-                        for vid in df["Video ID"].dropna().unique()
+                        for vid in df["Youtube Id"].dropna().unique()
                         if vid != "-" and pd.notna(vid)
                     ]
                     view_count_dict = {}
@@ -1243,11 +1243,11 @@ with main_tabs[4]:
                             pass
 
                     df["YT 觀看次數"] = (
-                        df["Video ID"].map(view_count_dict).fillna(0)
+                        df["Youtube Id"].map(view_count_dict).fillna(0)
                     )
 
-                    # 將原本的「專輯」欄位取代為 YouTube ID，「發行日期」欄位取代為點閱率
-                    df["專輯"] = df["Video ID"].fillna("-")
+                
+                    df["專輯"] = df["Youtube Id"].fillna("-")
                     df["發行日期"] = df["YT 觀看次數"].apply(
                         lambda x: f"{int(x):,}" if x > 0 else "-"
                     )
@@ -1261,8 +1261,8 @@ with main_tabs[4]:
                     )
 
                     # 移除暫時的輔助欄位
-                    if "Video ID" in df.columns:
-                        df = df.drop(columns=["Video ID"])
+                    if "Youtube Id" in df.columns:
+                        df = df.drop(columns=["VYoutube Id"])
                     if "YT 觀看次數" in df.columns:
                         df = df.drop(columns=["YT 觀看次數"])
                     # ----------------------------------
