@@ -834,7 +834,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (全網高點閱精準比對與多 Key 自動輪詢版)
+# 📺 模組四：YouTube 點閱測繪 (整合 Topic 豁免與進階清理雙優點版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -1006,9 +1006,16 @@ with main_tabs[3]:
 
             youtube_service = build_yt_service(current_key_idx)
 
-            # 結合原版與新版之完整噪音關鍵字過濾庫
+            # 噪音關鍵字過濾庫
             COMBINED_NOISE_KEYWORDS = [
-                "花絮", "未播", "片段", "採訪", "預告", "解說", "幕後", "reaction"
+                "花絮",
+                "未播",
+                "片段",
+                "採訪",
+                "預告",
+                "解說",
+                "幕後",
+                "reaction",
             ]
 
             for idx, row in test_songs.reset_index(drop=True).iterrows():
@@ -1058,15 +1065,15 @@ with main_tabs[3]:
                             break
 
                     try:
-                        # 💡 重新補回 videoCategoryId="10" (音樂類別)，並維持 order="viewCount" 與 maxResults=20
+                        # 💡 調整 1：整合 API 搜尋參數（order="relevance"、maxResults=10、videoCategoryId="10"）
                         search_res = (
                             youtube_service.search()
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=20,
+                                maxResults=10,
                                 type="video",
-                                order="viewCount",
+                                order="relevance",
                                 videoCategoryId="10",
                                 regionCode="TW",
                             )
@@ -1106,48 +1113,61 @@ with main_tabs[3]:
                                 ).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
-                                # 還原原本的片長限制：61 秒 ~ 10 分鐘 (<= 60 或 > 600 剔除)
+                                # 片長限制：61 秒 ~ 10 分鐘
                                 if duration_sec <= 60 or duration_sec > 600:
                                     continue
 
                                 v_title_lower = v_title.lower()
                                 v_title_norm = normalize_text(v_title)
+                                channel_lower = channel_title.lower()
                                 channel_norm = normalize_text(channel_title)
 
-                                # 1. 結合型噪音詞過濾
-                                if any(
+                                # 💡 調整 2：判定是否為 Topic 官方生成音源頻道
+                                is_topic = (
+                                    "topic" in channel_lower
+                                    or "主題" in channel_lower
+                                )
+
+                                # 💡 調整 3：噪音詞放行條件（非 Topic 頻道且含有噪音詞時才剔除）
+                                has_noise = any(
                                     nk in v_title_lower
                                     for nk in COMBINED_NOISE_KEYWORDS
-                                ):
+                                )
+                                if not is_topic and has_noise:
                                     continue
 
-                                # 2. 歌名簡繁體比對
+                                # 歌名簡繁體比對
                                 song_matched = (
                                     song_sim_norm in v_title_norm
                                 ) or (song_tra_norm in v_title_norm)
                                 if not song_matched:
                                     continue
 
-                                # 3. 歌手比對（標題或頻道名包含任意一位歌手即可）
+                                # 歌手比對
                                 singer_matched = any(
                                     tkn in v_title_norm for tkn in artist_tokens
                                 ) or any(
                                     tkn in channel_norm for tkn in artist_tokens
                                 )
 
-                                if singer_matched:
-                                    candidates.append({
-                                        "id": v_id,
-                                        "title": v_title,
-                                        "channel": channel_title,
-                                        "views": v_views,
-                                        "url": (
-                                            "https://www.youtube.com/watch?v="
-                                            f"{v_id}"
-                                        ),
-                                    })
+                                cand = {
+                                    "id": v_id,
+                                    "title": v_title,
+                                    "channel": channel_title,
+                                    "views": v_views,
+                                    "url": (
+                                        "https://www.youtube.com/watch?v="
+                                        f"{v_id}"
+                                    ),
+                                }
 
-                            # 從符合條件的候選集中挑選點閱最高者
+                                # 💡 調整 4：Topic 歌手比對豁免（Topic 頻道只要歌名對即納入；非 Topic 頻道才需檢驗歌手）
+                                if is_topic:
+                                    candidates.append(cand)
+                                elif singer_matched:
+                                    candidates.append(cand)
+
+                            # 從合格候選集中挑選點閱最高者
                             if candidates:
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
