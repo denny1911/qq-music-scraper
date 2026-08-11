@@ -834,7 +834,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (精準 Topic/音源過濾、簡繁雙向比對與多 Key 自動輪詢版)
+# 📺 模組四：YouTube 點閱測繪 (全網高點閱精準比對與多 Key 自動輪詢版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -889,7 +889,9 @@ with main_tabs[3]:
 
         def parse_duration(duration_str):
             """將 YouTube ISO 8601 時間字串 (例如 PT3M45S) 轉為總秒數"""
-            match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str or "")
+            match = re.match(
+                r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration_str or ""
+            )
             if not match:
                 return 0
             hours = int(match.group(1) or 0)
@@ -897,8 +899,66 @@ with main_tabs[3]:
             seconds = int(match.group(3) or 0)
             return hours * 3600 + minutes * 60 + seconds
 
+        def clean_song_title(title):
+            """清理歌名中的前綴（例如 '歌曲：'）以提高搜尋與比對命中率"""
+            if not title:
+                return ""
+            cleaned = re.sub(r"^歌曲[:：]\s*", "", str(title))
+            return cleaned.strip()
+
+        def normalize_text(text):
+            """清理字串中的空格與常見標點符號供模糊比對"""
+            if not text:
+                return ""
+            return re.sub(r"[\s\.\-\_\(\)（）]", "", str(text)).lower()
+
+        def extract_artist_tokens(singer):
+            """拆解多歌手與簡繁體 Token (例如 '周慧敏/刘敏涛' -> ['周慧敏', '刘敏涛', '劉敏濤'])"""
+            if not singer or singer in ["-", "nan", "None"]:
+                return []
+
+            singer_str = str(singer).strip()
+            all_tokens = set()
+
+            # 用常見分隔符切割 (/, &, comma, +, x, feat, ft, etc.)
+            raw_tokens = re.split(
+                r"[/&,\+\·\s\*\-\|]|feat\.?|ft\.?|X|x",
+                singer_str,
+                flags=re.IGNORECASE,
+            )
+
+            for raw in raw_tokens:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                all_tokens.add(zhconv.convert(raw, "zh-hans"))
+                all_tokens.add(zhconv.convert(raw, "zh-hant"))
+
+                # 按 中文 / 英文數字 邊界進一步拆分
+                sub_chunks = re.findall(
+                    r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+", raw
+                )
+                if len(sub_chunks) > 1:
+                    for chunk in sub_chunks:
+                        chunk = chunk.strip()
+                        if len(chunk) >= 2 or re.search(
+                            r"[\u4e00-\u9fa5]", chunk
+                        ):
+                            all_tokens.add(zhconv.convert(chunk, "zh-hans"))
+                            all_tokens.add(zhconv.convert(chunk, "zh-hant"))
+
+            normalized_tokens = []
+            for t in all_tokens:
+                norm = normalize_text(t)
+                if norm and len(norm) >= 2:
+                    normalized_tokens.append(norm)
+
+            return list(set(normalized_tokens))
+
         # 1. 解析 Secrets 中的多組 API Key
-        raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
+        raw_keys = st.secrets.get(
+            "YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", [])
+        )
         if isinstance(raw_keys, str):
             api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
         elif isinstance(raw_keys, list):
@@ -907,7 +967,10 @@ with main_tabs[3]:
             api_keys = []
 
         if not api_keys:
-            st.error("❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets 設定 `YOUTUBE_API_KEYS`！")
+            st.error(
+                "❌ 未找到有效的 API Key，請先在 Streamlit Cloud Secrets 設定"
+                " `YOUTUBE_API_KEYS`！"
+            )
             st.stop()
 
         df_curr = load_date_data(m4_date)
@@ -919,7 +982,8 @@ with main_tabs[3]:
 
         if df_target is None or df_target.empty:
             st.error(
-                f"❌ 無法讀取 `{m4_date}` 的榜單資料，請確認 GitHub Actions 是否已下載該日期之數據。"
+                f"❌ 無法讀取 `{m4_date}` 的榜單資料，請確認 GitHub Actions"
+                " 是否已下載該日期之數據。"
             )
         else:
             from googleapiclient.discovery import build
@@ -935,20 +999,44 @@ with main_tabs[3]:
 
             def build_yt_service(key_idx):
                 if key_idx < len(api_keys):
-                    return build("youtube", "v3", developerKey=api_keys[key_idx])
+                    return build(
+                        "youtube", "v3", developerKey=api_keys[key_idx]
+                    )
                 return None
 
             youtube_service = build_yt_service(current_key_idx)
 
-            # 非歌曲噪音黑名單關鍵字
-            NOISE_KEYWORDS = ["花絮", "未播", "片段", "採訪", "預告", "解說", "幕後", "剪輯", "reaction", "cover"]
+            # 硬拒絕噪音關鍵字（明確非音樂/舞台本體的影片）
+            HARD_NOISE_KEYWORDS = [
+                "解說",
+                "reaction",
+                "反應",
+                "教學",
+                "翻唱教學",
+                "吉他教學",
+                "鋼琴教學",
+                "樂譜",
+                "開箱",
+            ]
 
             for idx, row in test_songs.reset_index(drop=True).iterrows():
-                song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown")))).strip()
-                singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown")))).strip()
+                song = str(
+                    row.get(
+                        "歌名", row.get("song", row.get("歌曲名稱", "Unknown"))
+                    )
+                ).strip()
+                singer = str(
+                    row.get(
+                        "歌手",
+                        row.get("singer", row.get("歌手名稱", "Unknown")),
+                    )
+                ).strip()
                 rank = row.get("排名", idx + 1)
 
-                status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
+                status_text.text(
+                    f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} -"
+                    f" {singer}..."
+                )
                 progress_bar.progress((idx + 1) / test_limit)
 
                 matched_id = None
@@ -956,18 +1044,20 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
-                query_str = f"{song} {singer}"
+                clean_song = clean_song_title(song)
+                query_str = f"{clean_song} {singer}"
                 success = False
 
-                # 簡繁雙向對照字串生成
-                song_sim = zhconv.convert(song, "zh-hans").lower()  # 簡體歌名
-                song_tra = zhconv.convert(song, "zh-hant").lower()  # 繁體歌名
+                # 準備歌名比對格式 (簡體與繁體)
+                song_sim_norm = normalize_text(
+                    zhconv.convert(clean_song, "zh-hans")
+                )
+                song_tra_norm = normalize_text(
+                    zhconv.convert(clean_song, "zh-hant")
+                )
 
-                singer_sim = zhconv.convert(singer, "zh-hans").lower()  # 簡體歌手
-                singer_tra = zhconv.convert(singer, "zh-hant").lower()  # 繁體歌手
-
-                # 拆分多位歌手 (以 / & , + 等符號分割)
-                singer_tokens = [s.strip() for s in re.split(r'[/&,\+]', singer) if s.strip()]
+                # 進階拆解歌手 Token
+                artist_tokens = extract_artist_tokens(singer)
 
                 while current_key_idx < len(api_keys) and not success:
                     if youtube_service is None:
@@ -976,16 +1066,15 @@ with main_tabs[3]:
                             break
 
                     try:
-                        # Step A: 限定音樂類別 (videoCategoryId="10") 檢索前 10 筆
+                        # 💡 移除 videoCategoryId="10" 限制，改用 order="viewCount" 並設 maxResults=20
                         search_res = (
                             youtube_service.search()
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=10,
+                                maxResults=20,
                                 type="video",
-                                videoCategoryId="10",
-                                order="relevance",
+                                order="viewCount",
                                 regionCode="TW",
                             )
                             .execute()
@@ -998,10 +1087,12 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # Step B: 取得影片詳細資訊
                             video_res = (
                                 youtube_service.videos()
-                                .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
+                                .list(
+                                    part="snippet,statistics,contentDetails",
+                                    id=",".join(v_ids),
+                                )
                                 .execute()
                             )
 
@@ -1010,63 +1101,60 @@ with main_tabs[3]:
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
                                 v_title = item["snippet"]["title"]
-                                channel_title = item["snippet"].get("channelTitle", "")
-                                v_views = int(item["statistics"].get("viewCount", 0))
+                                channel_title = item["snippet"].get(
+                                    "channelTitle", ""
+                                )
+                                v_views = int(
+                                    item["statistics"].get("viewCount", 0)
+                                )
 
-                                duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
+                                duration_str = item.get(
+                                    "contentDetails", {}
+                                ).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
-                                # 1. 片長過濾：排除 Shorts (<=60s) 與 超長音訊/合輯 (>10分鐘)
-                                if duration_sec <= 60 or duration_sec > 600:
+                                # 放寬片長限制：30 秒 ~ 20 分鐘
+                                if duration_sec < 30 or duration_sec > 1200:
                                     continue
 
                                 v_title_lower = v_title.lower()
-                                channel_lower = channel_title.lower()
+                                v_title_norm = normalize_text(v_title)
+                                channel_norm = normalize_text(channel_title)
 
-                                # 判定 Topic 頻道特徵
-                                is_topic = "topic" in channel_lower or "主題" in channel_lower
-                                # 判定是否有節目花絮等黑名單關鍵字
-                                has_noise = any(nk in v_title_lower for nk in NOISE_KEYWORDS)
-
-                                # 2. 黑名單剔除：非 Topic 頻道且包含花絮/未播等非歌曲詞彙者直接過濾
-                                if not is_topic and has_noise:
+                                # 1. 排除硬拒絕噪音詞
+                                if any(
+                                    nk in v_title_lower
+                                    for nk in HARD_NOISE_KEYWORDS
+                                ):
                                     continue
 
-                                # 3. 簡繁雙向比對歌名 (只要命中簡體或繁體即可)
-                                song_in_title = (song_sim in v_title_lower) or (song_tra in v_title_lower)
-                                if not song_in_title:
+                                # 2. 歌名簡繁體比對
+                                song_matched = (
+                                    song_sim_norm in v_title_norm
+                                ) or (song_tra_norm in v_title_norm)
+                                if not song_matched:
                                     continue
 
-                                # 4. 簡繁雙向比對歌手
-                                singer_in_title = (singer_sim in v_title_lower) or (singer_tra in v_title_lower)
-                                singer_in_channel = (singer_sim in channel_lower) or (singer_tra in channel_lower)
+                                # 3. 歌手比對（標題或頻道名包含任意一位歌手即可）
+                                singer_matched = any(
+                                    tkn in v_title_norm for tkn in artist_tokens
+                                ) or any(
+                                    tkn in channel_norm for tkn in artist_tokens
+                                )
 
-                                # 若完整歌手字串沒命中，嘗試比對個別拆分出的歌手 (例："王赫野/黄龄")
-                                if not (singer_in_title or singer_in_channel) and singer_tokens:
-                                    for stkn in singer_tokens:
-                                        stkn_sim = zhconv.convert(stkn, "zh-hans").lower()
-                                        stkn_tra = zhconv.convert(stkn, "zh-hant").lower()
-                                        if (stkn_sim in v_title_lower) or (stkn_tra in v_title_lower) or \
-                                           (stkn_sim in channel_lower) or (stkn_tra in channel_lower):
-                                            singer_in_title = True
-                                            break
+                                if singer_matched:
+                                    candidates.append({
+                                        "id": v_id,
+                                        "title": v_title,
+                                        "channel": channel_title,
+                                        "views": v_views,
+                                        "url": (
+                                            "https://www.youtube.com/watch?v="
+                                            f"{v_id}"
+                                        ),
+                                    })
 
-                                cand = {
-                                    "id": v_id,
-                                    "title": v_title,
-                                    "channel": channel_title,
-                                    "views": v_views,
-                                    "url": f"https://www.youtube.com/watch?v={v_id}",
-                                }
-
-                                # 條件 A: Topic 頻道 (只要歌名命中即放行)
-                                if is_topic:
-                                    candidates.append(cand)
-                                # 條件 B: 非 Topic，但標題或頻道名稱包含歌手 (排除無關同名歌)
-                                elif singer_in_title or singer_in_channel:
-                                    candidates.append(cand)
-
-                            # 從合格候選池中挑選點閱最高者
+                            # 從符合條件的候選集中挑選點閱最高者
                             if candidates:
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
@@ -1077,16 +1165,25 @@ with main_tabs[3]:
                         success = True
 
                     except HttpError as e:
-                        # 判定 403 或 429，且包含額度用盡關鍵字 (自動切換 Key)
                         is_quota_error = e.resp.status in [403, 429] or any(
-                            k in str(e) for k in ["quotaExceeded", "rateLimitExceeded", "Quota exceeded"]
+                            k in str(e)
+                            for k in [
+                                "quotaExceeded",
+                                "rateLimitExceeded",
+                                "Quota exceeded",
+                            ]
                         )
                         if is_quota_error:
-                            st.warning(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
+                            st.warning(
+                                f"⚠️ 第 {current_key_idx + 1} 組 API Key"
+                                " 額度用盡，自動切換至下一組 Key..."
+                            )
                             current_key_idx += 1
                             youtube_service = build_yt_service(current_key_idx)
                             if not youtube_service:
-                                st.error("❌ 所有 API Key 的每日額度皆已耗盡！")
+                                st.error(
+                                    "❌ 所有 API Key 的每日額度皆已耗盡！"
+                                )
                                 break
                         else:
                             st.warning(f"搜尋 {song} 時發生 API 錯誤: {e}")
