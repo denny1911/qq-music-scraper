@@ -1008,20 +1008,7 @@ with main_tabs[3]:
 
             # 結合原版與新版之完整噪音關鍵字過濾庫
             COMBINED_NOISE_KEYWORDS = [
-                "解說",
-                "reaction",
-                "反應",
-                "教學",
-                "翻唱教學",
-                "吉他教學",
-                "鋼琴教學",
-                "樂譜",
-                "開箱",
-                "花絮",
-                "未播",
-                "片段",
-                "幕後",
-                "剪輯",
+                "花絮", "未播", "片段", "採訪", "預告", "解說", "幕後", "reaction"
             ]
 
             for idx, row in test_songs.reset_index(drop=True).iterrows():
