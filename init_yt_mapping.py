@@ -94,56 +94,90 @@ def extract_artist_tokens(singer):
 
 
 # ==========================================
-# 2. 核心清洗與全量重新搜尋邏輯
+# 2. 核心邏輯：僅針對缺少 ID 的歌曲進行補抓
 # ==========================================
 def run_init_and_retry():
     raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
     api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
 
     # ----------------------------------------------------
-    # 步驟 1：讀取既有對照表與歷史榜單 CSV，匯整所有歌名與歌手
+    # 步驟 1：讀取既有 yt_mapping.csv（保留已知 ID）
     # ----------------------------------------------------
-    song_dfs = []
-
     if os.path.exists(MAPPING_FILE):
         try:
-            df_existing = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
-            if "歌名" in df_existing.columns and "歌手" in df_existing.columns:
-                song_dfs.append(df_existing[["歌名", "歌手"]])
+            df_mapping = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
         except Exception as e:
-            print(f"⚠️ 讀取舊 {MAPPING_FILE} 失敗: {e}")
+            print(f"⚠️ 讀取既有 {MAPPING_FILE} 失敗: {e}")
+            df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
+    else:
+        df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
 
+    # 補齊必要欄位
+    for col in REQ_MAPPING_COLS:
+        if col not in df_mapping.columns:
+            df_mapping[col] = "-"
+    df_mapping = df_mapping[REQ_MAPPING_COLS]
+
+    # ----------------------------------------------------
+    # 步驟 2：掃描歷史榜單 CSV，補充未存在於對照表中的【全新歌曲】
+    # ----------------------------------------------------
     all_chart_files = glob.glob(
         os.path.join(DATA_DIR, "**", "*.csv"), recursive=True
     )
+    new_song_rows = []
+
     for f in all_chart_files:
         if "yt_mapping" in f or "yt_baseline" in f:
             continue
         try:
             df_chart = pd.read_csv(f, dtype=str)
             if "歌名" in df_chart.columns and "歌手" in df_chart.columns:
-                song_dfs.append(df_chart[["歌名", "歌手"]])
+                for _, c_row in (
+                    df_chart[["歌名", "歌手"]].drop_duplicates().iterrows()
+                ):
+                    s_name = str(c_row["歌名"]).strip()
+                    s_singer = str(c_row["歌手"]).strip()
+
+                    # 檢查是否已在對照表中
+                    exists = (
+                        (df_mapping["歌名"] == s_name)
+                        & (df_mapping["歌手"] == s_singer)
+                    ).any()
+
+                    if not exists:
+                        new_song_rows.append({
+                            "歌名": s_name,
+                            "歌手": s_singer,
+                            "Video ID": "-",
+                            "影片連結": "-",
+                        })
         except Exception as e:
             print(f"⚠️ 讀取 {f} 失敗: {e}")
 
-    if song_dfs:
-        df_mapping = pd.concat(song_dfs, ignore_index=True).drop_duplicates(
-            subset=["歌名", "歌手"], keep="first"
+    if new_song_rows:
+        df_new = pd.DataFrame(new_song_rows).drop_duplicates(
+            subset=["歌名", "歌手"]
         )
-    else:
-        df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
+        df_mapping = pd.concat([df_mapping, df_new], ignore_index=True)
 
-    # ----------------------------------------------------
-    # 步驟 2：強制清空重置 Video ID 與 影片連結
-    # ----------------------------------------------------
-    df_mapping["Video ID"] = "-"
-    df_mapping["影片連結"] = "-"
-    df_mapping = df_mapping[REQ_MAPPING_COLS]
+    df_mapping = df_mapping.drop_duplicates(
+        subset=["歌名", "歌手"], keep="first"
+    ).reset_index(drop=True)
 
-    print(f"📊 對照表初始化完成，共累積 {len(df_mapping)} 首歌曲。已將所有欄位清空重置！")
+    # 找出缺少有效 ID 的歌曲清單
+    missing_mask = df_mapping["Video ID"].astype(str).str.strip().isin(
+        ["-", "", "nan", "None"]
+    )
+    missing_count = missing_mask.sum()
+    total_songs = len(df_mapping)
 
-    if df_mapping.empty:
-        print("ℹ️ 無任何歌曲資料需要處理。")
+    print(
+        f"📊 目前對照表共累積 {total_songs} 首歌曲。"
+        f"其中已知 ID 有 {total_songs - missing_count} 首，待補抓 ID 有 {missing_count} 首。"
+    )
+
+    if missing_count == 0:
+        print("🎉 所有歌曲皆已有有效 Video ID，無需進行 API 搜尋！")
         return
 
     if not api_keys:
@@ -151,9 +185,9 @@ def run_init_and_retry():
         return
 
     # ----------------------------------------------------
-    # 步驟 3：使用模組四邏輯重新搜尋 ID 與點閱
+    # 步驟 3：僅針對 Video ID 為 '-' 的歌曲調用 API 搜尋
     # ----------------------------------------------------
-    print("🚀 開始向 YouTube API 發起全量歌曲搜尋...")
+    print(f"🚀 開始向 YouTube API 發起剩餘 {missing_count} 首歌曲的搜尋...")
 
     current_key_idx = 0
 
@@ -164,15 +198,19 @@ def run_init_and_retry():
 
     youtube_service = get_yt_service(current_key_idx)
     updated_count = 0
-    total_songs = len(df_mapping)
 
     for idx, row in df_mapping.iterrows():
         song = str(row["歌名"]).strip()
         singer = str(row["歌手"]).strip()
-        clean_song = clean_song_title(song)
+        vid_val = str(row["Video ID"]).strip()
 
+        # 💡 核心重點：若已經有有效 Video ID，直接跳過！
+        if vid_val not in ["-", "", "nan", "None"]:
+            continue
+
+        clean_song = clean_song_title(song)
         query_str = f"{clean_song} {singer}"
-        print(f"🔍 [{idx + 1}/{total_songs}] 搜尋中: {song} - {singer} ...")
+        print(f"🔍 [{idx + 1}/{total_songs}] 搜尋補抓中: {song} - {singer} ...")
 
         matched_id = None
         matched_views = 0
@@ -192,7 +230,6 @@ def run_init_and_retry():
                 if not youtube_service:
                     break
             try:
-                # 採用模組四之搜尋參數 (order="relevance", maxResults=10, videoCategoryId="10")
                 search_res = (
                     youtube_service.search()
                     .list(
@@ -251,7 +288,7 @@ def run_init_and_retry():
                             or "主題" in channel_lower
                         )
 
-                        # 2. 噪音詞放行條件（非 Topic 頻道才過濾）
+                        # 2. 噪音詞過濾（非 Topic 頻道才過濾）
                         has_noise = any(
                             nk in v_title_lower
                             for nk in COMBINED_NOISE_KEYWORDS
@@ -279,7 +316,6 @@ def run_init_and_retry():
                             "url": f"https://www.youtube.com/watch?v={v_id}",
                         }
 
-                        # Topic 頻道免歌手驗證；非 Topic 頻道才驗證歌手
                         if is_topic:
                             candidates.append(cand)
                         elif singer_matched:
@@ -319,10 +355,9 @@ def run_init_and_retry():
                 break
 
         if matched_id:
-            print(f"  ✅ 匹配成功 ➔ ID: {matched_id} | 點閱: {matched_views:,}")
-            mask = (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
-            df_mapping.loc[mask, "Video ID"] = matched_id
-            df_mapping.loc[mask, "影片連結"] = matched_url
+            print(f"  ✅ 補抓成功 ➔ ID: {matched_id} | 點閱: {matched_views:,}")
+            df_mapping.loc[idx, "Video ID"] = matched_id
+            df_mapping.loc[idx, "影片連結"] = matched_url
             updated_count += 1
         else:
             print("  ❌ 未找到符合影片，保持 '-'")
@@ -330,14 +365,14 @@ def run_init_and_retry():
         time.sleep(0.1)
 
     print(
-        f"\n🎉 檢索完成！共成功更新 {updated_count} / {total_songs} 首歌曲的 Video ID 與連結！"
+        f"\n🎉 補抓完成！本次共成功補充 {updated_count} / {missing_count} 首歌曲的 Video ID！"
     )
 
     # ----------------------------------------------------
-    # 步驟 4：寫回 yt_mapping.csv 檔案
+    # 步驟 4：更新儲存回 yt_mapping.csv
     # ----------------------------------------------------
     df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
-    print(f"💾 中央對照表已成功重寫 ➔ {MAPPING_FILE}")
+    print(f"💾 對照表已成功更新儲存 ➔ {MAPPING_FILE}")
 
 
 if __name__ == "__main__":
