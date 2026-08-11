@@ -833,8 +833,8 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 
-# ==========================================
-# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本 - 含 Shorts 過濾與台灣地區鎖定)
+==========================================
+# 📺 模組四：YouTube 點閱測繪 (YouTube Data API v3 版本 - 含 Shorts 過濾、台灣地區鎖定與標題比對)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -940,8 +940,8 @@ with main_tabs[3]:
             youtube_service = build_yt_service(current_key_idx)
 
             for idx, row in test_songs.reset_index(drop=True).iterrows():
-                song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown"))))
-                singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown"))))
+                song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown")))).strip()
+                singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown")))).strip()
                 rank = row.get("排名", idx + 1)
 
                 status_text.text(f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}...")
@@ -952,13 +952,14 @@ with main_tabs[3]:
                 matched_views = 0
                 matched_url = None
 
+                # 💡 優化 1：將歌名與歌手加上複合搜尋詞，提高精確度
                 query_str = f"{song} {singer}"
                 success = False
 
                 # 輪詢 Key 重試機制
                 while current_key_idx < len(api_keys) and not success:
                     try:
-                        # Step A: 搜尋前 10 筆，以「觀看數」排序，並加入台灣地區鎖定
+                        # 💡 優化 2：order 改為 "relevance"（按相關度排序），確保撈出最符合歌名的影片
                         search_res = (
                             youtube_service.search()
                             .list(
@@ -966,8 +967,8 @@ with main_tabs[3]:
                                 part="id",
                                 maxResults=10,
                                 type="video",
-                                order="viewCount",
-                                regionCode="TW",  # 👈 這裡已成功加入台灣地區鎖定
+                                order="relevance",
+                                regionCode="TW",
                             )
                             .execute()
                         )
@@ -979,7 +980,7 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # Step B: 批量取得 10 筆影片詳細數據（含 contentDetails 用於計算片長）
+                            # 批量取得 10 筆影片詳細數據
                             video_res = (
                                 youtube_service.videos()
                                 .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
@@ -987,6 +988,10 @@ with main_tabs[3]:
                             )
 
                             candidates = []
+                            fallback_candidates = [] # 備用標題比對沒過但相關的項目
+
+                            song_clean = song.lower()
+
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
                                 v_title = item["snippet"]["title"]
@@ -1000,18 +1005,24 @@ with main_tabs[3]:
                                 if duration_sec <= 60:
                                     continue
 
-                                candidates.append(
-                                    {
-                                        "id": v_id,
-                                        "title": v_title,
-                                        "views": v_views,
-                                        "url": f"https://www.youtube.com/watch?v={v_id}",
-                                    }
-                                )
+                                cand = {
+                                    "id": v_id,
+                                    "title": v_title,
+                                    "views": v_views,
+                                    "url": f"https://www.youtube.com/watch?v={v_id}",
+                                }
 
-                            if candidates:
-                                # 排除 Shorts 後，挑選長影片中點閱數最高者
-                                best = max(candidates, key=lambda x: x["views"])
+                                # 💡 優化 3：歌名比對保護（避免撈到同歌手的其他歌）
+                                if song_clean in v_title.lower():
+                                    candidates.append(cand)
+                                else:
+                                    fallback_candidates.append(cand)
+
+                            # 若有標題含歌名的候選項目，優先從中選點閱最高的；若無才退回相關性備用清單
+                            target_pool = candidates if candidates else fallback_candidates
+
+                            if target_pool:
+                                best = max(target_pool, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_title = best["title"]
                                 matched_views = best["views"]
@@ -1020,7 +1031,6 @@ with main_tabs[3]:
                         success = True
 
                     except HttpError as e:
-                        # 觸發 403 額度耗盡時自動換 Key
                         if e.resp.status == 403 and "quotaExceeded" in str(e):
                             st.warning(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
                             current_key_idx += 1
