@@ -1177,6 +1177,96 @@ with main_tabs[4]:
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
+                    # --- 整合中央對照表與即時點閱率 ---
+                    mapping_path = os.path.join(data_dir, "yt_mapping.csv")
+                    if os.path.exists(mapping_path):
+                        df_mapping = pd.read_csv(mapping_path)
+                        df = pd.merge(
+                            df,
+                            df_mapping[["歌名", "歌手", "Video ID"]],
+                            on=["歌名", "歌手"],
+                            how="left",
+                        )
+                    else:
+                        df["Video ID"] = "-"
+
+                    # 批次查詢 YouTube 觀看數
+                    v_ids = [
+                        str(vid)
+                        for vid in df["Video ID"].dropna().unique()
+                        if vid != "-" and pd.notna(vid)
+                    ]
+                    view_count_dict = {}
+                    if v_ids:
+                        try:
+                            raw_keys = st.secrets.get(
+                                "YOUTUBE_API_KEYS",
+                                st.secrets.get("YOUTUBE_API_KEY", []),
+                            )
+                            if isinstance(raw_keys, str):
+                                api_keys = [
+                                    k.strip()
+                                    for k in raw_keys.split(",")
+                                    if k.strip()
+                                ]
+                            elif isinstance(raw_keys, list):
+                                api_keys = [
+                                    str(k).strip()
+                                    for k in raw_keys
+                                    if str(k).strip()
+                                ]
+                            else:
+                                api_keys = []
+
+                            if api_keys:
+                                from googleapiclient.discovery import build
+                                yt_service = build(
+                                    "youtube",
+                                    "v3",
+                                    developerKey=api_keys[0],
+                                )
+                                for i in range(0, len(v_ids), 50):
+                                    chunk = v_ids[i : i + 50]
+                                    res = (
+                                        yt_service.videos()
+                                        .list(
+                                            part="statistics",
+                                            id=",".join(chunk),
+                                        )
+                                        .execute()
+                                    )
+                                    for item in res.get("items", []):
+                                        view_count_dict[item["id"]] = int(
+                                            item["statistics"].get("viewCount", 0)
+                                        )
+                        except Exception:
+                            pass
+
+                    df["YT 觀看次數"] = (
+                        df["Video ID"].map(view_count_dict).fillna(0)
+                    )
+
+                    # 將原本的「專輯」欄位取代為 YouTube ID，「發行日期」欄位取代為點閱率
+                    df["專輯"] = df["Video ID"].fillna("-")
+                    df["發行日期"] = df["YT 觀看次數"].apply(
+                        lambda x: f"{int(x):,}" if x > 0 else "-"
+                    )
+
+                    # 重新命名欄位呈現
+                    df = df.rename(
+                        columns={
+                            "專輯": "YouTube ID",
+                            "發行日期": "點閱率",
+                        }
+                    )
+
+                    # 移除暫時的輔助欄位
+                    if "Video ID" in df.columns:
+                        df = df.drop(columns=["Video ID"])
+                    if "YT 觀看次數" in df.columns:
+                        df = df.drop(columns=["YT 觀看次數"])
+                    # ----------------------------------
+
                     st.success(
                         f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料"
                     )
