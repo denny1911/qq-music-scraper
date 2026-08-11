@@ -833,8 +833,9 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 
+Python
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (多 Key 自動輪詢與限額自動切換版)
+# 📺 模組四：YouTube 點閱測繪 (精準 Topic/音源過濾與多 Key 自動輪詢版)
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -896,7 +897,7 @@ with main_tabs[3]:
             seconds = int(match.group(3) or 0)
             return hours * 3600 + minutes * 60 + seconds
 
-        # 1. 解析 Secrets 中的多組 API Key (自動相容 List 與逗號分隔字串)
+        # 1. 解析 Secrets 中的多組 API Key
         raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
         if isinstance(raw_keys, str):
             api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
@@ -939,6 +940,9 @@ with main_tabs[3]:
 
             youtube_service = build_yt_service(current_key_idx)
 
+            # 非歌曲噪音黑名單關鍵字
+            NOISE_KEYWORDS = ["花絮", "未播", "片段", "採訪", "預告", "解說", "幕後", "剪輯", "reaction", "cover"]
+
             for idx, row in test_songs.reset_index(drop=True).iterrows():
                 song = str(row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown")))).strip()
                 singer = str(row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown")))).strip()
@@ -955,7 +959,6 @@ with main_tabs[3]:
                 query_str = f"{song} {singer}"
                 success = False
 
-                # 輪詢 Key 重試機制：只要目前 Key 沒用完且尚未獲取成功就繼續嘗試
                 while current_key_idx < len(api_keys) and not success:
                     if youtube_service is None:
                         youtube_service = build_yt_service(current_key_idx)
@@ -963,7 +966,7 @@ with main_tabs[3]:
                             break
 
                     try:
-                        # Step A: 搜尋相關影片
+                        # Step A: 限定音樂類別 (videoCategoryId="10") 檢索前 10 筆
                         search_res = (
                             youtube_service.search()
                             .list(
@@ -971,6 +974,7 @@ with main_tabs[3]:
                                 part="id",
                                 maxResults=10,
                                 type="video",
+                                videoCategoryId="10",
                                 order="relevance",
                                 regionCode="TW",
                             )
@@ -984,7 +988,7 @@ with main_tabs[3]:
                         ]
 
                         if v_ids:
-                            # Step B: 批量取得影片詳細資訊
+                            # Step B: 取得影片詳細資訊
                             video_res = (
                                 youtube_service.videos()
                                 .list(part="snippet,statistics,contentDetails", id=",".join(v_ids))
@@ -992,38 +996,62 @@ with main_tabs[3]:
                             )
 
                             candidates = []
-                            fallback_candidates = []
 
                             song_clean = song.lower()
+                            singer_clean = singer.lower()
 
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
                                 v_title = item["snippet"]["title"]
+                                channel_title = item["snippet"].get("channelTitle", "")
                                 v_views = int(item["statistics"].get("viewCount", 0))
 
                                 duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
-                                # 過濾 Shorts ( <= 60 秒 )
-                                if duration_sec <= 60:
+                                # 1. 片長過濾：排除 Shorts (<=60s) 與 超長音訊/合輯 (>10分鐘)
+                                if duration_sec <= 60 or duration_sec > 600:
+                                    continue
+
+                                v_title_lower = v_title.lower()
+                                channel_lower = channel_title.lower()
+
+                                # 判定 Topic 頻道特徵
+                                is_topic = "topic" in channel_lower or "主題" in channel_lower
+                                # 判定是否有節目花絮等黑名單關鍵字
+                                has_noise = any(nk in v_title_lower for nk in NOISE_KEYWORDS)
+
+                                # 2. 黑名單剔除：非 Topic 頻道且包含花絮/未播等非歌曲詞彙者直接過濾
+                                if not is_topic and has_noise:
+                                    continue
+
+                                song_in_title = song_clean in v_title_lower
+                                singer_in_title = singer_clean in v_title_lower
+                                singer_in_channel = singer_clean in channel_lower
+
+                                # 3. 欄位驗證：標題必須含有歌名
+                                if not song_in_title:
                                     continue
 
                                 cand = {
                                     "id": v_id,
                                     "title": v_title,
+                                    "channel": channel_title,
                                     "views": v_views,
                                     "url": f"https://www.youtube.com/watch?v={v_id}",
                                 }
 
-                                if song_clean in v_title.lower():
+                                # 條件 A: Topic 頻道 (只要歌名對即通過)
+                                if is_topic:
                                     candidates.append(cand)
-                                else:
-                                    fallback_candidates.append(cand)
+                                # 條件 B: 非 Topic，但標題或頻道有歌手名字 (排除如愛奇藝花絮等無關影片)
+                                elif singer_in_title or singer_in_channel:
+                                    candidates.append(cand)
+                                # 條件 C: 標題僅有歌名但無歌手且非 Topic ➔ 判定無關影片不予採納
 
-                            target_pool = candidates if candidates else fallback_candidates
-
-                            if target_pool:
-                                best = max(target_pool, key=lambda x: x["views"])
+                            # 從合格候選池中挑選點閱最高者
+                            if candidates:
+                                best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_title = best["title"]
                                 matched_views = best["views"]
@@ -1032,7 +1060,6 @@ with main_tabs[3]:
                         success = True
 
                     except HttpError as e:
-                        # 403 且包含 quotaExceeded 或 rateLimitExceeded 代表 Key 額度耗盡
                         is_quota_error = e.resp.status == 403 and (
                             "quotaExceeded" in str(e) or "rateLimitExceeded" in str(e)
                         )
