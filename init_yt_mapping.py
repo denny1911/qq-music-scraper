@@ -259,7 +259,6 @@ def run_init_and_retry():
                             part="id",
                             maxResults=20,
                             type="video",
-                            videoCategoryId="10",
                             order="viewCount",
                             regionCode="TW",
                         )
