@@ -15,21 +15,21 @@ DATA_DIR = "data"
 MAPPING_FILE = os.path.join(DATA_DIR, "yt_mapping.csv")
 BASELINE_FILE = os.path.join(DATA_DIR, "yt_baseline.csv")
 
-# 完全刪除「YT 影片標題」，僅保留 4 個標準欄位
+# 徹底刪除「YT 影片標題」，僅保留 4 個標準欄位
 REQ_MAPPING_COLS = ["歌名", "歌手", "Video ID", "影片連結"]
 REQ_BASELINE_COLS = ["歌名", "歌手", "Initial Views", "Initial Date"]
 
-NOISE_KEYWORDS = [
-    "花絮",
-    "未播",
-    "片段",
-    "採訪",
-    "預告",
+# 硬拒絕噪音關鍵字（明確非音樂本體的影片）
+HARD_NOISE_KEYWORDS = [
     "解說",
-    "幕後",
-    "剪輯",
     "reaction",
-    "cover",
+    "反應",
+    "教學",
+    "翻唱教學",
+    "吉他教學",
+    "鋼琴教學",
+    "樂譜",
+    "開箱",
 ]
 
 
@@ -59,15 +59,54 @@ def normalize_text(text):
   return re.sub(r"[\s\.\-\_\(\)（）]", "", str(text)).lower()
 
 
+def extract_artist_tokens(singer):
+  """進階歌手拆解：支援符號拆分與中英文邊界拆分 (例如 'h3R3刘清云' -> ['h3r3', '刘清云', '劉清雲'])"""
+  if not singer or singer in ["-", "nan", "None"]:
+    return []
+
+  singer_str = str(singer).strip()
+  all_tokens = set()
+
+  # 1. 用常見分隔符切割 (/, &, comma, +, x, feat, ft, etc.)
+  raw_tokens = re.split(
+      r"[/&,\+\·\s\*\-\|]|feat\.?|ft\.?|X|x", singer_str, flags=re.IGNORECASE
+  )
+
+  for raw in raw_tokens:
+    raw = raw.strip()
+    if not raw:
+      continue
+
+    # 加入原片段繁簡體
+    all_tokens.add(zhconv.convert(raw, "zh-hans"))
+    all_tokens.add(zhconv.convert(raw, "zh-hant"))
+
+    # 2. 按 中文 / 英文數字 邊界進一步拆分 (解決 h3R3刘清云、告五人Accusefive 這類組合)
+    sub_chunks = re.findall(r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+", raw)
+    if len(sub_chunks) > 1:
+      for chunk in sub_chunks:
+        chunk = chunk.strip()
+        if len(chunk) >= 2 or re.search(r"[\u4e00-\u9fa5]", chunk):
+          all_tokens.add(zhconv.convert(chunk, "zh-hans"))
+          all_tokens.add(zhconv.convert(chunk, "zh-hant"))
+
+  # 清理正規化
+  normalized_tokens = []
+  for t in all_tokens:
+    norm = normalize_text(t)
+    if norm and len(norm) >= 2:  # 避免過短的字母誤判
+      normalized_tokens.append(norm)
+
+  return list(set(normalized_tokens))
+
+
 # ==========================================
 # 2. 核心清洗與主動 YouTube 搜尋補抓邏輯
 # ==========================================
 def run_init_and_retry():
-  # 時區與日期
   tz_taiwan = timezone(timedelta(hours=8))
   date_str = datetime.now(tz_taiwan).strftime("%Y-%m-%d")
 
-  # 讀取 API Keys
   raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
   api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
 
@@ -77,7 +116,7 @@ def run_init_and_retry():
   if os.path.exists(MAPPING_FILE):
     df_mapping = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
 
-    # 舊欄位名稱自動轉換相容
+    # 舊欄位名稱相容
     rename_dict = {
         "video_id": "Video ID",
         "url": "影片連結",
@@ -85,18 +124,15 @@ def run_init_and_retry():
     }
     df_mapping.rename(columns=rename_dict, inplace=True)
 
-    # 主動刪除舊有的「YT 影片標題」欄位
-    if "YT 影片標題" in df_mapping.columns:
-      df_mapping.drop(columns=["YT 影片標題"], inplace=True)
-    if "yt_title" in df_mapping.columns:
-      df_mapping.drop(columns=["yt_title"], inplace=True)
+    # 主動徹底刪除「YT 影片標題」相關欄位
+    for col_to_drop in ["YT 影片標題", "yt_title", "title", "Video Title"]:
+      if col_to_drop in df_mapping.columns:
+        df_mapping.drop(columns=[col_to_drop], inplace=True)
 
-    # 若歷史原因造成欄位名重複，只保留第一個
     df_mapping = df_mapping.loc[:, ~df_mapping.columns.duplicated()]
   else:
     df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
 
-  # 確保必要的 4 個標準欄位存在
   for col in REQ_MAPPING_COLS:
     if col not in df_mapping.columns:
       df_mapping[col] = "-"
@@ -106,7 +142,7 @@ def run_init_and_retry():
   )
 
   # ----------------------------------------------------
-  # 步驟 2：讀取歷史榜單 CSV 收集所有曾出現過的歌曲
+  # 步驟 2：讀取歷史榜單 CSV 收集所有歌曲
   # ----------------------------------------------------
   all_chart_files = glob.glob(
       os.path.join(DATA_DIR, "**", "*.csv"), recursive=True
@@ -130,13 +166,11 @@ def run_init_and_retry():
   else:
     df_all_songs = pd.DataFrame(columns=["歌名", "歌手"])
 
-  # 左連接確保所有歷史歌曲都有進入對照表中
   if not df_all_songs.empty:
     df_mapping = pd.merge(
         df_all_songs, df_mapping, on=["歌名", "歌手"], how="left"
     ).fillna("-")
 
-  # 格式清理
   df_mapping["Video ID"] = (
       df_mapping["Video ID"].replace(["nan", "None", ""], "-").fillna("-")
   )
@@ -163,7 +197,7 @@ def run_init_and_retry():
       df_baseline[col] = "-"
 
   # ----------------------------------------------------
-  # 步驟 4：針對 ID 為 '-' 的歌曲主動發起 YouTube API 搜尋補抓
+  # 步驟 4：針對 ID 為 '-' 的歌曲發起 YouTube API 搜尋
   # ----------------------------------------------------
   missing_mask = df_mapping["Video ID"] == "-"
   missing_songs = df_mapping[missing_mask]
@@ -203,13 +237,12 @@ def run_init_and_retry():
       matched_url = None
       success = False
 
+      # 準備歌名比對格式 (簡體與繁體)
       song_sim_norm = normalize_text(zhconv.convert(clean_song, "zh-hans"))
       song_tra_norm = normalize_text(zhconv.convert(clean_song, "zh-hant"))
-      singer_sim_norm = normalize_text(zhconv.convert(singer, "zh-hans"))
-      singer_tra_norm = normalize_text(zhconv.convert(singer, "zh-hant"))
-      singer_tokens = [
-          s.strip() for s in re.split(r"[/&,\+]", singer) if s.strip()
-      ]
+
+      # 進階拆解歌手 Token
+      artist_tokens = extract_artist_tokens(singer)
 
       while current_key_idx < len(api_keys) and not success:
         if youtube_service is None:
@@ -257,61 +290,43 @@ def run_init_and_retry():
                   item.get("contentDetails", {}).get("duration", "PT0S")
               )
 
-              if duration_sec <= 60 or duration_sec > 600:
+              # 放寬影片時間限制 (30 秒 ~ 20 分鐘)
+              if duration_sec < 30 or duration_sec > 1200:
                 continue
 
               v_title_lower = v_title.lower()
-              channel_lower = channel_title.lower()
-
               v_title_norm = normalize_text(v_title)
               channel_norm = normalize_text(channel_title)
+              channel_lower = channel_title.lower()
 
+              # 1. 排除硬拒絕噪音詞 (例如解說、reaction)
+              if any(nk in v_title_lower for nk in HARD_NOISE_KEYWORDS):
+                continue
+
+              # 2. 歌名比對
+              song_matched = (song_sim_norm in v_title_norm) or (
+                  song_tra_norm in v_title_norm
+              )
+              if not song_matched:
+                continue
+
+              # 3. 歌手比對 (只要命中任一 Token 或 Topic 頻道即算成功)
               is_topic = "topic" in channel_lower or "主題" in channel_lower
-              has_noise = any(nk in v_title_lower for nk in NOISE_KEYWORDS)
-
-              if not is_topic and has_noise:
-                continue
-
-              if not (
-                  (song_sim_norm in v_title_norm)
-                  or (song_tra_norm in v_title_norm)
-              ):
-                continue
-
-              singer_in_title = (singer_sim_norm in v_title_norm) or (
-                  singer_tra_norm in v_title_norm
-              )
-              singer_in_channel = (singer_sim_norm in channel_norm) or (
-                  singer_tra_norm in channel_norm
+              singer_matched = (
+                  is_topic
+                  or any(tkn in v_title_norm for tkn in artist_tokens)
+                  or any(tkn in channel_norm for tkn in artist_tokens)
               )
 
-              if not (singer_in_title or singer_in_channel) and singer_tokens:
-                for stkn in singer_tokens:
-                  stkn_sim_norm = normalize_text(
-                      zhconv.convert(stkn, "zh-hans")
-                  )
-                  stkn_tra_norm = normalize_text(
-                      zhconv.convert(stkn, "zh-hant")
-                  )
-                  if (
-                      (stkn_sim_norm in v_title_norm)
-                      or (stkn_tra_norm in v_title_norm)
-                      or (stkn_sim_norm in channel_norm)
-                      or (stkn_tra_norm in channel_norm)
-                  ):
-                    singer_in_title = True
-                    break
-
-              cand = {
-                  "id": v_id,
-                  "views": v_views,
-                  "url": f"https://www.youtube.com/watch?v={v_id}",
-              }
-
-              if is_topic or singer_in_title or singer_in_channel:
-                candidates.append(cand)
+              if singer_matched:
+                candidates.append({
+                    "id": v_id,
+                    "views": v_views,
+                    "url": f"https://www.youtube.com/watch?v={v_id}",
+                })
 
             if candidates:
+              # 挑選符合條件中點閱最高的影片
               best = max(candidates, key=lambda x: x["views"])
               matched_id = best["id"]
               matched_views = best["views"]
@@ -338,7 +353,7 @@ def run_init_and_retry():
         df_mapping.loc[mask, "影片連結"] = matched_url
         updated_count += 1
 
-        # 更新或新增至 yt_baseline.csv
+        # 同步寫入/更新 yt_baseline.csv
         b_mask = (df_baseline["歌名"] == song) & (df_baseline["歌手"] == singer)
         if b_mask.any():
           if df_baseline.loc[b_mask, "Initial Views"].values[0] in [
@@ -368,7 +383,7 @@ def run_init_and_retry():
     )
 
   # ----------------------------------------------------
-  # 步驟 5：寫回 CSV 檔案
+  # 步驟 5：寫回 CSV 檔案 (格式精簡無多餘欄位)
   # ----------------------------------------------------
   df_mapping = df_mapping[REQ_MAPPING_COLS].drop_duplicates(
       subset=["歌名", "歌手"], keep="first"
