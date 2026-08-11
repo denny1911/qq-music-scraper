@@ -833,6 +833,15 @@ with main_tabs[2]:
         st.info("選定日期區間內無數據。")
 
 
+已按照指示為你調整並重新整合程式碼：
+
+補回 videoCategoryId="10"：搜尋 API 中重新加入音樂類別限制。
+
+結合噪音詞庫：融合舊版的「花絮、未播、片段、幕後、剪輯」與新版的「解說、reaction、反應、教學、開箱」等關鍵字。
+
+還原片長限制：恢復為原本的 61 秒至 10 分鐘（<= 60 或 > 600 予以剔除）。
+
+Python
 # ==========================================
 # 📺 模組四：YouTube 點閱測繪 (全網高點閱精準比對與多 Key 自動輪詢版)
 # ==========================================
@@ -1006,8 +1015,8 @@ with main_tabs[3]:
 
             youtube_service = build_yt_service(current_key_idx)
 
-            # 硬拒絕噪音關鍵字（明確非音樂/舞台本體的影片）
-            HARD_NOISE_KEYWORDS = [
+            # 結合原版與新版之完整噪音關鍵字過濾庫
+            COMBINED_NOISE_KEYWORDS = [
                 "解說",
                 "reaction",
                 "反應",
@@ -1017,6 +1026,11 @@ with main_tabs[3]:
                 "鋼琴教學",
                 "樂譜",
                 "開箱",
+                "花絮",
+                "未播",
+                "片段",
+                "幕後",
+                "剪輯",
             ]
 
             for idx, row in test_songs.reset_index(drop=True).iterrows():
@@ -1066,7 +1080,7 @@ with main_tabs[3]:
                             break
 
                     try:
-                        # 💡 移除 videoCategoryId="10" 限制，改用 order="viewCount" 並設 maxResults=20
+                        # 💡 重新補回 videoCategoryId="10" (音樂類別)，並維持 order="viewCount" 與 maxResults=20
                         search_res = (
                             youtube_service.search()
                             .list(
@@ -1075,6 +1089,7 @@ with main_tabs[3]:
                                 maxResults=20,
                                 type="video",
                                 order="viewCount",
+                                videoCategoryId="10",
                                 regionCode="TW",
                             )
                             .execute()
@@ -1113,18 +1128,18 @@ with main_tabs[3]:
                                 ).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
-                                # 放寬片長限制：30 秒 ~ 20 分鐘
-                                if duration_sec < 30 or duration_sec > 1200:
+                                # 還原原本的片長限制：61 秒 ~ 10 分鐘 (<= 60 或 > 600 剔除)
+                                if duration_sec <= 60 or duration_sec > 600:
                                     continue
 
                                 v_title_lower = v_title.lower()
                                 v_title_norm = normalize_text(v_title)
                                 channel_norm = normalize_text(channel_title)
 
-                                # 1. 排除硬拒絕噪音詞
+                                # 1. 結合型噪音詞過濾
                                 if any(
                                     nk in v_title_lower
-                                    for nk in HARD_NOISE_KEYWORDS
+                                    for nk in COMBINED_NOISE_KEYWORDS
                                 ):
                                     continue
 
