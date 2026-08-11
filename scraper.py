@@ -49,6 +49,13 @@ def clean_song_title(title):
   return cleaned.strip()
 
 
+def normalize_text(text):
+  """清理字串中的所有空格與常見標點符號，方便模糊比對 (解決如 G.E.M. 與 GEM 的格式差異)"""
+  if not text:
+    return ""
+  return re.sub(r"[\s\.\-\_\(\)（）]", "", str(text)).lower()
+
+
 # ==========================================
 # 2. QQ 音樂抓取函式
 # ==========================================
@@ -207,11 +214,11 @@ def main():
       matched_url = None
       success = False
 
-      # 比對時使用清理後的歌名
-      song_sim = zhconv.convert(clean_song, "zh-hans").lower()
-      song_tra = zhconv.convert(clean_song, "zh-hant").lower()
-      singer_sim = zhconv.convert(singer, "zh-hans").lower()
-      singer_tra = zhconv.convert(singer, "zh-hant").lower()
+      # 比對時使用清理與正規化後的歌名與歌手名
+      song_sim_norm = normalize_text(zhconv.convert(clean_song, "zh-hans"))
+      song_tra_norm = normalize_text(zhconv.convert(clean_song, "zh-hant"))
+      singer_sim_norm = normalize_text(zhconv.convert(singer, "zh-hans"))
+      singer_tra_norm = normalize_text(zhconv.convert(singer, "zh-hant"))
       singer_tokens = [
           s.strip() for s in re.split(r"[/&,\+]", singer) if s.strip()
       ]
@@ -267,34 +274,44 @@ def main():
 
               v_title_lower = v_title.lower()
               channel_lower = channel_title.lower()
+
+              # 正規化後的標題與頻道名稱 (用於比對歌名與歌手)
+              v_title_norm = normalize_text(v_title)
+              channel_norm = normalize_text(channel_title)
+
               is_topic = "topic" in channel_lower or "主題" in channel_lower
               has_noise = any(nk in v_title_lower for nk in NOISE_KEYWORDS)
 
               if not is_topic and has_noise:
                 continue
 
-              # 比對標題是否包含歌名
+              # 比對標題是否包含歌名 (使用正規化字串)
               if not (
-                  (song_sim in v_title_lower) or (song_tra in v_title_lower)
+                  (song_sim_norm in v_title_norm)
+                  or (song_tra_norm in v_title_norm)
               ):
                 continue
 
-              singer_in_title = (singer_sim in v_title_lower) or (
-                  singer_tra in v_title_lower
+              singer_in_title = (singer_sim_norm in v_title_norm) or (
+                  singer_tra_norm in v_title_norm
               )
-              singer_in_channel = (singer_sim in channel_lower) or (
-                  singer_tra in channel_lower
+              singer_in_channel = (singer_sim_norm in channel_norm) or (
+                  singer_tra_norm in channel_norm
               )
 
               if not (singer_in_title or singer_in_channel) and singer_tokens:
                 for stkn in singer_tokens:
-                  stkn_sim = zhconv.convert(stkn, "zh-hans").lower()
-                  stkn_tra = zhconv.convert(stkn, "zh-hant").lower()
+                  stkn_sim_norm = normalize_text(
+                      zhconv.convert(stkn, "zh-hans")
+                  )
+                  stkn_tra_norm = normalize_text(
+                      zhconv.convert(stkn, "zh-hant")
+                  )
                   if (
-                      (stkn_sim in v_title_lower)
-                      or (stkn_tra in v_title_lower)
-                      or (stkn_sim in channel_lower)
-                      or (stkn_tra in channel_lower)
+                      (stkn_sim_norm in v_title_norm)
+                      or (stkn_tra_norm in v_title_norm)
+                      or (stkn_sim_norm in channel_norm)
+                      or (stkn_tra_norm in channel_norm)
                   ):
                     singer_in_title = True
                     break
