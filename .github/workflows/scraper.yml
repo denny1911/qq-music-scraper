@@ -28,6 +28,8 @@ jobs:
 
       - name: Run Scraper
         run: python scraper.py
+        env:
+          YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
 
       - name: Auto Commit & Push result
         run: |
