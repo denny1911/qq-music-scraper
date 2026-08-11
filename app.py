@@ -1074,8 +1074,7 @@ with main_tabs[3]:
                                 maxResults=10,
                                 type="video",
                                 order="relevance",
-                                videoCategoryId="10",
-                                regionCode="TW",
+                                regionCode="TW"
                             )
                             .execute()
                         )
