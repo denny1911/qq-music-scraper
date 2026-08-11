@@ -967,8 +967,7 @@ with main_tabs[3]:
                                 part="id",
                                 maxResults=10,
                                 type="video",
-                                order="relevance",
-                                regionCode="TW",
+                                order="relevance"
                             )
                             .execute()
                         )
