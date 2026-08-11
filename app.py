@@ -1071,9 +1071,9 @@ with main_tabs[3]:
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=25,
+                                maxResults=20,
                                 type="video",
-                                order="relevance",
+                                order="viewCount",
                                 regionCode="TW"
                             )
                             .execute()
