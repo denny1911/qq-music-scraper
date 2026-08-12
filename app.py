@@ -1066,9 +1066,10 @@ with main_tabs[3]:
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=10,
+                                maxResults=25,
                                 type="video",
-                                regionCode="TW",
+                                order="viewCount",
+                                regionCode="TW"
                             )
                             .execute()
                         )
