@@ -871,6 +871,14 @@ with main_tabs[3]:
         cleaned = re.sub(r"^歌曲[:：]\s*", "", str(title))
         return cleaned.strip()
 
+    def parse_song_title(song):
+        """清理歌名前綴並拆解出主要歌名（去除括號內容），實現方案 B 的比對機制"""
+        clean_s = clean_song_title(song)
+        main_s = re.sub(r"[\(\（][^\)\）]*[\)\）]", "", clean_s).strip()
+        if not main_s:
+            main_s = clean_s
+        return clean_s, main_s
+
     def normalize_text(text):
         """清理字串中的空格與常見標點符號供模糊比對"""
         if not text:
@@ -919,19 +927,25 @@ with main_tabs[3]:
         return list(set(normalized_tokens))
 
     def build_search_queries(song, singer):
-        """產生主要搜尋與備用 (Fallback) 搜尋字串，自動處理譯名與括號外文"""
-        clean_s = clean_song_title(song)
+        """產生主要搜尋與備用 (Fallback) 搜尋字串，自動處理譯名、歌手與歌名括號"""
+        clean_s, main_s = parse_song_title(song)
         clean_p = str(singer).strip()
 
         primary_query = f"{clean_s} {clean_p}".strip()
         queries = [primary_query]
 
-        # 提煉 Fallback Query：若歌手帶有括號 (例如 "丽兹 (LIZ)")，優先提取括號內外文
+        # Fallback 1：若歌名帶有括號，補充「主歌名 + 歌手」備用搜尋
+        if main_s != clean_s:
+            main_query = f"{main_s} {clean_p}".strip()
+            if main_query not in queries:
+                queries.append(main_query)
+
+        # Fallback 2：若歌手帶有括號 (例如 "丽兹 (LIZ)")，優先提取括號內外文
         extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
         if extracted_bracket:
             fallback_singer = " ".join(extracted_bracket).strip()
             fallback_query = f"{clean_s} {fallback_singer}".strip()
-            if fallback_query != primary_query:
+            if fallback_query not in queries:
                 queries.append(fallback_query)
 
         return queries
@@ -1069,14 +1083,16 @@ with main_tabs[3]:
                     matched_views = 0
                     matched_url = None
 
-                    clean_song = clean_song_title(song)
+                    # 方案 B：拆解主要歌名與副歌名（括號文字）
+                    clean_song, main_song = parse_song_title(song)
                     search_queries = build_search_queries(song, singer)
 
-                    song_sim_norm = normalize_text(
-                        zhconv.convert(clean_song, "zh-hans")
+                    # 僅對「主要歌名」進行簡繁體化規範
+                    main_sim_norm = normalize_text(
+                        zhconv.convert(main_song, "zh-hans")
                     )
-                    song_tra_norm = normalize_text(
-                        zhconv.convert(clean_song, "zh-hant")
+                    main_tra_norm = normalize_text(
+                        zhconv.convert(main_song, "zh-hant")
                     )
 
                     artist_tokens = extract_artist_tokens(singer)
@@ -1164,9 +1180,10 @@ with main_tabs[3]:
                                         if not is_topic and has_noise:
                                             continue
 
+                                        # 方案 B 比對核心：只要「主要歌名」簡體或繁體存在於影片標題中即可通過
                                         song_matched = (
-                                            song_sim_norm in v_title_norm
-                                        ) or (song_tra_norm in v_title_norm)
+                                            main_sim_norm in v_title_norm
+                                        ) or (main_tra_norm in v_title_norm)
                                         if not song_matched:
                                             continue
 
@@ -1328,14 +1345,15 @@ with main_tabs[3]:
 
                     youtube_service = build_yt_service_single(current_key_idx)
 
-                    clean_song = clean_song_title(song)
+                    # 方案 B：拆解主要歌名與副歌名（括號文字）
+                    clean_song, main_song = parse_song_title(song)
                     search_queries = build_search_queries(song, singer)
 
-                    song_sim_norm = normalize_text(
-                        zhconv.convert(clean_song, "zh-hans")
+                    main_sim_norm = normalize_text(
+                        zhconv.convert(main_song, "zh-hans")
                     )
-                    song_tra_norm = normalize_text(
-                        zhconv.convert(clean_song, "zh-hant")
+                    main_tra_norm = normalize_text(
+                        zhconv.convert(main_song, "zh-hant")
                     )
                     artist_tokens = extract_artist_tokens(singer)
 
@@ -1429,9 +1447,10 @@ with main_tabs[3]:
                                         if not is_topic and has_noise:
                                             continue
 
+                                        # 方案 B 比對核心：只要「主要歌名」簡體或繁體存在於影片標題中即可通過
                                         song_matched = (
-                                            song_sim_norm in v_title_norm
-                                        ) or (song_tra_norm in v_title_norm)
+                                            main_sim_norm in v_title_norm
+                                        ) or (main_tra_norm in v_title_norm)
                                         if not song_matched:
                                             continue
 
