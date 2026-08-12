@@ -878,15 +878,16 @@ with main_tabs[3]:
         return re.sub(r"[\s\.\-\_\(\)（）]", "", str(text)).lower()
 
     def extract_artist_tokens(singer):
-        """拆解多歌手與簡繁體 Token (例如 '周慧敏/刘敏涛' -> ['周慧敏', '刘敏涛', '劉敏濤'])"""
+        """拆解多歌手與簡繁體 Token，並支援括號與韓文拆解"""
         if not singer or singer in ["-", "nan", "None"]:
             return []
 
         singer_str = str(singer).strip()
         all_tokens = set()
 
+        # 在分隔符列表中加入全半形括號
         raw_tokens = re.split(
-            r"[/&,\+\·\s\*\-\|]|feat\.?|ft\.?|X|x",
+            r"[/&,\+\·\s\*\-\|\(\)（）]|feat\.?|ft\.?|X|x",
             singer_str,
             flags=re.IGNORECASE,
         )
@@ -898,22 +899,21 @@ with main_tabs[3]:
             all_tokens.add(zhconv.convert(raw, "zh-hans"))
             all_tokens.add(zhconv.convert(raw, "zh-hant"))
 
+            # 包含英數、中文與韓文 (\uAC00-\uD7A3)
             sub_chunks = re.findall(
-                r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+", raw
+            r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
             )
             if len(sub_chunks) > 1:
                 for chunk in sub_chunks:
                     chunk = chunk.strip()
-                    if len(chunk) >= 2 or re.search(
-                        r"[\u4e00-\u9fa5]", chunk
-                    ):
-                        all_tokens.add(zhconv.convert(chunk, "zh-hans"))
+                    if len(chunk) >= 1:
+                    all_tokens.add(zhconv.convert(chunk, "zh-hans"))
                         all_tokens.add(zhconv.convert(chunk, "zh-hant"))
 
         normalized_tokens = []
         for t in all_tokens:
             norm = normalize_text(t)
-            if norm and len(norm) >= 2:
+            if norm and len(norm) >= 1:
                 normalized_tokens.append(norm)
 
         return list(set(normalized_tokens))
