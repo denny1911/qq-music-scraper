@@ -14,8 +14,8 @@ import zhconv
 DATA_DIR = "data"
 MAPPING_FILE = os.path.join(DATA_DIR, "yt_mapping.csv")
 
-# 對照表僅保留 4 個標準欄位
-REQ_MAPPING_COLS = ["歌名", "歌手", "Video ID", "影片連結"]
+# 對照表僅保留 3 個標準欄位（已移除「影片連結」）
+REQ_MAPPING_COLS = ["歌名", "歌手", "Video ID"]
 
 # 噪音關鍵字過濾庫（非 Topic 頻道才套用）
 COMBINED_NOISE_KEYWORDS = [
@@ -73,7 +73,6 @@ def extract_artist_tokens(singer):
     singer_str = str(singer).strip()
     all_tokens = set()
 
-    # 在分隔符列表中納入全角與半角括號
     raw_tokens = re.split(
         r"[/&,\+\·\s\*\-\|\(\)（）]|feat\.?|ft\.?|X|x",
         singer_str,
@@ -87,7 +86,6 @@ def extract_artist_tokens(singer):
         all_tokens.add(zhconv.convert(raw, "zh-hans"))
         all_tokens.add(zhconv.convert(raw, "zh-hant"))
 
-        # 按 中文 / 英文數字 / 韓文 邊界進一步拆分
         sub_chunks = re.findall(
             r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
         )
@@ -112,17 +110,14 @@ def build_search_queries(song, singer):
     clean_s, main_s = parse_song_title(song)
     clean_p = str(singer).strip()
 
-    # 第一優先：用最乾淨的主歌名搜尋 (例如 "山风替我去自由 王一佳")
     primary_query = f"{main_s} {clean_p}".strip()
     queries = [primary_query]
 
-    # Fallback 1：若歌名原本帶有括號，補上完整長歌名作為備用搜尋
     if clean_s != main_s:
         full_query = f"{clean_s} {clean_p}".strip()
         if full_query not in queries:
             queries.append(full_query)
 
-    # Fallback 2：若歌手帶有括號 (例如 "丽兹 (LIZ)")，提煉括號外文備用
     extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
     if extracted_bracket:
         fallback_singer = " ".join(extracted_bracket).strip()
@@ -150,7 +145,6 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         ),
         "Referer": "https://y.qq.com/",
@@ -194,17 +188,15 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
 # 3. 主程式邏輯
 # ==========================================
 def main():
-    # 取得台灣時區日期
     tz_taiwan = timezone(timedelta(hours=8))
     now = datetime.now(tz_taiwan)
-    year_str = now.strftime("%Y")  # 例如：2026
-    month_str = now.strftime("%Y-%m")  # 例如：2026-08
-    date_str = now.strftime("%Y-%m-%d")  # 例如：2026-08-12
+    year_str = now.strftime("%Y")
+    month_str = now.strftime("%Y-%m")
+    date_str = now.strftime("%Y-%m-%d")
 
-    # 多層級路徑：data/2026/2026-08/2026-08-12
     target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
     os.makedirs(target_dir, exist_ok=True)
-    # 準備讀取多組 API Keys
+
     raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
     api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
     if not api_keys:
@@ -213,7 +205,6 @@ def main():
             " 環境變數，YouTube 搜尋與點閱抓取功能將無法運作！"
         )
 
-    # 定義 4 個榜單
     charts = {
         "new": {"top_id": 27, "name": "新歌榜"},
         "film": {"top_id": 29, "name": "影視金曲榜"},
@@ -224,7 +215,6 @@ def main():
     fetched_charts = {}
     all_charts_df_list = []
 
-    # 步驟 A：撈取今日 4 個榜單資料，暫存記憶體
     for tag, info in charts.items():
         df = fetch_qq_music_chart(info["top_id"], info["name"], date_str)
         if df is not None and not df.empty:
@@ -235,22 +225,20 @@ def main():
         print("❌ 今日沒有成功抓取任何榜單資料，程式終止。")
         return
 
-    # 合併今日所有榜單歌曲並去除重複
     df_today_all = pd.concat(all_charts_df_list, ignore_index=True)
     df_unique_songs = (
         df_today_all[["歌名", "歌手"]].drop_duplicates().reset_index(drop=True)
     )
 
-    # 步驟 B：讀取中央對照表（若檔案或欄位缺乏則自動初始化補齊）
     if os.path.exists(MAPPING_FILE):
         try:
             df_mapping = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
-            # 移除舊有的多餘標題欄位
             for col_to_drop in [
                 "YT 影片標題",
                 "yt_title",
                 "title",
                 "Video Title",
+                "影片連結",  # 亦可將舊的影片連結欄位自動移除
             ]:
                 if col_to_drop in df_mapping.columns:
                     df_mapping.drop(columns=[col_to_drop], inplace=True)
@@ -267,7 +255,6 @@ def main():
         subset=["歌名", "歌手"], keep="first"
     )
 
-    # 步驟 C：檢查今日榜單歌曲，若缺少有效 ID 則發起 API 搜尋重試
     current_key_idx = 0
 
     def get_yt_service(idx):
@@ -287,7 +274,6 @@ def main():
             song = str(row["歌名"]).strip()
             singer = str(row["歌手"]).strip()
 
-            # 檢查對照表中是否已存在「有效 Video ID」（即非 '-'、非空白與 nan）
             matched_row = df_mapping[
                 (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
             ]
@@ -297,20 +283,16 @@ def main():
                 if vid_val not in ["-", "", "nan", "None"]:
                     has_valid_id = True
 
-            # 若已有有效 ID，代表以前已搜到，直接跳過搜尋
             if has_valid_id:
                 continue
 
-            # 方案 B：拆解主要歌名與副歌名（括號文字）
             clean_song, main_song = parse_song_title(song)
             search_queries = build_search_queries(song, singer)
             print(f"🔄 [在榜歌曲補抓/搜尋]：{song} - {singer} ...")
 
             matched_id = None
             matched_views = 0
-            matched_url = None
 
-            # 僅對「主要歌名」進行簡繁體化規範
             main_sim_norm = normalize_text(
                 zhconv.convert(main_song, "zh-hans")
             )
@@ -318,10 +300,8 @@ def main():
                 zhconv.convert(main_song, "zh-hant")
             )
 
-            # 進階拆解歌手 Token
             artist_tokens = extract_artist_tokens(singer)
 
-            # 逐一嘗試 Primary Query 與 Fallback Query
             for query_str in search_queries:
                 if matched_id:
                     break
@@ -378,7 +358,6 @@ def main():
                                     )
                                 )
 
-                                # 片長限制：61 秒 ~ 10 分鐘
                                 if duration_sec <= 60 or duration_sec > 600:
                                     continue
 
@@ -387,13 +366,11 @@ def main():
                                 channel_lower = channel_title.lower()
                                 channel_norm = normalize_text(channel_title)
 
-                                # 1. 判定是否為 Topic 官方生成音源頻道
                                 is_topic = (
                                     "topic" in channel_lower
                                     or "主題" in channel_lower
                                 )
 
-                                # 2. 噪音詞放行條件（非 Topic 頻道才過濾）
                                 has_noise = any(
                                     nk in v_title_lower
                                     for nk in COMBINED_NOISE_KEYWORDS
@@ -401,14 +378,12 @@ def main():
                                 if not is_topic and has_noise:
                                     continue
 
-                                # 3. 歌名簡繁體比對 (採用主要歌名做比對)
                                 song_matched = (
                                     main_sim_norm in v_title_norm
                                 ) or (main_tra_norm in v_title_norm)
                                 if not song_matched:
                                     continue
 
-                                # 4. 歌手比對
                                 singer_matched = (
                                     not artist_tokens
                                     or any(
@@ -424,10 +399,6 @@ def main():
                                 cand = {
                                     "id": v_id,
                                     "views": v_views,
-                                    "url": (
-                                        "https://www.youtube.com/watch?v="
-                                        f"{v_id}"
-                                    ),
                                 }
 
                                 if is_topic or singer_matched:
@@ -437,7 +408,6 @@ def main():
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_views = best["views"]
-                                matched_url = best["url"]
 
                         success = True
                     except HttpError as e:
@@ -466,9 +436,6 @@ def main():
                         print(f"⚠️ 搜尋 {song} 時發生未知錯誤: {e}")
                         break
 
-            # --------------------------------------------------
-            # 更新對照表 (df_mapping)
-            # --------------------------------------------------
             mask = (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
 
             if matched_id:
@@ -477,13 +444,11 @@ def main():
                 )
                 if mask.any():
                     df_mapping.loc[mask, "Video ID"] = matched_id
-                    df_mapping.loc[mask, "影片連結"] = matched_url
                 else:
                     new_m_row = pd.DataFrame([{
                         "歌名": song,
                         "歌手": singer,
                         "Video ID": matched_id,
-                        "影片連結": matched_url,
                     }])
                     df_mapping = pd.concat(
                         [df_mapping, new_m_row], ignore_index=True
@@ -499,7 +464,6 @@ def main():
                         "歌名": song,
                         "歌手": singer,
                         "Video ID": "-",
-                        "影片連結": "-",
                     }])
                     df_mapping = pd.concat(
                         [df_mapping, new_m_row], ignore_index=True
@@ -508,7 +472,6 @@ def main():
 
             time.sleep(0.1)
 
-        # 儲存更新後的對照表檔案
         if mapping_updated:
             df_mapping = df_mapping[REQ_MAPPING_COLS].drop_duplicates(
                 subset=["歌名", "歌手"], keep="first"
@@ -516,7 +479,6 @@ def main():
             df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
             print(f"💾 對照表更新完成 ➔ {MAPPING_FILE}")
 
-    # 步驟 D：批次查詢今日榜單所有有效 Video ID 當下的最新點閱率
     all_today_mapped = pd.merge(
         df_unique_songs,
         df_mapping[["歌名", "歌手", "Video ID"]],
@@ -562,7 +524,7 @@ def main():
                             "quotaExceeded",
                             "rateLimitExceeded",
                             "Quota exceeded",
-                            ]
+                        ]
                     )
                     if is_quota_error:
                         print(
@@ -578,7 +540,6 @@ def main():
                     print(f"⚠️ 批次抓取點閱率未知錯誤: {e}")
                     break
 
-    # 步驟 E：將 YouTube ID 與點閱率附加寫入每日榜單 CSV
     print("💾 正在附加 YouTube 資訊並儲存今日榜單 CSV 檔案...")
     for tag, (chart_name, df_chart) in fetched_charts.items():
         df_final = pd.merge(
