@@ -927,29 +927,30 @@ with main_tabs[3]:
         return list(set(normalized_tokens))
 
     def build_search_queries(song, singer):
-        """產生主要搜尋與備用 (Fallback) 搜尋字串，自動處理譯名、歌手與歌名括號"""
+        """產生搜尋字串：優先使用去除括號的「主歌名 + 歌手」，大幅提升 YouTube API 搜尋命中率"""
         clean_s, main_s = parse_song_title(song)
         clean_p = str(singer).strip()
 
-        primary_query = f"{clean_s} {clean_p}".strip()
+        # 第一優先：用最乾淨的主歌名搜尋 (例如 "山风替我去自由 王一佳")
+        primary_query = f"{main_s} {clean_p}".strip()
         queries = [primary_query]
 
-        # Fallback 1：若歌名帶有括號，補充「主歌名 + 歌手」備用搜尋
-        if main_s != clean_s:
-            main_query = f"{main_s} {clean_p}".strip()
-            if main_query not in queries:
-                queries.append(main_query)
+        # Fallback 1：若歌名原本帶有括號，補上完整長歌名作為備用搜尋
+        if clean_s != main_s:
+            full_query = f"{clean_s} {clean_p}".strip()
+            if full_query not in queries:
+                queries.append(full_query)
 
-        # Fallback 2：若歌手帶有括號 (例如 "丽兹 (LIZ)")，優先提取括號內外文
+        # Fallback 2：若歌手帶有括號 (例如 "丽兹 (LIZ)")，提煉括號外文備用
         extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
         if extracted_bracket:
             fallback_singer = " ".join(extracted_bracket).strip()
-            fallback_query = f"{clean_s} {fallback_singer}".strip()
+            fallback_query = f"{main_s} {fallback_singer}".strip()
             if fallback_query not in queries:
                 queries.append(fallback_query)
 
         return queries
-
+        
     COMBINED_NOISE_KEYWORDS = [
         "花絮",
         "未播",
@@ -1476,8 +1477,7 @@ with main_tabs[3]:
 
                                         if is_topic or singer_matched:
                                             candidates.append(cand)
-                                        print(f"ID: {v_id} | 標題: {v_title} | 觀看數: {v_views}")
-
+                                            
                                     if candidates:
                                         best = max(
                                             candidates, key=lambda x: x["views"]
