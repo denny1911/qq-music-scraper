@@ -907,7 +907,7 @@ with main_tabs[3]:
                 for chunk in sub_chunks:
                     chunk = chunk.strip()
                     if len(chunk) >= 1:
-                    all_tokens.add(zhconv.convert(chunk, "zh-hans"))
+                        all_tokens.add(zhconv.convert(chunk, "zh-hans"))
                         all_tokens.add(zhconv.convert(chunk, "zh-hant"))
 
         normalized_tokens = []
