@@ -1476,6 +1476,7 @@ with main_tabs[3]:
 
                                         if is_topic or singer_matched:
                                             candidates.append(cand)
+                                        print(f"ID: {v_id} | 標題: {v_title} | 觀看數: {v_views}")
 
                                     if candidates:
                                         best = max(
