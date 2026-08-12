@@ -56,15 +56,18 @@ def normalize_text(text):
 
 
 def extract_artist_tokens(singer):
-    """拆解多歌手與簡繁體 Token (例如 '周慧敏/刘敏涛' -> ['周慧敏', '刘敏涛', '劉敏濤'])"""
+    """拆解多歌手與簡繁體 Token，並支援括號 ()（）與韓文字元拆解"""
     if not singer or singer in ["-", "nan", "None"]:
         return []
 
     singer_str = str(singer).strip()
     all_tokens = set()
 
+    # 在分隔符列表中納入全角與半角括號
     raw_tokens = re.split(
-        r"[/&,\+\·\s\*\-\|]|feat\.?|ft\.?|X|x", singer_str, flags=re.IGNORECASE
+        r"[/&,\+\·\s\*\-\|\(\)（）]|feat\.?|ft\.?|X|x",
+        singer_str,
+        flags=re.IGNORECASE,
     )
 
     for raw in raw_tokens:
@@ -74,21 +77,43 @@ def extract_artist_tokens(singer):
         all_tokens.add(zhconv.convert(raw, "zh-hans"))
         all_tokens.add(zhconv.convert(raw, "zh-hant"))
 
-        sub_chunks = re.findall(r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+", raw)
+        # 包含英數、中文與韓文區間 (\uAC00-\uD7A3)
+        sub_chunks = re.findall(
+            r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
+        )
         if len(sub_chunks) > 1:
             for chunk in sub_chunks:
                 chunk = chunk.strip()
-                if len(chunk) >= 2 or re.search(r"[\u4e00-\u9fa5]", chunk):
+                if len(chunk) >= 1:
                     all_tokens.add(zhconv.convert(chunk, "zh-hans"))
                     all_tokens.add(zhconv.convert(chunk, "zh-hant"))
 
     normalized_tokens = []
     for t in all_tokens:
         norm = normalize_text(t)
-        if norm and len(norm) >= 2:
+        if norm and len(norm) >= 1:
             normalized_tokens.append(norm)
 
     return list(set(normalized_tokens))
+
+
+def build_search_queries(song, singer):
+    """產生主要搜尋與備用 (Fallback) 搜尋字串，自動處理譯名與括號外文"""
+    clean_s = clean_song_title(song)
+    clean_p = str(singer).strip()
+
+    primary_query = f"{clean_s} {clean_p}".strip()
+    queries = [primary_query]
+
+    # 提煉 Fallback Query：若歌手帶有括號 (例如 "丽兹 (LIZ)")，優先提取括號內外文
+    extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
+    if extracted_bracket:
+        fallback_singer = " ".join(extracted_bracket).strip()
+        fallback_query = f"{clean_s} {fallback_singer}".strip()
+        if fallback_query != primary_query:
+            queries.append(fallback_query)
+
+    return queries
 
 
 # ==========================================
@@ -203,143 +228,156 @@ def run_init_and_retry():
             continue
 
         clean_song = clean_song_title(song)
-        query_str = f"{clean_song} {singer}"
+        search_queries = build_search_queries(song, singer)
         print(f"🔍 [{idx + 1}/{total_songs}] 搜尋補抓中: {song} - {singer} ...")
 
         matched_id = None
         matched_title = None
         matched_views = 0
         matched_url = None
-        success = False
 
         song_sim_norm = normalize_text(zhconv.convert(clean_song, "zh-hans"))
         song_tra_norm = normalize_text(zhconv.convert(clean_song, "zh-hant"))
 
         artist_tokens = extract_artist_tokens(singer)
 
-        while current_key_idx < len(api_keys) and not success:
-            if youtube_service is None:
-                youtube_service = get_yt_service(current_key_idx)
-                if not youtube_service:
-                    break
-            try:
-                search_res = (
-                    youtube_service.search()
-                    .list(
-                        q=query_str,
-                        part="id",
-                        maxResults=30,
-                        type="video",
-                        order="viewCount",
-                        regionCode="TW",
-                    )
-                    .execute()
-                )
+        # 逐一嘗試 Primary Query 與 Fallback Query
+        for query_str in search_queries:
+            if matched_id:
+                break
 
-                v_ids = [
-                    item["id"]["videoId"]
-                    for item in search_res.get("items", [])
-                    if "videoId" in item.get("id", {})
-                ]
-
-                if v_ids:
-                    video_res = (
-                        youtube_service.videos()
+            success = False
+            while current_key_idx < len(api_keys) and not success:
+                if youtube_service is None:
+                    youtube_service = get_yt_service(current_key_idx)
+                    if not youtube_service:
+                        break
+                try:
+                    search_res = (
+                        youtube_service.search()
                         .list(
-                            part="snippet,statistics,contentDetails",
-                            id=",".join(v_ids),
+                            q=query_str,
+                            part="id",
+                            maxResults=30,
+                            type="video",
+                            order="viewCount",
+                            regionCode="TW",
                         )
                         .execute()
                     )
 
-                    candidates = []
-                    for item in video_res.get("items", []):
-                        v_id = item["id"]
-                        v_title = item["snippet"]["title"]
-                        channel_title = item["snippet"].get("channelTitle", "")
-                        v_views = int(item["statistics"].get("viewCount", 0))
-
-                        duration_str = item.get("contentDetails", {}).get(
-                            "duration", "PT0S"
-                        )
-                        duration_sec = parse_duration(duration_str)
-
-                        if duration_sec <= 60 or duration_sec > 600:
-                            continue
-
-                        v_title_lower = v_title.lower()
-                        v_title_norm = normalize_text(v_title)
-                        channel_lower = channel_title.lower()
-                        channel_norm = normalize_text(channel_title)
-
-                        is_topic = (
-                            "topic" in channel_lower
-                            or "主題" in channel_lower
-                        )
-
-                        has_noise = any(
-                            nk in v_title_lower
-                            for nk in COMBINED_NOISE_KEYWORDS
-                        )
-                        if not is_topic and has_noise:
-                            continue
-
-                        song_matched = (song_sim_norm in v_title_norm) or (
-                            song_tra_norm in v_title_norm
-                        )
-                        if not song_matched:
-                            continue
-
-                        singer_matched = any(
-                            tkn in v_title_norm for tkn in artist_tokens
-                        ) or any(
-                            tkn in channel_norm for tkn in artist_tokens
-                        )
-
-                        cand = {
-                            "id": v_id,
-                            "title": v_title,
-                            "channel": channel_title,
-                            "views": v_views,
-                            "url": f"https://www.youtube.com/watch?v={v_id}",
-                        }
-
-                        if is_topic or singer_matched:
-                            candidates.append(cand)
-
-                    if candidates:
-                        best = max(candidates, key=lambda x: x["views"])
-                        matched_id = best["id"]
-                        matched_title = best["title"]
-                        matched_views = best["views"]
-                        matched_url = best["url"]
-
-                success = True
-
-            except HttpError as e:
-                is_quota_error = e.resp.status in [403, 429] or any(
-                    k in str(e)
-                    for k in [
-                        "quotaExceeded",
-                        "rateLimitExceeded",
-                        "Quota exceeded",
+                    v_ids = [
+                        item["id"]["videoId"]
+                        for item in search_res.get("items", [])
+                        if "videoId" in item.get("id", {})
                     ]
-                )
-                if is_quota_error:
-                    print(
-                        f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key..."
+
+                    if v_ids:
+                        video_res = (
+                            youtube_service.videos()
+                            .list(
+                                part="snippet,statistics,contentDetails",
+                                id=",".join(v_ids),
+                            )
+                            .execute()
+                        )
+
+                        candidates = []
+                        for item in video_res.get("items", []):
+                            v_id = item["id"]
+                            v_title = item["snippet"]["title"]
+                            channel_title = item["snippet"].get(
+                                "channelTitle", ""
+                            )
+                            v_views = int(
+                                item["statistics"].get("viewCount", 0)
+                            )
+
+                            duration_str = item.get(
+                                "contentDetails", {}
+                            ).get("duration", "PT0S")
+                            duration_sec = parse_duration(duration_str)
+
+                            if duration_sec <= 60 or duration_sec > 600:
+                                continue
+
+                            v_title_lower = v_title.lower()
+                            v_title_norm = normalize_text(v_title)
+                            channel_lower = channel_title.lower()
+                            channel_norm = normalize_text(channel_title)
+
+                            is_topic = (
+                                "topic" in channel_lower
+                                or "主題" in channel_lower
+                            )
+
+                            has_noise = any(
+                                nk in v_title_lower
+                                for nk in COMBINED_NOISE_KEYWORDS
+                            )
+                            if not is_topic and has_noise:
+                                continue
+
+                            song_matched = (
+                                song_sim_norm in v_title_norm
+                            ) or (song_tra_norm in v_title_norm)
+                            if not song_matched:
+                                continue
+
+                            singer_matched = (
+                                not artist_tokens
+                                or any(
+                                    tkn in v_title_norm for tkn in artist_tokens
+                                )
+                                or any(
+                                    tkn in channel_norm for tkn in artist_tokens
+                                )
+                            )
+
+                            cand = {
+                                "id": v_id,
+                                "title": v_title,
+                                "channel": channel_title,
+                                "views": v_views,
+                                "url": f"https://www.youtube.com/watch?v={v_id}",
+                            }
+
+                            if is_topic or singer_matched:
+                                candidates.append(cand)
+
+                        if candidates:
+                            best = max(candidates, key=lambda x: x["views"])
+                            matched_id = best["id"]
+                            matched_title = best["title"]
+                            matched_views = best["views"]
+                            matched_url = best["url"]
+
+                    success = True
+
+                except HttpError as e:
+                    is_quota_error = e.resp.status in [403, 429] or any(
+                        k in str(e)
+                        for k in [
+                            "quotaExceeded",
+                            "rateLimitExceeded",
+                            "Quota exceeded",
+                        ]
                     )
-                    current_key_idx += 1
-                    youtube_service = get_yt_service(current_key_idx)
-                    if not youtube_service:
-                        print("❌ 所有 API Key 的每日額度皆已耗盡！")
+                    if is_quota_error:
+                        print(
+                            f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key..."
+                        )
+                        current_key_idx += 1
+                        youtube_service = get_yt_service(current_key_idx)
+                        if not youtube_service:
+                            print("❌ 所有 API Key 的每日額度皆已耗盡！")
+                            break
+                    else:
+                        print(f"⚠️ 搜尋 {song} 時發生 API 錯誤: {e}")
                         break
-                else:
-                    print(f"⚠️ 搜尋 {song} 時發生 API 錯誤: {e}")
+                except Exception as e:
+                    print(f"⚠️ 搜尋 {song} 時發生未知錯誤: {e}")
                     break
-            except Exception as e:
-                print(f"⚠️ 搜尋 {song} 時發生未知錯誤: {e}")
-                break
 
         if matched_id:
             print(f"  ✅ 補抓成功 ➔ ID: {matched_id} | 點閱: {matched_views:,}")
