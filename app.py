@@ -1195,7 +1195,16 @@ with main_tabs[3]:
 
             df_result = pd.DataFrame(results)
 
-            df_display = df_result.copy()
+            # 💡 畫面上僅呈現原始 6 個欄位，排除「影片連結」
+            display_cols = [
+                "榜單排名",
+                "歌名",
+                "歌手",
+                "Video ID",
+                "YT 觀看次數",
+                "YT 影片標題",
+            ]
+            df_display = df_result[display_cols].copy()
             df_display["YT 觀看次數"] = df_display["YT 觀看次數"].apply(
                 lambda x: f"{x:,}" if isinstance(x, (int, float)) else x
             )
