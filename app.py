@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide"
 )
 
-# 2. 全域 CSS 設定：強制全站表格與內容統一靠左對齊
+# 2. 全域 CSS 設定：強制全站表格與內容統一靠左對齊（數值欄位亦靠左且保留數值排序特性）
 st.markdown(
     """
     <style>
@@ -79,8 +79,8 @@ def get_issue_label(date_str):
 
 # 讀取單日所有榜單資料的輔助函式
 def load_date_data(date_str):
-    year_str = date_str[:4]      # 取 2026
-    month_str = date_str[:7]     # 取 2026-08
+    year_str = date_str[:4]
+    month_str = date_str[:7]
     day_path = os.path.join(data_dir, year_str, month_str, date_str)
     charts = {
         "new": "新歌榜",
@@ -118,14 +118,6 @@ def generate_song_tags(charts_str):
     if not tags:
         tags.append("⚡ 雙榜同登")
     return "｜".join(tags)
-
-
-# 輔助函式：強行將 DataFrame 所有欄位轉字串以實現靠左對齊
-def format_df_for_display(df):
-    display_df = df.copy()
-    for col in display_df.columns:
-        display_df[col] = display_df[col].astype(str)
-    return display_df
 
 
 # 輔助函式：轉碼 CSV 匯出專用（純淨 4 直欄：歌名、歌手、專輯、發行日期）
@@ -283,7 +275,7 @@ with main_tabs[0]:
                             f"🎯 在 {selected_date} 當天，共找到 {len(multi_chart)} 首跨榜爆款歌曲！"
                         )
                         st.dataframe(
-                            format_df_for_display(multi_chart),
+                            multi_chart,
                             hide_index=True,
                             use_container_width=True,
                         )
@@ -414,7 +406,7 @@ with main_tabs[0]:
                         f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {num_days} 天數據 / {num_issues} 期週榜），共找到 {len(multi_chart)} 首跨榜爆款歌曲！"
                     )
                     st.dataframe(
-                        format_df_for_display(multi_chart),
+                        multi_chart,
                         hide_index=True,
                         use_container_width=True,
                     )
@@ -606,9 +598,9 @@ with main_tabs[1]:
                         {
                             song_col: song,
                             singer_col: singer,
-                            "歷史最高排名": str(highest_rank),
-                            "區間上升次數": f"📈 {rise_count} 次",
-                            "單次最高爬升": f"🆕 {max_single_rise} 名",
+                            "歷史最高排名": highest_rank,
+                            "區間上升次數": rise_count,
+                            "單次最高爬升": max_single_rise,
                             "sort_score": sort_score,
                             "raw_song": song,
                             "raw_singer": singer,
@@ -818,7 +810,7 @@ with main_tabs[2]:
                 f"📈 【{chart_option_m3}（{'週榜' if is_weekly_chart else '日榜'}）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）："
             )
             st.dataframe(
-                format_df_for_display(evergreen),
+                evergreen,
                 hide_index=True,
                 use_container_width=True,
             )
@@ -856,11 +848,7 @@ with main_tabs[3]:
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
 
-    # ----------------------------------------------------
-    # 共用工具函式與 API Key 讀取
-    # ----------------------------------------------------
     def parse_duration(duration_str):
-        """將 YouTube ISO 8601 時間字串 (例如 PT3M45S) 轉為總秒數"""
         match = re.match(
             r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration_str or ""
         )
@@ -872,14 +860,12 @@ with main_tabs[3]:
         return hours * 3600 + minutes * 60 + seconds
 
     def clean_song_title(title):
-        """清理歌名中的前綴（例如 '歌曲：'）以提高搜尋與比對命中率"""
         if not title:
             return ""
         cleaned = re.sub(r"^歌曲[:：]\s*", "", str(title))
         return cleaned.strip()
 
     def parse_song_title(song):
-        """清理歌名前綴並拆解出主要歌名（去除括號內容），實現方案 B 的比對機制"""
         clean_s = clean_song_title(song)
         main_s = re.sub(r"[\(\（][^\)\）]*[\)\）]", "", clean_s).strip()
         if not main_s:
@@ -887,20 +873,17 @@ with main_tabs[3]:
         return clean_s, main_s
 
     def normalize_text(text):
-        """清理字串中的空格與常見標點符號供模糊比對"""
         if not text:
             return ""
         return re.sub(r"[\s\.\-\_\(\)（）]", "", str(text)).lower()
 
     def extract_artist_tokens(singer):
-        """拆解多歌手與簡繁體 Token，並支援括號 ()（）與韓文字元拆解"""
         if not singer or singer in ["-", "nan", "None"]:
             return []
 
         singer_str = str(singer).strip()
         all_tokens = set()
 
-        # 分隔符列表中納入全角與半角括號
         raw_tokens = re.split(
             r"[/&,\+\·\s\*\-\|\(\)（）]|feat\.?|ft\.?|X|x",
             singer_str,
@@ -914,7 +897,6 @@ with main_tabs[3]:
             all_tokens.add(zhconv.convert(raw, "zh-hans"))
             all_tokens.add(zhconv.convert(raw, "zh-hant"))
 
-            # 包含英數、中文與韓文區間 (\uAC00-\uD7A3)
             sub_chunks = re.findall(
                 r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
             )
@@ -934,21 +916,17 @@ with main_tabs[3]:
         return list(set(normalized_tokens))
 
     def build_search_queries(song, singer):
-        """產生搜尋字串：優先使用去除括號的「主歌名 + 歌手」，大幅提升 YouTube API 搜尋命中率"""
         clean_s, main_s = parse_song_title(song)
         clean_p = str(singer).strip()
 
-        # 第一優先：用最乾淨的主歌名搜尋 (例如 "山风替我去自由 王一佳")
         primary_query = f"{main_s} {clean_p}".strip()
         queries = [primary_query]
 
-        # Fallback 1：若歌名原本帶有括號，補上完整長歌名作為備用搜尋
         if clean_s != main_s:
             full_query = f"{clean_s} {clean_p}".strip()
             if full_query not in queries:
                 queries.append(full_query)
 
-        # Fallback 2：若歌手帶有括號 (例如 "丽兹 (LIZ)")，提煉括號外文備用
         extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
         if extracted_bracket:
             fallback_singer = " ".join(extracted_bracket).strip()
@@ -979,7 +957,6 @@ with main_tabs[3]:
             return [str(k).strip() for k in raw_keys if str(k).strip()]
         return []
 
-    # 使用頁籤分隔「榜單批量測繪」與「單首歌即時查詢」
     m4_subtab1, m4_subtab2 = st.tabs(["📊 榜單批量測繪", "🔍 單首歌即時查詢"])
 
     # ----------------------------------------------------
@@ -1078,7 +1055,7 @@ with main_tabs[3]:
                             row.get("singer", row.get("歌手名稱", "Unknown")),
                         )
                     ).strip()
-                    rank = row.get("排名", idx + 1)
+                    rank = int(row.get("排名", idx + 1))
 
                     status_text.text(
                         f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}"
@@ -1091,11 +1068,9 @@ with main_tabs[3]:
                     matched_views = 0
                     matched_url = None
 
-                    # 方案 B：拆解主要歌名與副歌名（括號文字）
                     clean_song, main_song = parse_song_title(song)
                     search_queries = build_search_queries(song, singer)
 
-                    # 僅對「主要歌名」進行簡繁體化規範
                     main_sim_norm = normalize_text(
                         zhconv.convert(main_song, "zh-hans")
                     )
@@ -1105,7 +1080,6 @@ with main_tabs[3]:
 
                     artist_tokens = extract_artist_tokens(singer)
 
-                    # 逐一嘗試 Primary Query 與 Fallback Query
                     for query_str in search_queries:
                         if matched_id:
                             break
@@ -1188,7 +1162,6 @@ with main_tabs[3]:
                                         if not is_topic and has_noise:
                                             continue
 
-                                        # 方案 B 比對核心：只要「主要歌名」簡體或繁體存在於影片標題中即可通過
                                         song_matched = (
                                             main_sim_norm in v_title_norm
                                         ) or (main_tra_norm in v_title_norm)
@@ -1261,7 +1234,7 @@ with main_tabs[3]:
                         "歌名": song,
                         "歌手": singer,
                         "Video ID": matched_id or "-",
-                        "YT 觀看次數": matched_views,
+                        "YT 觀看次數": int(matched_views),
                         "YT 影片標題": matched_title or "-",
                         "影片連結": matched_url or "-",
                     })
@@ -1282,13 +1255,8 @@ with main_tabs[3]:
                 "YT 影片標題",
             ]
             df_display = df_result[display_cols].copy()
-            df_display["YT 觀看次數"] = df_display[
-                "YT 觀看次數"
-            ].apply(
-                lambda x: f"{x:,}" if isinstance(x, (int, float)) else x
-            )
 
-            st.dataframe(df_display, use_container_width=True)
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
 
             csv_data = df_result.to_csv(index=False, encoding="utf-8-sig")
             st.download_button(
@@ -1353,7 +1321,6 @@ with main_tabs[3]:
 
                     youtube_service = build_yt_service_single(current_key_idx)
 
-                    # 方案 B：拆解主要歌名與副歌名（括號文字）
                     clean_song, main_song = parse_song_title(song)
                     search_queries = build_search_queries(song, singer)
 
@@ -1455,7 +1422,6 @@ with main_tabs[3]:
                                         if not is_topic and has_noise:
                                             continue
 
-                                        # 方案 B 比對核心：只要「主要歌名」簡體或繁體存在於影片標題中即可通過
                                         song_matched = (
                                             main_sim_norm in v_title_norm
                                         ) or (main_tra_norm in v_title_norm)
@@ -1539,17 +1505,17 @@ with main_tabs[3]:
                             "歌名": song,
                             "歌手": singer or "-",
                             "Video ID": matched_id,
-                            "YT 觀看次數": f"{matched_views:,}",
+                            "YT 觀看次數": int(matched_views),
                             "YT 影片標題": matched_title,
                             "頻道名稱": matched_channel,
                             "影片連結": matched_url,
                         }])
-                        st.dataframe(df_single_res, use_container_width=True)
+                        st.dataframe(df_single_res, use_container_width=True, hide_index=True)
                     else:
                         st.error(
                             "❌ 未找到符合過濾條件的 YouTube 影片，請嘗試微調歌名或歌手關鍵字。"
                         )
-            
+
 # ==========================================
 # 📊 原始榜單瀏覽
 # ==========================================
@@ -1585,12 +1551,10 @@ with main_tabs[4]:
         month_str = selected_date[:7]
         day_path = os.path.join(data_dir, year_str, month_str, selected_date)
 
-        # 預先讀取中央對照表
         mapping_path = os.path.join(data_dir, "yt_mapping.csv")
         df_mapping = None
         if os.path.exists(mapping_path):
             df_mapping = pd.read_csv(mapping_path)
-            # 自動兼容各種欄位命名 (例如 video_id, Video ID, Youtube Id)
             for target_col in ["video_id", "Video ID", "Youtube Id", "YouTube ID"]:
                 if target_col in df_mapping.columns:
                     df_mapping = df_mapping.rename(columns={target_col: "mapped_yt_id"})
@@ -1604,12 +1568,10 @@ with main_tabs[4]:
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
 
-                    # 1. 清理無需顯示的內部欄位
                     cols_to_drop = [c for c in ["抓取日期", "榜單類型", "榜單種類"] if c in df.columns]
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
-                    # 2. 自動比對 yt_mapping.csv 補齊 YouTube ID
                     if df_mapping is not None and "mapped_yt_id" in df_mapping.columns:
                         df = pd.merge(df, df_mapping[["歌名", "歌手", "mapped_yt_id"]], on=["歌名", "歌手"], how="left")
                         
@@ -1622,7 +1584,6 @@ with main_tabs[4]:
                     elif "YouTube ID" not in df.columns:
                         df["YouTube ID"] = "-"
 
-                    # 3. 呼叫 API 補抓當下點閱率
                     if "點閱率" not in df.columns or (df["點閱率"].astype(str) == "-").all():
                         v_ids = [str(vid) for vid in df["YouTube ID"].unique() if vid != "-" and pd.notna(vid)]
                         view_dict = {}
@@ -1631,7 +1592,6 @@ with main_tabs[4]:
                                 raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
                                 api_keys = [k.strip() for k in (raw_keys.split(",") if isinstance(raw_keys, str) else raw_keys) if str(k).strip()]
                                 if api_keys:
-                                    from googleapiclient.discovery import build
                                     yt_service = build("youtube", "v3", developerKey=api_keys[0])
                                     for i in range(0, len(v_ids), 50):
                                         chunk = v_ids[i:i+50]
@@ -1641,10 +1601,13 @@ with main_tabs[4]:
                             except Exception:
                                 pass
                         
-                        raw_views = df["YouTube ID"].map(view_dict).fillna(0)
-                        df["點閱率"] = raw_views.apply(lambda x: f"{int(x):,}" if x > 0 else "-")
+                        df["點閱率"] = df["YouTube ID"].map(view_dict).fillna(0).astype(int)
+                    else:
+                        df["點閱率"] = pd.to_numeric(df["點閱率"].astype(str).str.replace(",", ""), errors="coerce").fillna(0).astype(int)
 
-                    # 4. 固定欄位順序：排名, 歌名, 歌手, 專輯, 發行日期, YouTube ID, 點閱率
+                    if "排名" in df.columns:
+                        df["排名"] = pd.to_numeric(df["排名"], errors="coerce").fillna(0).astype(int)
+
                     expected_order = ["排名", "歌名", "歌手", "專輯", "發行日期", "YouTube ID", "點閱率"]
                     existing_order = [c for c in expected_order if c in df.columns]
                     other_cols = [c for c in df.columns if c not in existing_order]
@@ -1652,13 +1615,12 @@ with main_tabs[4]:
 
                     st.success(f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料")
 
-                    # 搜尋功能
                     search_term = st.text_input(f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=f"raw_{chart_key}")
                     if search_term:
                         mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
                         df = df[mask]
 
-                    st.dataframe(format_df_for_display(df), hide_index=True, use_container_width=True)
+                    st.dataframe(df, hide_index=True, use_container_width=True)
 
                     csv_data = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
