@@ -834,7 +834,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪 (整合 Topic 豁免與進階清理雙優點版)
+# 📺 模組四：YouTube 點閱測繪
 # ==========================================
 with main_tabs[3]:
     st.header("📺 模組四：YouTube 點閱測繪")
@@ -886,7 +886,7 @@ with main_tabs[3]:
     if start_btn:
         import time
         import re
-        import zhconv  # 引入簡繁轉換套件
+        import zhconv
         import pandas as pd
         from googleapiclient.discovery import build
         from googleapiclient.errors import HttpError
@@ -924,7 +924,6 @@ with main_tabs[3]:
             singer_str = str(singer).strip()
             all_tokens = set()
 
-            # 用常見分隔符切割 (/, &, comma, +, x, feat, ft, etc.)
             raw_tokens = re.split(
                 r"[/&,\+\·\s\*\-\|]|feat\.?|ft\.?|X|x",
                 singer_str,
@@ -1006,7 +1005,6 @@ with main_tabs[3]:
 
             youtube_service = build_yt_service(current_key_idx)
 
-            # 噪音關鍵字過濾庫
             COMBINED_NOISE_KEYWORDS = [
                 "花絮",
                 "未播",
@@ -1033,8 +1031,8 @@ with main_tabs[3]:
                 rank = row.get("排名", idx + 1)
 
                 status_text.text(
-                    f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} -"
-                    f" {singer}..."
+                    f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}"
+                    f" [Key {current_key_idx + 1}/{len(api_keys)}]"
                 )
                 progress_bar.progress((idx + 1) / test_limit)
 
@@ -1042,13 +1040,11 @@ with main_tabs[3]:
                 matched_title = None
                 matched_views = 0
                 matched_url = None
-                diag_msg = "未知狀態"  # 💡 診斷標籤初始化
 
                 clean_song = clean_song_title(song)
                 query_str = f"{clean_song} {singer}"
                 success = False
 
-                # 準備歌名比對格式 (簡體與繁體)
                 song_sim_norm = normalize_text(
                     zhconv.convert(clean_song, "zh-hans")
                 )
@@ -1056,14 +1052,12 @@ with main_tabs[3]:
                     zhconv.convert(clean_song, "zh-hant")
                 )
 
-                # 進階拆解歌手 Token
                 artist_tokens = extract_artist_tokens(singer)
 
                 while current_key_idx < len(api_keys) and not success:
                     if youtube_service is None:
                         youtube_service = build_yt_service(current_key_idx)
                         if youtube_service is None:
-                            diag_msg = "❌ 所有 Key 配額耗盡"
                             break
 
                     try:
@@ -1072,10 +1066,9 @@ with main_tabs[3]:
                             .list(
                                 q=query_str,
                                 part="id",
-                                maxResults=25,
+                                maxResults=10,
                                 type="video",
-                                order="viewCount",
-                                regionCode="TW"
+                                regionCode="TW",
                             )
                             .execute()
                         )
@@ -1097,7 +1090,6 @@ with main_tabs[3]:
                             )
 
                             candidates = []
-                            filter_reasons = []  # 💡 診斷紀錄點：收集過濾原因
 
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
@@ -1114,9 +1106,7 @@ with main_tabs[3]:
                                 ).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
-                                # 檢查條件 1：片長限制 (61 秒 ~ 10 分鐘)
                                 if duration_sec <= 60 or duration_sec > 600:
-                                    filter_reasons.append(f"片長不符({duration_sec}s)")
                                     continue
 
                                 v_title_lower = v_title.lower()
@@ -1129,24 +1119,19 @@ with main_tabs[3]:
                                     or "主題" in channel_lower
                                 )
 
-                                # 檢查條件 2：噪音詞
                                 has_noise = any(
                                     nk in v_title_lower
                                     for nk in COMBINED_NOISE_KEYWORDS
                                 )
                                 if not is_topic and has_noise:
-                                    filter_reasons.append("包含噪音關鍵字")
                                     continue
 
-                                # 檢查條件 3：歌名匹配
                                 song_matched = (
                                     song_sim_norm in v_title_norm
                                 ) or (song_tra_norm in v_title_norm)
                                 if not song_matched:
-                                    filter_reasons.append("歌名未命中")
                                     continue
 
-                                # 檢查條件 4：歌手匹配
                                 singer_matched = any(
                                     tkn in v_title_norm for tkn in artist_tokens
                                 ) or any(
@@ -1161,30 +1146,17 @@ with main_tabs[3]:
                                     "url": f"https://www.youtube.com/watch?v={v_id}",
                                 }
 
-                                if is_topic:
+                                if is_topic or singer_matched:
                                     candidates.append(cand)
-                                elif singer_matched:
-                                    candidates.append(cand)
-                                else:
-                                    filter_reasons.append("歌手未命中")
 
-                            # 挑選點閱最高的合適影片
                             if candidates:
                                 best = max(candidates, key=lambda x: x["views"])
                                 matched_id = best["id"]
                                 matched_title = best["title"]
                                 matched_views = best["views"]
                                 matched_url = best["url"]
-                                diag_msg = "✅ 成功匹配"
-                            else:
-                                # 💡 整理去重後的失敗原因
-                                unique_reasons = list(dict.fromkeys(filter_reasons))[:2]
-                                reason_str = " / ".join(unique_reasons) if unique_reasons else "條件過濾"
-                                diag_msg = f"❌ 條件全過濾 ({reason_str})"
-                        else:
-                            diag_msg = "❌ API未搜尋到相關影片"
 
-                        success = True  # 代表完整的 API 請求與過濾比對已順利完成
+                        success = True
 
                     except HttpError as e:
                         is_quota_error = e.resp.status in [403, 429] or any(
@@ -1196,23 +1168,14 @@ with main_tabs[3]:
                             ]
                         )
                         if is_quota_error:
-                            st.warning(
-                                f"⚠️ 第 {current_key_idx + 1} 組 API Key"
-                                " 額度用盡，自動切換至下一組 Key..."
-                            )
                             current_key_idx += 1
                             youtube_service = build_yt_service(current_key_idx)
                             if not youtube_service:
                                 st.error("❌ 所有 API Key 的每日額度皆已耗盡！")
-                                diag_msg = "❌ 額度耗盡"
                                 break
                         else:
-                            st.warning(f"搜尋 {song} 時發生 API 錯誤: {e}")
-                            diag_msg = f"❌ API錯誤({e.resp.status})"
                             break
-                    except Exception as e:
-                        st.warning(f"搜尋 {song} 時發生未知錯誤: {e}")
-                        diag_msg = f"❌ 未知錯誤"
+                    except Exception:
                         break
 
                 results.append({
@@ -1222,7 +1185,6 @@ with main_tabs[3]:
                     "Video ID": matched_id or "-",
                     "YT 觀看次數": matched_views,
                     "YT 影片標題": matched_title or "-",
-                    "診斷說明": diag_msg,  # 💡 新增這欄，直接印在 Streamlit 畫面上
                     "影片連結": matched_url or "-",
                 })
 
