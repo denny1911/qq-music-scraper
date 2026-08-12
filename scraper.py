@@ -195,10 +195,14 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
 def main():
     # 取得台灣時區日期
     tz_taiwan = timezone(timedelta(hours=8))
-    date_str = datetime.now(tz_taiwan).strftime("%Y-%m-%d")
-    target_dir = os.path.join(DATA_DIR, date_str)
-    os.makedirs(target_dir, exist_ok=True)
+    now = datetime.now(tz_taiwan)
+    year_str = now.strftime("%Y")  # 例如：2026
+    month_str = now.strftime("%Y-%m")  # 例如：2026-08
+    date_str = now.strftime("%Y-%m-%d")  # 例如：2026-08-12
 
+# 多層級路徑：data/2026/2026-08/2026-08-12
+target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
+os.makedirs(target_dir, exist_ok=True)
     # 準備讀取多組 API Keys
     raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
     api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
