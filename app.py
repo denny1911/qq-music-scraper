@@ -1551,73 +1551,65 @@ with main_tabs[4]:
         month_str = selected_date[:7]
         day_path = os.path.join(data_dir, year_str, month_str, selected_date)
 
-        mapping_path = os.path.join(data_dir, "yt_mapping.csv")
-        df_mapping = None
-        if os.path.exists(mapping_path):
-            df_mapping = pd.read_csv(mapping_path)
-            for target_col in ["video_id", "Video ID", "Youtube Id", "YouTube ID"]:
-                if target_col in df_mapping.columns:
-                    df_mapping = df_mapping.rename(columns={target_col: "mapped_yt_id"})
-                    break
-
         for tab, (chart_name, chart_key) in zip(sub_tabs, charts.items()):
             with tab:
                 file_name = f"{selected_date}_{chart_key}.csv"
                 file_path = os.path.join(day_path, file_name)
 
                 if os.path.exists(file_path):
+                    # 直接讀取當日 CSV
                     df = pd.read_csv(file_path)
 
+                    # 清除可能多餘的系統標籤欄位
                     cols_to_drop = [c for c in ["抓取日期", "榜單類型", "榜單種類"] if c in df.columns]
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
-                    if df_mapping is not None and "mapped_yt_id" in df_mapping.columns:
-                        df = pd.merge(df, df_mapping[["歌名", "歌手", "mapped_yt_id"]], on=["歌名", "歌手"], how="left")
-                        
-                        if "YouTube ID" in df.columns:
-                            df["YouTube ID"] = df["YouTube ID"].fillna(df["mapped_yt_id"]).fillna("-")
-                            df = df.drop(columns=["mapped_yt_id"], errors="ignore")
-                        else:
-                            df["YouTube ID"] = df["mapped_yt_id"].fillna("-")
-                            df = df.drop(columns=["mapped_yt_id"], errors="ignore")
-                    elif "YouTube ID" not in df.columns:
-                        df["YouTube ID"] = "-"
+                    # 移除點閱率中的千分位逗號，並還原為整數型態（保障正確排序）
+                    if "點閱率" in df.columns:
+                        df["點閱率"] = (
+                            pd.to_numeric(
+                                df["點閱率"].astype(str).str.replace(",", ""),
+                                errors="coerce",
+                            )
+                            .fillna(0)
+                            .astype(int)
+                        )
 
-                    if "點閱率" not in df.columns or (df["點閱率"].astype(str) == "-").all():
-                        v_ids = [str(vid) for vid in df["YouTube ID"].unique() if vid != "-" and pd.notna(vid)]
-                        view_dict = {}
-                        if v_ids:
-                            try:
-                                raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
-                                api_keys = [k.strip() for k in (raw_keys.split(",") if isinstance(raw_keys, str) else raw_keys) if str(k).strip()]
-                                if api_keys:
-                                    yt_service = build("youtube", "v3", developerKey=api_keys[0])
-                                    for i in range(0, len(v_ids), 50):
-                                        chunk = v_ids[i:i+50]
-                                        res = yt_service.videos().list(part="statistics", id=",".join(chunk)).execute()
-                                        for item in res.get("items", []):
-                                            view_dict[item["id"]] = int(item["statistics"].get("viewCount", 0))
-                            except Exception:
-                                pass
-                        
-                        df["點閱率"] = df["YouTube ID"].map(view_dict).fillna(0).astype(int)
-                    else:
-                        df["點閱率"] = pd.to_numeric(df["點閱率"].astype(str).str.replace(",", ""), errors="coerce").fillna(0).astype(int)
-
+                    # 確保排名為整數型態
                     if "排名" in df.columns:
-                        df["排名"] = pd.to_numeric(df["排名"], errors="coerce").fillna(0).astype(int)
+                        df["排名"] = (
+                            pd.to_numeric(df["排名"], errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
 
-                    expected_order = ["排名", "歌名", "歌手", "專輯", "發行日期", "YouTube ID", "點閱率"]
+                    # 統一欄位顯示順序
+                    expected_order = [
+                        "排名",
+                        "歌名",
+                        "歌手",
+                        "專輯",
+                        "發行日期",
+                        "YouTube ID",
+                        "點閱率",
+                    ]
                     existing_order = [c for c in expected_order if c in df.columns]
                     other_cols = [c for c in df.columns if c not in existing_order]
                     df = df[existing_order + other_cols]
 
                     st.success(f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料")
 
-                    search_term = st.text_input(f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=f"raw_{chart_key}")
+                    # 表格內即時關鍵字搜尋
+                    search_term = st.text_input(
+                        f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=f"raw_{chart_key}"
+                    )
                     if search_term:
-                        mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
+                        mask = (
+                            df.astype(str)
+                            .apply(lambda x: x.str.contains(search_term, case=False))
+                            .any(axis=1)
+                        )
                         df = df[mask]
 
                     st.dataframe(df, hide_index=True, use_container_width=True)
@@ -1631,6 +1623,8 @@ with main_tabs[4]:
                         key=f"raw_download_{chart_key}",
                     )
                 else:
-                    st.warning(f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。")
+                    st.warning(
+                        f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。"
+                    )
     else:
         st.info("💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。")
