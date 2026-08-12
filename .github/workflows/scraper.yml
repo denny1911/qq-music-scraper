@@ -2,8 +2,8 @@ name: Daily QQ Music Scraper
 
 on:
   schedule:
-    # 每天台灣時間 12:30 執行 (對應 UTC 時間 04:30)
-    - cron: '30 4 * * *'
+    # 每天台灣時間 16:30 執行 (對應 UTC 時間 08:30)
+    - cron: '30 8 * * *'
   workflow_dispatch:
 
 jobs:
