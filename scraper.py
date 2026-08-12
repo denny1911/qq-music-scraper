@@ -200,9 +200,9 @@ def main():
     month_str = now.strftime("%Y-%m")  # 例如：2026-08
     date_str = now.strftime("%Y-%m-%d")  # 例如：2026-08-12
 
-# 多層級路徑：data/2026/2026-08/2026-08-12
-target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
-os.makedirs(target_dir, exist_ok=True)
+    # 多層級路徑：data/2026/2026-08/2026-08-12
+    target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
+    os.makedirs(target_dir, exist_ok=True)
     # 準備讀取多組 API Keys
     raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
     api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
