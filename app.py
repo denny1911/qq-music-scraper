@@ -48,11 +48,15 @@ if not os.path.exists(data_dir):
     )
     st.stop()
 
-# 抓取所有日期資料夾（從最新到最舊）
-dates = sorted(
-    [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))],
-    reverse=True,
-)
+# 使用 os.walk 遍歷所有深層目錄，抓取格式為 YYYY-MM-DD 的日期資料夾
+date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+found_dates = []
+for root, dirs, _ in os.walk(data_dir):
+    for d in dirs:
+        if date_pattern.match(d):
+            found_dates.append(d)
+
+dates = sorted(list(set(found_dates)), reverse=True)
 
 if not dates:
     st.info("目前 `data/` 資料夾內尚無日期數據。")
@@ -74,7 +78,9 @@ def get_issue_label(date_str):
 
 # 讀取單日所有榜單資料的輔助函式
 def load_date_data(date_str):
-    day_path = os.path.join(data_dir, date_str)
+    year_str = date_str[:4]      # 取 2026
+    month_str = date_str[:7]     # 取 2026-08
+    day_path = os.path.join(data_dir, year_str, month_str, date_str)
     charts = {
         "new": "新歌榜",
         "film": "影視金曲榜",
@@ -1574,7 +1580,9 @@ with main_tabs[4]:
         }
 
         sub_tabs = st.tabs(list(charts.keys()))
-        day_path = os.path.join(data_dir, selected_date)
+        year_str = selected_date[:4]
+        month_str = selected_date[:7]
+        day_path = os.path.join(data_dir, year_str, month_str, selected_date)
 
         # 預先讀取中央對照表
         mapping_path = os.path.join(data_dir, "yt_mapping.csv")
