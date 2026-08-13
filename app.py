@@ -1755,18 +1755,16 @@ with main_tabs[4]:
                     # 2. 建立僅用於 UI 前端顯示的 df_display
                     df_display = df.copy()
 
-                    # 格式化點閱率：數字顯示千分位，無資料顯示 "-"
+                    # 【修復 1】：格式化點閱率 (先移除逗號再轉數字，避免千分位資料轉失敗)
                     def format_views(val):
-                        if pd.isna(val) or str(val).strip() in [
-                            "-",
-                            "",
-                            "nan",
-                            "None",
-                            "<NA>",
-                        ]:
+                        if pd.isna(val):
+                            return "-"
+                        s_val = str(val).replace(",", "").strip()
+                        if s_val in ["-", "", "nan", "None", "<NA>", "null"]:
                             return "-"
                         try:
-                            return f"{int(float(val)):,}"
+                            num = int(float(s_val))
+                            return f"{num:,}"
                         except (ValueError, TypeError):
                             return "-"
 
@@ -1775,21 +1773,19 @@ with main_tabs[4]:
                             "點閱率"
                         ].apply(format_views)
 
-                    # 格式化影片連結：帶有 #點此觀看 標記，無影片顯示 "-"
+                    # 【修復 2】：格式化影片連結 (無影片傳回 None，避免 LinkColumn 將 "-" 誤判為網址)
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
-                            return (
-                                f"https://www.youtube.com/watch?v={v}#點此觀看"
-                            )
-                        return "-"
+                            return f"https://www.youtube.com/watch?v={v}"
+                        return None
 
                     if "YouTube ID" in df_display.columns:
                         df_display["影片連結"] = df_display[
                             "YouTube ID"
                         ].apply(build_yt_url)
 
-                    # 調整前端欄位順序：移出 YouTube ID，將「影片連結」擺最右邊
+                    # 調整欄位順序：移除 YouTube ID，把「影片連結」放到最右側
                     display_cols = [
                         c
                         for c in df_display.columns
@@ -1811,7 +1807,7 @@ with main_tabs[4]:
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
-                                display_text=r".*#(.*)",  # 👈 擷取 # 後面的「點此觀看」，若非網址則原樣顯示 "-"
+                                display_text="點此觀看",
                                 help="點擊前往 YouTube 觀看 MV",
                                 width="small",
                             ),
@@ -1820,7 +1816,7 @@ with main_tabs[4]:
                         use_container_width=True,
                     )
 
-                    # 4. 匯出按鈕：導出原始 CSV
+                    # 4. 匯出按鈕
                     csv_data = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
