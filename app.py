@@ -797,7 +797,7 @@ with main_tabs[1]:
                         df_display,
                         column_config={
                             "點閱淨增量": st.column_config.NumberColumn(
-                                "點閱淨增量", format="+,d", width="small"
+                                "點閱淨增量", format="%,d", width="small"
                             ),
                             "名次總爬升幅": st.column_config.NumberColumn(
                                 "名次總爬升幅", format="+%d", width="small"
