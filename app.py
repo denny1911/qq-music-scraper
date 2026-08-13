@@ -300,18 +300,23 @@ with main_tabs[0]:
                         else:
                             multi_chart["影片連結"] = "查無影片"
 
-                        if "點閱率" not in multi_chart.columns:
-                            multi_chart["點閱率"] = "-"
+                        if "點閱率" in multi_chart.columns:
+                            multi_chart["點閱率"] = (
+                                multi_chart["點閱率"]
+                                .astype(str)
+                                .str.replace(",", "", regex=False)
+                            )
+                            multi_chart["點閱率"] = pd.to_numeric(
+                                multi_chart["點閱率"], errors="coerce"
+                            )
                         else:
-                            multi_chart["點閱率"] = multi_chart[
-                                "點閱率"
-                            ].fillna("-")
+                            multi_chart["點閱率"] = None
 
                         cols_order = [
                             song_col,
                             singer_col,
-                            "登榜數量",
                             "點閱率",
+                            "登榜數量",
                             "登上榜單",
                             "最高名次",
                             "影片連結",
@@ -324,6 +329,9 @@ with main_tabs[0]:
                         st.dataframe(
                             multi_chart,
                             column_config={
+                                "點閱率": st.column_config.NumberColumn(
+                                    "點閱率", format="%d", width="small"
+                                ),
                                 "登榜數量": st.column_config.NumberColumn(
                                     "登榜數量", format="%d", width="small"
                                 ),
@@ -486,18 +494,23 @@ with main_tabs[0]:
                     else:
                         multi_chart["影片連結"] = "查無影片"
 
-                    if "點閱率" not in multi_chart.columns:
-                        multi_chart["點閱率"] = "-"
+                    if "點閱率" in multi_chart.columns:
+                        multi_chart["點閱率"] = (
+                            multi_chart["點閱率"]
+                            .astype(str)
+                            .str.replace(",", "", regex=False)
+                        )
+                        multi_chart["點閱率"] = pd.to_numeric(
+                            multi_chart["點閱率"], errors="coerce"
+                        )
                     else:
-                        multi_chart["點閱率"] = multi_chart[
-                            "點閱率"
-                        ].fillna("-")
+                        multi_chart["點閱率"] = None
 
                     cols_order = [
                         song_col,
                         singer_col,
-                        "跨榜數量",
                         "點閱率",
+                        "跨榜數量",
                         "涵蓋榜單",
                         "累積活躍天數",
                         "最高名次",
@@ -516,6 +529,9 @@ with main_tabs[0]:
                     st.dataframe(
                         multi_chart,
                         column_config={
+                            "點閱率": st.column_config.NumberColumn(
+                                "點閱率", format="%d", width="small"
+                            ),
                             "跨榜數量": st.column_config.NumberColumn(
                                 "跨榜數量", format="%d", width="small"
                             ),
