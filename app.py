@@ -573,12 +573,12 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（波段反彈修正版）
+# 🚀 模組二：新進黑馬雷達（直觀流暢修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
     st.markdown(
-        "偵測近期新進榜、尾盤持續上升，且具備「累積跌幅後能強勢反彈超車」的潛力黑馬！"
+        "偵測近期新進榜、名次持續爬升且點閱率大幅增長的潛力黑馬！"
     )
 
     m2_chart_option = st.radio(
@@ -608,7 +608,7 @@ with main_tabs[1]:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
-            target_past_dt = base_dt - timedelta(days=7)
+            target_past_dt = base_dt - timedelta(days=6)
             range_dates = sorted(
                 [
                     d
@@ -649,98 +649,111 @@ with main_tabs[1]:
 
         if range_dfs:
             df_all_range = pd.concat(range_dfs, ignore_index=True)
-            song_col, singer_col, rank_col = "歌名", "歌手", "排名"
-            pivot_df = df_all_range.pivot_table(
+            song_col = "歌名" if "歌名" in df_all_range.columns else "song"
+            singer_col = "歌手" if "歌手" in df_all_range.columns else "singer"
+            rank_col = "排名" if "排名" in df_all_range.columns else "rank"
+
+            yt_id_col = (
+                "YouTube ID"
+                if "YouTube ID" in df_all_range.columns
+                else (
+                    "YouTube_ID"
+                    if "YouTube_ID" in df_all_range.columns
+                    else ("Video ID" if "Video ID" in df_all_range.columns else None)
+                )
+            )
+            yt_views_col = (
+                "點閱率"
+                if "點閱率" in df_all_range.columns
+                else ("觀看次數" if "觀看次數" in df_all_range.columns else None)
+            )
+
+            # 建立名次 Pivot
+            pivot_rank = df_all_range.pivot_table(
                 index=[song_col, singer_col],
                 columns="追蹤日期",
                 values=rank_col,
                 aggfunc="min",
             )
 
-            if base_date in pivot_df.columns:
-                base_active_songs = pivot_df[
-                    pivot_df[base_date].notna()
-                ].copy()
-                processed_rows = []
-                min_required = 3
+            # 建立點閱率 Pivot (如果有的話)
+            pivot_views = None
+            if yt_views_col and yt_views_col in df_all_range.columns:
+                df_all_range[yt_views_col] = (
+                    df_all_range[yt_views_col]
+                    .astype(str)
+                    .str.replace(",", "", regex=False)
+                )
+                df_all_range[yt_views_col] = pd.to_numeric(
+                    df_all_range[yt_views_col], errors="coerce"
+                )
+                pivot_views = df_all_range.pivot_table(
+                    index=[song_col, singer_col],
+                    columns="追蹤日期",
+                    values=yt_views_col,
+                    aggfunc="last",
+                )
 
-                for idx, row in base_active_songs.iterrows():
+            # 抓取 YouTube ID (取第一筆不重複的)
+            yt_id_map = {}
+            if yt_id_col and yt_id_col in df_all_range.columns:
+                for _, row in df_all_range.iterrows():
+                    k = (row[song_col], row[singer_col])
+                    if k not in yt_id_map or pd.isna(yt_id_map[k]):
+                        v = row[yt_id_col]
+                        if pd.notna(v) and str(v).strip() not in ["", "nan", "None", "-"]:
+                            yt_id_map[k] = v
+
+            if base_date in pivot_rank.columns:
+                # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
+                min_required = 3
+                processed_rows = []
+
+                for idx, row in pivot_rank.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
 
+                    # 條件 1：追蹤區間內至少有 3 天紀錄
                     if len(valid_history) < min_required:
                         continue
 
-                    first_date_idx = range_dates.index(valid_history.index[0])
-                    if not (1 <= first_date_idx <= 4):
+                    # 條件 2：基準日必須在榜上
+                    if base_date not in valid_history.index or pd.isna(row[base_date]):
                         continue
 
-                    if valid_history.iloc[-1] >= valid_history.iloc[-2]:
+                    start_date_in_range = valid_history.index[0]
+                    initial_rank = int(valid_history.iloc[0])
+                    current_rank = int(row[base_date])
+
+                    # 階段二：計算兩大關鍵指標
+                    # 1. 名次總爬升幅 (追蹤期初名次 - 最新名次，正數代表進步)
+                    rank_surge = initial_rank - current_rank
+
+                    # 2. 點閱率淨增量
+                    view_growth = 0
+                    if pivot_views is not None and idx in pivot_views.index:
+                        v_series = pivot_views.loc[idx, range_dates].dropna()
+                        if not v_series.empty:
+                            start_views = v_series.iloc[0]
+                            end_views = v_series.iloc[-1]
+                            if pd.notna(start_views) and pd.notna(end_views):
+                                view_growth = int(end_views - start_views)
+
+                    # 篩選門檻：名次必須有爬升 (rank_surge > 0)
+                    if rank_surge <= 0:
                         continue
 
-                    ranks_seq = valid_history.values
-                    has_valid_rebound = False
+                    yt_val = yt_id_map.get(idx, None)
 
-                    i = 0
-                    while i < len(ranks_seq) - 1:
-                        if ranks_seq[i + 1] > ranks_seq[i]:
-                            start_drop_val = ranks_seq[i]
-                            peak_idx = i + 1
-                            while (
-                                peak_idx < len(ranks_seq)
-                                and ranks_seq[peak_idx] >= ranks_seq[peak_idx - 1]
-                            ):
-                                peak_idx += 1
-                            peak_idx -= 1
-                            max_bad_val = ranks_seq[peak_idx]
-
-                            subsequent_surge = False
-                            for j in range(peak_idx + 1, len(ranks_seq)):
-                                if ranks_seq[j] < start_drop_val:
-                                    subsequent_surge = True
-                                    break
-                            if subsequent_surge:
-                                has_valid_rebound = True
-                                break
-                            i = peak_idx
-                        else:
-                            i += 1
-
-                    has_any_drop = any(
-                        ranks_seq[k + 1] > ranks_seq[k]
-                        for k in range(len(ranks_seq) - 1)
-                    )
-                    if has_any_drop and not has_valid_rebound:
-                        continue
-
-                    curr_rank = int(row[base_date])
-                    highest_rank = int(valid_history.min())
-                    rise_count = 0
-                    max_single_rise = 0
-                    for k in range(1, len(valid_history)):
-                        if valid_history.iloc[k] < valid_history.iloc[k - 1]:
-                            rise_count += 1
-                            max_single_rise = max(
-                                max_single_rise,
-                                int(
-                                    valid_history.iloc[k - 1]
-                                    - valid_history.iloc[k]
-                                ),
-                            )
-
-                    sort_score = (
-                        (100 - curr_rank) * 30
-                        + (rise_count * 40)
-                        + max_single_rise
-                    )
                     processed_rows.append(
                         {
                             song_col: song,
                             singer_col: singer,
-                            "歷史最高排名": highest_rank,
-                            "區間上升次數": rise_count,
-                            "單次最高爬升": max_single_rise,
-                            "sort_score": sort_score,
+                            "點閱淨增量": view_growth,
+                            "名次總爬升幅": rank_surge,
+                            "追蹤期初名次": initial_rank,
+                            "基準日名次": current_rank,
+                            "YouTube ID": yt_val,
                             "raw_song": song,
                             "raw_singer": singer,
                         }
@@ -748,27 +761,68 @@ with main_tabs[1]:
 
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
+                    # 階段三：直觀排序（優先依據點閱淨增量，次要依名次總爬升幅）
                     df_result = (
-                        df_result.sort_values(by="sort_score", ascending=False)
+                        df_result.sort_values(
+                            by=["點閱淨增量", "名次總爬升幅"], ascending=[False, False]
+                        )
                         .head(10)
                         .reset_index(drop=True)
                     )
-                    st.success(
-                        "🎯 已鎖定具備波段反彈超車能力的黑馬！"
-                    )
+
+                    # 產生影片連結
+                    def build_yt_url(val):
+                        v = str(val).strip() if pd.notna(val) else ""
+                        if v and v not in ["-", "nan", "None", ""]:
+                            return f"https://www.youtube.com/watch?v={v}"
+                        return None
+
+                    df_result["影片連結"] = df_result["YouTube ID"].apply(build_yt_url)
+
+                    # 調整欄位順序：歌名、歌手、點閱淨增量、名次總爬升幅、追蹤期初名次、基準日名次、影片連結
+                    display_cols = [
+                        song_col,
+                        singer_col,
+                        "點閱淨增量",
+                        "名次總爬升幅",
+                        "追蹤期初名次",
+                        "基準日名次",
+                        "影片連結",
+                    ]
+                    df_display = df_result[display_cols].copy()
+
+                    st.success("🎯 已鎖定流量暴衝與名次爬升的潛力黑馬！")
                     st.dataframe(
-                        df_result.drop(
-                            columns=["sort_score", "raw_song", "raw_singer"]
-                        ),
+                        df_display,
+                        column_config={
+                            "點閱淨增量": st.column_config.NumberColumn(
+                                "點閱淨增量", format="+,d", width="small"
+                            ),
+                            "名次總爬升幅": st.column_config.NumberColumn(
+                                "名次總爬升幅", format="+%d", width="small"
+                            ),
+                            "追蹤期初名次": st.column_config.NumberColumn(
+                                "追蹤期初名次", format="%d", width="small"
+                            ),
+                            "基準日名次": st.column_config.NumberColumn(
+                                "基準日名次", format="%d", width="small"
+                            ),
+                            "影片連結": st.column_config.LinkColumn(
+                                "影片連結",
+                                display_text="點此觀看",
+                                help="點擊前往 YouTube 觀看 MV",
+                                width="small",
+                            ),
+                        },
                         hide_index=True,
                         use_container_width=True,
                     )
 
-                    st.markdown("### 📈 黑馬反彈走勢")
+                    st.markdown("### 📈 黑馬反彈與爬升走勢")
                     top_keys = list(
                         zip(df_result["raw_song"], df_result["raw_singer"])
                     )
-                    chart_data = pivot_df.loc[top_keys, range_dates].T
+                    chart_data = pivot_rank.loc[top_keys, range_dates].T
 
                     chart_data.columns = [s for s, si in top_keys]
                     chart_data.index = [
@@ -817,16 +871,23 @@ with main_tabs[1]:
                     )
 
                     st.altair_chart(c, use_container_width=True)
-                    csv = df_result.to_csv(index=False).encode("utf-8-sig")
+
+                    export_df = df_display.copy()
+                    csv = export_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         "📥 匯出黑馬清單 (CSV)",
                         csv,
                         f"黑馬清單_{base_date}.csv",
                         "text/csv",
+                        key="m2_download_btn",
                     )
                 else:
                     st.info("暫無符合條件的黑馬歌曲。")
-
+            else:
+                st.info("基準日無資料。")
+        else:
+            st.info("選定日期區間內無數據。")
+```[cite: 5]
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
