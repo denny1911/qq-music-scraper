@@ -1787,7 +1787,7 @@ with main_tabs[4]:
                         display_cols.append("影片連結")
                     df_display = df_display[display_cols]
 
-                    # 3. 渲染前端表格與格式化欄位 (加入 placeholder="-")
+                    # 3. 渲染前端表格與格式化欄位
                     st.dataframe(
                         df_display,
                         column_config={
@@ -1797,15 +1797,14 @@ with main_tabs[4]:
                             "點閱率": st.column_config.NumberColumn(
                                 "點閱率",
                                 format="%,d",
-                                width="small",
-                                placeholder="-",  # 👈 當點閱率無資料 (NaN) 時顯示 "-"
+                                width="small",  # 👈 移除 placeholder，NumberColumn 不支援此參數
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
                                 display_text="點此觀看",
                                 help="點擊前往 YouTube 觀看 MV",
                                 width="small",
-                                placeholder="-",  # 👈 當無影片網址 (None) 時顯示 "-"
+                                placeholder="-",  # 👈 LinkColumn 支援 placeholder，無影片 (None) 時顯示 "-"
                             ),
                         },
                         hide_index=True,
