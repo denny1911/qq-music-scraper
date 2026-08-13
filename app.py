@@ -235,20 +235,49 @@ with main_tabs[0]:
                 )
 
                 if song_col and singer_col:
+                    yt_id_col = (
+                        "YouTube ID"
+                        if "YouTube ID" in df_curr.columns
+                        else (
+                            "YouTube_ID"
+                            if "YouTube_ID" in df_curr.columns
+                            else (
+                                "Video ID"
+                                if "Video ID" in df_curr.columns
+                                else None
+                            )
+                        )
+                    )
+                    yt_views_col = (
+                        "點閱率"
+                        if "點閱率" in df_curr.columns
+                        else (
+                            "觀看次數"
+                            if "觀看次數" in df_curr.columns
+                            else None
+                        )
+                    )
+
+                    agg_kwargs = {
+                        "登榜數量": ("榜單類型", "nunique"),
+                        "登上榜單": (
+                            "榜單類型",
+                            lambda x: "、".join(sorted(set(x))),
+                        ),
+                        "最高名次": (
+                            ("排名", "min")
+                            if "排名" in df_curr.columns
+                            else ("登榜數量", "count")
+                        ),
+                    }
+                    if yt_id_col:
+                        agg_kwargs["YouTube ID"] = (yt_id_col, "first")
+                    if yt_views_col:
+                        agg_kwargs["點閱率"] = (yt_views_col, "first")
+
                     grouped = (
                         df_curr.groupby([song_col, singer_col])
-                        .agg(
-                            登榜數量=("榜單類型", "nunique"),
-                            登上榜單=(
-                                "榜單類型",
-                                lambda x: "、".join(sorted(set(x))),
-                            ),
-                            最高名次=(
-                                ("排名", "min")
-                                if "排名" in df_curr.columns
-                                else ("登榜數量", "count")
-                            ),
-                        )
+                        .agg(**agg_kwargs)
                         .reset_index()
                     )
 
@@ -257,15 +286,32 @@ with main_tabs[0]:
                     )
 
                     if not multi_chart.empty:
-                        multi_chart["爆款屬性標籤"] = multi_chart[
-                            "登上榜單"
-                        ].apply(generate_song_tags)
+
+                        def build_yt_url(val):
+                            v = str(val).strip() if pd.notna(val) else ""
+                            if v and v not in ["-", "nan", "None", ""]:
+                                return f"https://www.youtube.com/watch?v={v}"
+                            return "查無影片"
+
+                        if "YouTube ID" in multi_chart.columns:
+                            multi_chart["連結"] = multi_chart[
+                                "YouTube ID"
+                            ].apply(build_yt_url)
+                        else:
+                            multi_chart["連結"] = "查無影片"
+
+                        if "點閱率" not in multi_chart.columns:
+                            multi_chart["點閱率"] = "-"
+                        else:
+                            multi_chart["點閱率"] = multi_chart[
+                                "點閱率"
+                            ].fillna("-")
 
                         cols_order = [
                             song_col,
                             singer_col,
-                            "登榜數量",
-                            "爆款屬性標籤",
+                            "連結",
+                            "點閱率",
                             "登上榜單",
                             "最高名次",
                         ]
@@ -276,6 +322,13 @@ with main_tabs[0]:
                         )
                         st.dataframe(
                             multi_chart,
+                            column_config={
+                                "連結": st.column_config.LinkColumn(
+                                    "連結",
+                                    display_text="點此觀看",
+                                    help="點擊前往 YouTube 觀看 MV",
+                                )
+                            },
                             hide_index=True,
                             use_container_width=True,
                         )
@@ -361,18 +414,47 @@ with main_tabs[0]:
             )
 
             if song_col and singer_col:
+                yt_id_col = (
+                    "YouTube ID"
+                    if "YouTube ID" in df_range.columns
+                    else (
+                        "YouTube_ID"
+                        if "YouTube_ID" in df_range.columns
+                        else (
+                            "Video ID"
+                            if "Video ID" in df_range.columns
+                            else None
+                        )
+                    )
+                )
+                yt_views_col = (
+                    "點閱率"
+                    if "點閱率" in df_range.columns
+                    else (
+                        "觀看次數"
+                        if "觀看次數" in df_range.columns
+                        else None
+                    )
+                )
+
+                agg_kwargs = {
+                    "跨榜數量": ("榜單類型", "nunique"),
+                    "涵蓋榜單": ("榜單類型", lambda x: "、".join(sorted(set(x)))),
+                    "累積活躍天數": ("抓取日期", "nunique"),
+                    "最高名次": (
+                        ("排名", "min")
+                        if "排名" in df_range.columns
+                        else ("跨榜數量", "count")
+                    ),
+                }
+                if yt_id_col:
+                    agg_kwargs["YouTube ID"] = (yt_id_col, "first")
+                if yt_views_col:
+                    agg_kwargs["點閱率"] = (yt_views_col, "first")
+
                 grouped = (
                     df_range.groupby([song_col, singer_col])
-                    .agg(
-                        跨榜數量=("榜單類型", "nunique"),
-                        涵蓋榜單=("榜單類型", lambda x: "、".join(sorted(set(x)))),
-                        累積活躍天數=("抓取日期", "nunique"),
-                        最高名次=(
-                            ("排名", "min")
-                            if "排名" in df_range.columns
-                            else ("跨榜數量", "count")
-                        ),
-                    )
+                    .agg(**agg_kwargs)
                     .reset_index()
                 )
 
@@ -382,15 +464,32 @@ with main_tabs[0]:
                 )
 
                 if not multi_chart.empty:
-                    multi_chart["爆款屬性標籤"] = multi_chart[
-                        "涵蓋榜單"
-                    ].apply(generate_song_tags)
+
+                    def build_yt_url(val):
+                        v = str(val).strip() if pd.notna(val) else ""
+                        if v and v not in ["-", "nan", "None", ""]:
+                            return f"https://www.youtube.com/watch?v={v}"
+                        return "查無影片"
+
+                    if "YouTube ID" in multi_chart.columns:
+                        multi_chart["連結"] = multi_chart[
+                            "YouTube ID"
+                        ].apply(build_yt_url)
+                    else:
+                        multi_chart["連結"] = "查無影片"
+
+                    if "點閱率" not in multi_chart.columns:
+                        multi_chart["點閱率"] = "-"
+                    else:
+                        multi_chart["點閱率"] = multi_chart[
+                            "點閱率"
+                        ].fillna("-")
 
                     cols_order = [
                         song_col,
                         singer_col,
-                        "跨榜數量",
-                        "爆款屬性標籤",
+                        "連結",
+                        "點閱率",
                         "涵蓋榜單",
                         "累積活躍天數",
                         "最高名次",
@@ -407,6 +506,13 @@ with main_tabs[0]:
                     )
                     st.dataframe(
                         multi_chart,
+                        column_config={
+                            "連結": st.column_config.LinkColumn(
+                                "連結",
+                                display_text="點此觀看",
+                                help="點擊前往 YouTube 觀看 MV",
+                            )
+                        },
                         hide_index=True,
                         use_container_width=True,
                     )
@@ -429,9 +535,7 @@ with main_tabs[0]:
                     "數據欄位解析異常，請確認 CSV 欄位是否包含『歌名』與『歌手』。"
                 )
         else:
-            st.warning(
-                f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。"
-            )
+            st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
 # 🚀 模組二：新進黑馬雷達（波段反彈修正版）
