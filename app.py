@@ -1696,15 +1696,17 @@ with main_tabs[4]:
                 file_path = os.path.join(day_path, file_name)
 
                 if os.path.exists(file_path):
-                    # 直接讀取當日 CSV
+                    # 1. 讀取與基礎清洗原始資料 df (用於導出 CSV，保持完整欄位)
                     df = pd.read_csv(file_path)
 
-                    # 清除可能多餘的系統標籤欄位
-                    cols_to_drop = [c for c in ["抓取日期", "榜單類型", "榜單種類"] if c in df.columns]
+                    cols_to_drop = [
+                        c
+                        for c in ["抓取日期", "榜單類型", "榜單種類"]
+                        if c in df.columns
+                    ]
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
-                    # 移除點閱率中的千分位逗號，並還原為整數型態（保障正確排序）
                     if "點閱率" in df.columns:
                         df["點閱率"] = (
                             pd.to_numeric(
@@ -1715,7 +1717,6 @@ with main_tabs[4]:
                             .astype(int)
                         )
 
-                    # 確保排名為整數型態
                     if "排名" in df.columns:
                         df["排名"] = (
                             pd.to_numeric(df["排名"], errors="coerce")
@@ -1723,7 +1724,6 @@ with main_tabs[4]:
                             .astype(int)
                         )
 
-                    # 統一欄位顯示順序
                     expected_order = [
                         "排名",
                         "歌名",
@@ -1733,26 +1733,82 @@ with main_tabs[4]:
                         "YouTube ID",
                         "點閱率",
                     ]
-                    existing_order = [c for c in expected_order if c in df.columns]
-                    other_cols = [c for c in df.columns if c not in existing_order]
+                    existing_order = [
+                        c for c in expected_order if c in df.columns
+                    ]
+                    other_cols = [
+                        c for c in df.columns if c not in existing_order
+                    ]
                     df = df[existing_order + other_cols]
 
-                    st.success(f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料")
+                    st.success(
+                        f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料"
+                    )
 
                     # 表格內即時關鍵字搜尋
                     search_term = st.text_input(
-                        f"🔍 在【{chart_name}】中搜尋歌名或歌手", key=f"raw_{chart_key}"
+                        f"🔍 在【{chart_name}】中搜尋歌名或歌手",
+                        key=f"raw_{chart_key}",
                     )
                     if search_term:
                         mask = (
                             df.astype(str)
-                            .apply(lambda x: x.str.contains(search_term, case=False))
+                            .apply(
+                                lambda x: x.str.contains(
+                                    search_term, case=False
+                                )
+                            )
                             .any(axis=1)
                         )
                         df = df[mask]
 
-                    st.dataframe(df, hide_index=True, use_container_width=True)
+                    # 2. 建立僅用於 UI 前端顯示的 df_display
+                    df_display = df.copy()
 
+                    # 將 YouTube ID 轉為影片連結
+                    def build_yt_url(val):
+                        v = str(val).strip() if pd.notna(val) else ""
+                        if v and v not in ["-", "nan", "None", ""]:
+                            return f"https://www.youtube.com/watch?v={v}"
+                        return "查無影片"
+
+                    if "YouTube ID" in df_display.columns:
+                        df_display["影片連結"] = df_display[
+                            "YouTube ID"
+                        ].apply(build_yt_url)
+
+                    # 調整前端欄位順序：將「YouTube ID」替換並把「影片連結」搬移至最右側
+                    display_cols = [
+                        c
+                        for c in df_display.columns
+                        if c not in ["YouTube ID", "影片連結"]
+                    ]
+                    if "影片連結" in df_display.columns:
+                        display_cols.append("影片連結")
+                    df_display = df_display[display_cols]
+
+                    # 3. 渲染前端表格與格式化欄位
+                    st.dataframe(
+                        df_display,
+                        column_config={
+                            "排名": st.column_config.NumberColumn(
+                                "排名", format="%d", width="small"
+                            ),
+                            "點閱率": st.column_config.NumberColumn(
+                                "點閱率", format="%d", width="small"
+                            ),
+                            "影片連結": st.column_config.LinkColumn(
+                                "影片連結",
+                                display_text="點此觀看",
+                                help="點擊前往 YouTube 觀看 MV",
+                                width="small",
+                            ),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+
+                    # 4. 匯出按鈕：導出原始 df（完整保留原始 YouTube ID 欄位）
                     csv_data = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
