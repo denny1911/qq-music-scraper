@@ -291,14 +291,14 @@ with main_tabs[0]:
                             v = str(val).strip() if pd.notna(val) else ""
                             if v and v not in ["-", "nan", "None", ""]:
                                 return f"https://www.youtube.com/watch?v={v}"
-                            return "查無影片"
+                            return None
 
                         if "YouTube ID" in multi_chart.columns:
                             multi_chart["影片連結"] = multi_chart[
                                 "YouTube ID"
                             ].apply(build_yt_url)
                         else:
-                            multi_chart["影片連結"] = "查無影片"
+                            multi_chart["影片連結"] = None
 
                         if "點閱率" in multi_chart.columns:
                             multi_chart["點閱率"] = (
@@ -485,14 +485,14 @@ with main_tabs[0]:
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
                             return f"https://www.youtube.com/watch?v={v}"
-                        return "查無影片"
+                        return None
 
                     if "YouTube ID" in multi_chart.columns:
                         multi_chart["影片連結"] = multi_chart[
                             "YouTube ID"
                         ].apply(build_yt_url)
                     else:
-                        multi_chart["影片連結"] = "查無影片"
+                        multi_chart["影片連結"] = None
 
                     if "點閱率" in multi_chart.columns:
                         multi_chart["點閱率"] = (
@@ -530,7 +530,7 @@ with main_tabs[0]:
                         multi_chart,
                         column_config={
                             "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%d", width="small"
+                                "點閱率", format="%,d", width="small"
                             ),
                             "跨榜數量": st.column_config.NumberColumn(
                                 "跨榜數量", format="%d", width="small"
