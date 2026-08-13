@@ -294,11 +294,11 @@ with main_tabs[0]:
                             return "查無影片"
 
                         if "YouTube ID" in multi_chart.columns:
-                            multi_chart["連結"] = multi_chart[
+                            multi_chart["影片連結"] = multi_chart[
                                 "YouTube ID"
                             ].apply(build_yt_url)
                         else:
-                            multi_chart["連結"] = "查無影片"
+                            multi_chart["影片連結"] = "查無影片"
 
                         if "點閱率" not in multi_chart.columns:
                             multi_chart["點閱率"] = "-"
@@ -310,10 +310,11 @@ with main_tabs[0]:
                         cols_order = [
                             song_col,
                             singer_col,
-                            "連結",
+                            "登榜數量",
                             "點閱率",
                             "登上榜單",
                             "最高名次",
+                            "影片連結",
                         ]
                         multi_chart = multi_chart[cols_order]
 
@@ -323,11 +324,18 @@ with main_tabs[0]:
                         st.dataframe(
                             multi_chart,
                             column_config={
-                                "連結": st.column_config.LinkColumn(
-                                    "連結",
+                                "登榜數量": st.column_config.NumberColumn(
+                                    "登榜數量", format="%d", width="small"
+                                ),
+                                "最高名次": st.column_config.NumberColumn(
+                                    "最高名次", format="%d", width="small"
+                                ),
+                                "影片連結": st.column_config.LinkColumn(
+                                    "影片連結",
                                     display_text="點此觀看",
                                     help="點擊前往 YouTube 觀看 MV",
-                                )
+                                    width="small",
+                                ),
                             },
                             hide_index=True,
                             use_container_width=True,
@@ -472,11 +480,11 @@ with main_tabs[0]:
                         return "查無影片"
 
                     if "YouTube ID" in multi_chart.columns:
-                        multi_chart["連結"] = multi_chart[
+                        multi_chart["影片連結"] = multi_chart[
                             "YouTube ID"
                         ].apply(build_yt_url)
                     else:
-                        multi_chart["連結"] = "查無影片"
+                        multi_chart["影片連結"] = "查無影片"
 
                     if "點閱率" not in multi_chart.columns:
                         multi_chart["點閱率"] = "-"
@@ -488,11 +496,12 @@ with main_tabs[0]:
                     cols_order = [
                         song_col,
                         singer_col,
-                        "連結",
+                        "跨榜數量",
                         "點閱率",
                         "涵蓋榜單",
                         "累積活躍天數",
                         "最高名次",
+                        "影片連結",
                     ]
                     multi_chart = multi_chart[cols_order]
 
@@ -507,11 +516,21 @@ with main_tabs[0]:
                     st.dataframe(
                         multi_chart,
                         column_config={
-                            "連結": st.column_config.LinkColumn(
-                                "連結",
+                            "跨榜數量": st.column_config.NumberColumn(
+                                "跨榜數量", format="%d", width="small"
+                            ),
+                            "累積活躍天數": st.column_config.NumberColumn(
+                                "累積活躍天數", format="%d", width="small"
+                            ),
+                            "最高名次": st.column_config.NumberColumn(
+                                "最高名次", format="%d", width="small"
+                            ),
+                            "影片連結": st.column_config.LinkColumn(
+                                "影片連結",
                                 display_text="點此觀看",
                                 help="點擊前往 YouTube 觀看 MV",
-                            )
+                                width="small",
+                            ),
                         },
                         hide_index=True,
                         use_container_width=True,
