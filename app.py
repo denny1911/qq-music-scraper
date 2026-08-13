@@ -1696,7 +1696,7 @@ with main_tabs[4]:
                 file_path = os.path.join(day_path, file_name)
 
                 if os.path.exists(file_path):
-                    # 1. 讀取與基礎清洗原始資料 df (用於導出 CSV，保持完整欄位)
+                    # 1. 讀取與基礎清洗原始資料 df
                     df = pd.read_csv(file_path)
 
                     cols_to_drop = [
@@ -1707,7 +1707,6 @@ with main_tabs[4]:
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
-                    # 【修改點 1】：移除 .fillna(0)，改用 Int64 支援缺失值 NaN，避免把 '-' 誤轉成 0
                     if "點閱率" in df.columns:
                         df["點閱率"] = (
                             pd.to_numeric(
@@ -1765,7 +1764,7 @@ with main_tabs[4]:
                     # 2. 建立僅用於 UI 前端顯示的 df_display
                     df_display = df.copy()
 
-                    # 【修改點 2】：查無影片時回傳 None
+                    # 無影片時回傳 None（呈現空白，不渲染按鈕）
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
@@ -1777,7 +1776,7 @@ with main_tabs[4]:
                             "YouTube ID"
                         ].apply(build_yt_url)
 
-                    # 調整前端欄位順序：將「YouTube ID」替換並把「影片連結」搬移至最右側
+                    # 調整前端欄位順序
                     display_cols = [
                         c
                         for c in df_display.columns
@@ -1787,7 +1786,7 @@ with main_tabs[4]:
                         display_cols.append("影片連結")
                     df_display = df_display[display_cols]
 
-                    # 3. 渲染前端表格與格式化欄位
+                    # 3. 渲染前端表格 (已移除 LinkColumn 不支援的 placeholder)
                     st.dataframe(
                         df_display,
                         column_config={
@@ -1795,23 +1794,20 @@ with main_tabs[4]:
                                 "排名", format="%,d", width="small"
                             ),
                             "點閱率": st.column_config.NumberColumn(
-                                "點閱率",
-                                format="%,d",
-                                width="small",  # 👈 移除 placeholder，NumberColumn 不支援此參數
+                                "點閱率", format="%,d", width="small"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
                                 display_text="點此觀看",
                                 help="點擊前往 YouTube 觀看 MV",
                                 width="small",
-                                placeholder="-",  # 👈 LinkColumn 支援 placeholder，無影片 (None) 時顯示 "-"
                             ),
                         },
                         hide_index=True,
                         use_container_width=True,
                     )
 
-                    # 4. 匯出按鈕：導出原始 df（完整保留原始 YouTube ID 欄位）
+                    # 4. 匯出按鈕
                     csv_data = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
