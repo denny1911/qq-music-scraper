@@ -1116,7 +1116,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪（完整修復與動態優化版）
+# 📺 模組四：YouTube 點閱測繪（完整固定策略版）
 # ==========================================
 import re
 import time
@@ -1242,7 +1242,7 @@ with main_tabs[3]:
       return [str(k).strip() for k in raw_keys if str(k).strip()]
     return []
 
-  # --- 2. 核心搜尋函式（包含動態策略切換與 maxResults 調配） ---
+  # --- 2. 核心搜尋函式（viewCount 30 筆 -> relevance 5 筆） ---
   def search_youtube_video(
       song, singer, api_keys, current_key_idx, youtube_service
   ):
@@ -1262,19 +1262,15 @@ with main_tabs[3]:
           else None
       )
 
-    # 1. 根據歌名特徵，動態設定搜尋策略順序
-    main_song_trimmed = main_song.strip()
-    if len(main_song_trimmed) <= 4 or len(main_song_trimmed.split()) == 1:
-      order_strategies = ["relevance", "viewCount"]
-    else:
-      order_strategies = ["viewCount", "relevance"]
+    # 固定策略順序：先 viewCount，再 relevance
+    order_strategies = ["viewCount", "relevance"]
 
     for order_mode in order_strategies:
       if matched_info:
         break
 
-      # 2. 根據 order_mode 動態調配抓取數量 (relevance 抓前 5 筆精準，viewCount 抓前 30 筆翻找)
-      max_results_val = 5 if order_mode == "relevance" else 30
+      # 根據搜尋模式動態設定筆數：viewCount 抓 30 筆，relevance 抓 5 筆
+      max_results_val = 30 if order_mode == "viewCount" else 5
 
       for query_str in search_queries:
         if matched_info:
@@ -1293,7 +1289,7 @@ with main_tabs[3]:
                 .list(
                     q=query_str,
                     part="id",
-                    maxResults=max_results_val,  # 👈 動態切換筆數
+                    maxResults=max_results_val,  # 👈 viewCount: 30 / relevance: 5
                     type="video",
                     order=order_mode,
                     regionCode="TW",
@@ -1367,12 +1363,11 @@ with main_tabs[3]:
                     "search_mode": order_mode,
                 }
 
-                # 3. 移除 is_topic 無條件放行破口，強制進行歌手檢驗
+                # 強制進行歌手檢驗，確保不張冠李戴
                 if singer_matched:
                   candidates.append(cand)
 
               if candidates:
-                # 若找到多個符合條件的，挑選觀看數最高者
                 best = max(candidates, key=lambda x: x["views"])
                 matched_info = best
 
@@ -1515,11 +1510,11 @@ with main_tabs[3]:
               "YT 觀看次數": int(matched["views"]) if matched else 0,
               "YT 影片標題": matched["title"] if matched else "-",
               "搜尋模式": (
-                  "相關性優先"
-                  if matched and matched.get("search_mode") == "relevance"
+                  "觀看量優先"
+                  if matched and matched.get("search_mode") == "viewCount"
                   else (
-                      "觀看量優先"
-                      if matched and matched.get("search_mode") == "viewCount"
+                      "相關性補救"
+                      if matched and matched.get("search_mode") == "relevance"
                       else "-"
                   )
               ),
@@ -1613,9 +1608,9 @@ with main_tabs[3]:
 
           if matched:
             mode_desc = (
-                "相關性優先"
-                if matched["search_mode"] == "relevance"
-                else "觀看量優先"
+                "觀看量優先"
+                if matched["search_mode"] == "viewCount"
+                else "相關性補救"
             )
             st.success(f"🎉 成功找到最佳匹配影片！（命中機制：{mode_desc}）")
 
