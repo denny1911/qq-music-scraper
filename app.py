@@ -728,15 +728,17 @@ with main_tabs[1]:
                     # 1. 名次總爬升幅 (追蹤期初名次 - 最新名次，正數代表進步)
                     rank_surge = initial_rank - current_rank
 
-                    # 2. 點閱率淨增量
+                    # 2. 點閱率淨增量 (安全過濾存在的欄位以防 KeyError)
                     view_growth = 0
                     if pivot_views is not None and idx in pivot_views.index:
-                        v_series = pivot_views.loc[idx, range_dates].dropna()
-                        if not v_series.empty:
-                            start_views = v_series.iloc[0]
-                            end_views = v_series.iloc[-1]
-                            if pd.notna(start_views) and pd.notna(end_views):
-                                view_growth = int(end_views - start_views)
+                        valid_cols = [d for d in range_dates if d in pivot_views.columns]
+                        if valid_cols:
+                            v_series = pivot_views.loc[idx, valid_cols].dropna()
+                            if not v_series.empty:
+                                start_views = v_series.iloc[0]
+                                end_views = v_series.iloc[-1]
+                                if pd.notna(start_views) and pd.notna(end_views):
+                                    view_growth = int(end_views - start_views)
 
                     # 篩選門檻：名次必須有爬升 (rank_surge > 0)
                     if rank_surge <= 0:
@@ -886,6 +888,7 @@ with main_tabs[1]:
                 st.info("基準日無資料。")
         else:
             st.info("選定日期區間內無數據。")
+            
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
