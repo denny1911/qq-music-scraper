@@ -1,13 +1,13 @@
 import os
 import re
+import time  # 👈 統一放頂部
 from datetime import date, datetime, timedelta
-from googleapiclient.discovery import build
-import urllib.parse
 import altair as alt
 import pandas as pd
 import streamlit as st
-import time
-import yt_dlp
+import zhconv  # 👈 搬到頂部
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 # 1. 頁面基本設定
 st.set_page_config(
@@ -92,32 +92,24 @@ def load_date_data(date_str):
     for key, name in charts.items():
         fpath = os.path.join(day_path, f"{date_str}_{key}.csv")
         if os.path.exists(fpath):
-            try:
-                df = pd.read_csv(fpath)
-                df["榜單類型"] = name
-                dfs.append(df)
-            except Exception:
-                pass
+          try:
+            df = pd.read_csv(fpath)
+            df["榜單類型"] = name
+
+            # 👈 【新增這段】從源頭強制將「排名」轉為乾淨的整數
+            if "排名" in df.columns:
+              df["排名"] = (
+                  pd.to_numeric(df["排名"], errors="coerce")
+                  .fillna(0)
+                  .astype(int)
+              )
+
+            dfs.append(df)
+          except Exception:
+            pass
     if dfs:
         return pd.concat(dfs, ignore_index=True)
     return pd.DataFrame()
-
-
-# 輔助函式：根據跨榜組合生成標籤
-def generate_song_tags(charts_str):
-    charts = set(charts_str.split("、"))
-    tags = []
-    if "新歌榜" in charts and "抖音熱歌榜" in charts:
-        tags.append("🔥 社群爆款")
-    if "影視金曲榜" in charts and "抖音熱歌榜" in charts:
-        tags.append("🎬 大劇神曲")
-    if "綜藝新歌榜" in charts and "新歌榜" in charts:
-        tags.append("🎤 節目話題曲")
-    if len(charts) >= 3:
-        tags.append("🌟 跨榜超級爆款")
-    if not tags:
-        tags.append("⚡ 雙榜同登")
-    return "｜".join(tags)
 
 
 # 輔助函式：轉碼 CSV 匯出專用（純淨 4 直欄：歌名、歌手、專輯、發行日期）
@@ -1118,12 +1110,7 @@ with main_tabs[2]:
 # ==========================================
 # 📺 模組四：YouTube 點閱測繪（完整固定策略版）
 # ==========================================
-import re
-import time
 from datetime import date
-import pandas as pd
-import streamlit as st
-import zhconv
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -1480,18 +1467,18 @@ with main_tabs[3]:
 
         for idx, row in test_songs.reset_index(drop=True).iterrows():
           song = str(
-              row.get(
-                  "歌名", row.get("song", row.get("歌曲名稱", "Unknown"))
-              )
+              row.get("歌名", row.get("song", row.get("歌曲名稱", "Unknown")))
           ).strip()
           singer = str(
-              row.get(
-                  "歌手",
-                  row.get("singer", row.get("歌手名稱", "Unknown")),
-              )
+              row.get("歌手", row.get("singer", row.get("歌手名稱", "Unknown")))
           ).strip()
-          rank = int(row.get("排名", idx + 1))
 
+          # 👈 【改為以下安全寫法】
+          try:
+            rank = int(row.get("排名"))
+          except (ValueError, TypeError):
+            rank = idx + 1  # 若讀取失敗或為空，自動用當前索引遞補
+              
           status_text.text(
               f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}"
               f" [Key {current_key_idx + 1}/{len(api_keys)}]"
