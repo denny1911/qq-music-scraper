@@ -1765,7 +1765,7 @@ with main_tabs[4]:
                     # 2. 建立僅用於 UI 前端顯示的 df_display
                     df_display = df.copy()
 
-                    # 【修改點 2】：查無影片時回傳 None，這樣 LinkColumn 就不會顯示「點此觀看」按鈕
+                    # 【修改點 2】：查無影片時回傳 None
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
@@ -1787,7 +1787,7 @@ with main_tabs[4]:
                         display_cols.append("影片連結")
                     df_display = df_display[display_cols]
 
-                    # 3. 渲染前端表格與格式化欄位
+                    # 3. 渲染前端表格與格式化欄位 (加入 placeholder="-")
                     st.dataframe(
                         df_display,
                         column_config={
@@ -1795,13 +1795,17 @@ with main_tabs[4]:
                                 "排名", format="%,d", width="small"
                             ),
                             "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%,d", width="small"
+                                "點閱率",
+                                format="%,d",
+                                width="small",
+                                placeholder="-",  # 👈 當點閱率無資料 (NaN) 時顯示 "-"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
                                 display_text="點此觀看",
                                 help="點擊前往 YouTube 觀看 MV",
                                 width="small",
+                                placeholder="-",  # 👈 當無影片網址 (None) 時顯示 "-"
                             ),
                         },
                         hide_index=True,
