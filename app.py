@@ -608,7 +608,7 @@ with main_tabs[1]:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
-            target_past_dt = base_dt - timedelta(days=6)
+            target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
                     d
@@ -721,7 +721,6 @@ with main_tabs[1]:
                     if base_date not in valid_history.index or pd.isna(row[base_date]):
                         continue
 
-                    start_date_in_range = valid_history.index[0]
                     initial_rank = int(valid_history.iloc[0])
                     current_rank = int(row[base_date])
 
@@ -887,7 +886,6 @@ with main_tabs[1]:
                 st.info("基準日無資料。")
         else:
             st.info("選定日期區間內無數據。")
-```[cite: 5]
 # ==========================================
 # 👑 模組三：榜單常勝軍（長青熱歌）
 # ==========================================
