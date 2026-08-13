@@ -1116,7 +1116,7 @@ with main_tabs[2]:
 
 
 # ==========================================
-# 📺 模組四：YouTube 點閱測繪
+# 📺 模組四：YouTube 點閱測繪（完整動態優化版）
 # ==========================================
 import re
 import time
@@ -1242,7 +1242,7 @@ with main_tabs[3]:
       return [str(k).strip() for k in raw_keys if str(k).strip()]
     return []
 
-  # --- 2. 核心搜尋函式（包含觀看數 -> 相關性雙重備案） ---
+  # --- 2. 核心搜尋函式（包含優化後的搜尋策略與動態切換） ---
   def search_youtube_video(
       song, singer, api_keys, current_key_idx, youtube_service
   ):
@@ -1262,8 +1262,15 @@ with main_tabs[3]:
           else None
       )
 
-    # 兩階段搜尋：先查 viewCount（高觀看量），查無結果再退回 relevance（相關性補救）
-    order_strategies = ["viewCount", "relevance"]
+    # ----------------------------------------------------
+    # 💡 修改點 1：動態判斷 order_strategies 優先順序
+    # ----------------------------------------------------
+    main_song_trimmed = main_song.strip()
+    # 若歌名長度 <= 4 個字元，或是單一英文單詞，優先使用 relevance (相關性) 避免被同名爆款歌遮蔽
+    if len(main_song_trimmed) <= 4 or len(main_song_trimmed.split()) == 1:
+      order_strategies = ["relevance", "viewCount"]
+    else:
+      order_strategies = ["viewCount", "relevance"]
 
     for order_mode in order_strategies:
       if matched_info:
@@ -1286,7 +1293,7 @@ with main_tabs[3]:
                 .list(
                     q=query_str,
                     part="id",
-                    maxResults=30,
+                    maxResults=50,  # 💡 修改點 2：將 maxResults 由 30 擴大至 50，提高候選池深度
                     type="video",
                     order=order_mode,
                     regionCode="TW",
@@ -1360,25 +1367,12 @@ with main_tabs[3]:
                     "search_mode": order_mode,
                 }
 
-                # 1. 檢查歌名是否相符
-                song_matched = (main_sim_norm in v_title_norm) or (main_tra_norm in v_title_norm)
-                if not song_matched:
-                    continue
-
-                # 2. 檢查歌手是否相符（新增的強制阻擋）
-                singer_matched = (
-                    not artist_tokens
-                    or any(tkn in v_title_norm for tkn in artist_tokens)
-                    or any(tkn in channel_norm for tkn in artist_tokens)
-                )
-                if not singer_matched:
-                    continue  # 👈 歌手對不上就直接封殺，絕不放入候選名單！
-
-                cand = { ... }
-                candidates.append(cand)
+                # 💡 修改點 3：取消 is_topic 盲目放行，必須通過歌手關鍵字檢驗
+                if singer_matched:
+                  candidates.append(cand)
 
               if candidates:
-                # 若找到多個符合條件的，依然挑選觀看數最高者
+                # 若找到多個符合條件的，挑選觀看數最高者
                 best = max(candidates, key=lambda x: x["views"])
                 matched_info = best
 
@@ -1521,11 +1515,11 @@ with main_tabs[3]:
               "YT 觀看次數": int(matched["views"]) if matched else 0,
               "YT 影片標題": matched["title"] if matched else "-",
               "搜尋模式": (
-                  "觀看量"
-                  if matched and matched.get("search_mode") == "viewCount"
+                  "相關性優先"
+                  if matched and matched.get("search_mode") == "relevance"
                   else (
-                      "相關性補救"
-                      if matched and matched.get("search_mode") == "relevance"
+                      "觀看量優先"
+                      if matched and matched.get("search_mode") == "viewCount"
                       else "-"
                   )
               ),
@@ -1619,9 +1613,9 @@ with main_tabs[3]:
 
           if matched:
             mode_desc = (
-                "觀看量最高"
-                if matched["search_mode"] == "viewCount"
-                else "相關性補救"
+                "相關性優先"
+                if matched["search_mode"] == "relevance"
+                else "觀看量優先"
             )
             st.success(f"🎉 成功找到最佳匹配影片！（命中機制：{mode_desc}）")
 
