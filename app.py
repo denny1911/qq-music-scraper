@@ -330,13 +330,13 @@ with main_tabs[0]:
                             multi_chart,
                             column_config={
                                 "點閱率": st.column_config.NumberColumn(
-                                    "點閱率", format="%d", width="small"
+                                    "點閱率", format="%,d", width="small"
                                 ),
                                 "登榜數量": st.column_config.NumberColumn(
-                                    "登榜數量", format="%d", width="small"
+                                    "登榜數量", format="%,d", width="small"
                                 ),
                                 "最高名次": st.column_config.NumberColumn(
-                                    "最高名次", format="%d", width="small"
+                                    "最高名次", format="%,d", width="small"
                                 ),
                                 "影片連結": st.column_config.LinkColumn(
                                     "影片連結",
@@ -1792,10 +1792,10 @@ with main_tabs[4]:
                         df_display,
                         column_config={
                             "排名": st.column_config.NumberColumn(
-                                "排名", format="%d", width="small"
+                                "排名", format="%,d", width="small"
                             ),
                             "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%d", width="small"
+                                "點閱率", format="%,d", width="small"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
