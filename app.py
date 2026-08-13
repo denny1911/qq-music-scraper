@@ -1707,15 +1707,6 @@ with main_tabs[4]:
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
-                    if "點閱率" in df.columns:
-                        df["點閱率"] = (
-                            pd.to_numeric(
-                                df["點閱率"].astype(str).str.replace(",", ""),
-                                errors="coerce",
-                            )
-                            .astype("Int64")
-                        )
-
                     if "排名" in df.columns:
                         df["排名"] = (
                             pd.to_numeric(df["排名"], errors="coerce")
@@ -1764,19 +1755,41 @@ with main_tabs[4]:
                     # 2. 建立僅用於 UI 前端顯示的 df_display
                     df_display = df.copy()
 
-                    # 無影片時回傳 None（呈現空白，不渲染按鈕）
+                    # 格式化點閱率：數字顯示千分位，無資料顯示 "-"
+                    def format_views(val):
+                        if pd.isna(val) or str(val).strip() in [
+                            "-",
+                            "",
+                            "nan",
+                            "None",
+                            "<NA>",
+                        ]:
+                            return "-"
+                        try:
+                            return f"{int(float(val)):,}"
+                        except (ValueError, TypeError):
+                            return "-"
+
+                    if "點閱率" in df_display.columns:
+                        df_display["點閱率"] = df_display[
+                            "點閱率"
+                        ].apply(format_views)
+
+                    # 格式化影片連結：帶有 #點此觀看 標記，無影片顯示 "-"
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
-                            return f"https://www.youtube.com/watch?v={v}"
-                        return None
+                            return (
+                                f"https://www.youtube.com/watch?v={v}#點此觀看"
+                            )
+                        return "-"
 
                     if "YouTube ID" in df_display.columns:
                         df_display["影片連結"] = df_display[
                             "YouTube ID"
                         ].apply(build_yt_url)
 
-                    # 調整前端欄位順序
+                    # 調整前端欄位順序：移出 YouTube ID，將「影片連結」擺最右邊
                     display_cols = [
                         c
                         for c in df_display.columns
@@ -1786,19 +1799,19 @@ with main_tabs[4]:
                         display_cols.append("影片連結")
                     df_display = df_display[display_cols]
 
-                    # 3. 渲染前端表格 (已移除 LinkColumn 不支援的 placeholder)
+                    # 3. 渲染前端表格
                     st.dataframe(
                         df_display,
                         column_config={
                             "排名": st.column_config.NumberColumn(
                                 "排名", format="%,d", width="small"
                             ),
-                            "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%,d", width="small"
+                            "點閱率": st.column_config.TextColumn(
+                                "點閱率", width="small"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
-                                display_text="點此觀看",
+                                display_text=r".*#(.*)",  # 👈 擷取 # 後面的「點此觀看」，若非網址則原樣顯示 "-"
                                 help="點擊前往 YouTube 觀看 MV",
                                 width="small",
                             ),
@@ -1807,7 +1820,7 @@ with main_tabs[4]:
                         use_container_width=True,
                     )
 
-                    # 4. 匯出按鈕
+                    # 4. 匯出按鈕：導出原始 CSV
                     csv_data = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
