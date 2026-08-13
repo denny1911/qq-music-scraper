@@ -1707,14 +1707,14 @@ with main_tabs[4]:
                     if cols_to_drop:
                         df = df.drop(columns=cols_to_drop)
 
+                    # 【修改點 1】：移除 .fillna(0)，改用 Int64 支援缺失值 NaN，避免把 '-' 誤轉成 0
                     if "點閱率" in df.columns:
                         df["點閱率"] = (
                             pd.to_numeric(
                                 df["點閱率"].astype(str).str.replace(",", ""),
                                 errors="coerce",
                             )
-                            .fillna(0)
-                            .astype(int)
+                            .astype("Int64")
                         )
 
                     if "排名" in df.columns:
@@ -1765,12 +1765,12 @@ with main_tabs[4]:
                     # 2. 建立僅用於 UI 前端顯示的 df_display
                     df_display = df.copy()
 
-                    # 將 YouTube ID 轉為影片連結
+                    # 【修改點 2】：查無影片時回傳 None，這樣 LinkColumn 就不會顯示「點此觀看」按鈕
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
                             return f"https://www.youtube.com/watch?v={v}"
-                        return "查無影片"
+                        return None
 
                     if "YouTube ID" in df_display.columns:
                         df_display["影片連結"] = df_display[
