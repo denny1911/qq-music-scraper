@@ -573,7 +573,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（直觀流暢修正版）
+# 🚀 模組二：新進黑馬雷達（動態自適應冷啟動修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -618,7 +618,6 @@ with main_tabs[1]:
                     <= base_dt
                 ]
             )
-            label_text = "📊 七日連續追蹤"
         else:
             all_thursdays = [
                 d
@@ -631,11 +630,13 @@ with main_tabs[1]:
                     max(0, base_idx - 6) : base_idx + 1
                 ]
             else:
-                range_dates = [d for d in all_thursdays if d <= base_date][-7:]
-            label_text = "📊 七期連續追蹤"
+                available_thursdays = [d for d in all_thursdays if d <= base_date]
+                range_dates = available_thursdays[-7:] if len(available_thursdays) >= 7 else available_thursdays
 
+        # 動態顯示目前的追蹤期數範圍
+        label_text = f"📊 動態連續追蹤（共 {len(range_dates)} 筆資料）"
         st.caption(
-            f"{label_text}：`{min(range_dates)}` ➡️ `{max(range_dates)}`"
+            f"{label_text}：`{min(range_dates) if range_dates else base_date}` ➡️ `{max(range_dates) if range_dates else base_date}`"
         )
 
         range_dfs = []
@@ -705,15 +706,15 @@ with main_tabs[1]:
                             yt_id_map[k] = v
 
             if base_date in pivot_rank.columns:
-                # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
-                min_required = 3
+                # 階段一：動態基礎過濾 (適應現有可用期數，避免初期資料不足無法顯示)
+                min_required = min(3, len(range_dates))
                 processed_rows = []
 
                 for idx, row in pivot_rank.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
 
-                    # 條件 1：追蹤區間內至少有 3 天紀錄
+                    # 條件 1：追蹤區間內符合最低筆數要求
                     if len(valid_history) < min_required:
                         continue
 
@@ -827,12 +828,7 @@ with main_tabs[1]:
 
                     chart_data.columns = [s for s, si in top_keys]
                     chart_data.index = [
-                        (
-                            f"第 {i+1} 天"
-                            if m2_chart_option == "新歌榜"
-                            else f"第 {i+1} 期"
-                        )
-                        for i in range(len(range_dates))
+                        f"第 {i+1} 期/天" for i in range(len(range_dates))
                     ]
                     chart_data = chart_data.reset_index().rename(
                         columns={"index": "追蹤時間"}
