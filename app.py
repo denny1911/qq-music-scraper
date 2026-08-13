@@ -1755,25 +1755,14 @@ with main_tabs[4]:
                     # 2. 建立僅用於 UI 前端顯示的 df_display
                     df_display = df.copy()
 
-                    # 【修復 1】：格式化點閱率 (先移除逗號再轉數字，避免千分位資料轉失敗)
-                    def format_views(val):
-                        if pd.isna(val):
-                            return "-"
-                        s_val = str(val).replace(",", "").strip()
-                        if s_val in ["-", "", "nan", "None", "<NA>", "null"]:
-                            return "-"
-                        try:
-                            num = int(float(s_val))
-                            return f"{num:,}"
-                        except (ValueError, TypeError):
-                            return "-"
-
+                    # 【修正 1】：將點閱率轉回純數值，確保大小排序正確
                     if "點閱率" in df_display.columns:
-                        df_display["點閱率"] = df_display[
-                            "點閱率"
-                        ].apply(format_views)
+                        df_display["點閱率"] = pd.to_numeric(
+                            df_display["點閱率"].astype(str).str.replace(",", ""),
+                            errors="coerce",
+                        )
 
-                    # 【修復 2】：格式化影片連結 (無影片傳回 None，避免 LinkColumn 將 "-" 誤判為網址)
+                    # 【修正 2】：無影片時傳回 None，避免按鈕可點擊或顯示 None 文字
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
@@ -1785,7 +1774,7 @@ with main_tabs[4]:
                             "YouTube ID"
                         ].apply(build_yt_url)
 
-                    # 調整欄位順序：移除 YouTube ID，把「影片連結」放到最右側
+                    # 調整欄位順序：移除 YouTube ID，把「影片連結」擺至最右側
                     display_cols = [
                         c
                         for c in df_display.columns
@@ -1802,8 +1791,9 @@ with main_tabs[4]:
                             "排名": st.column_config.NumberColumn(
                                 "排名", format="%,d", width="small"
                             ),
-                            "點閱率": st.column_config.TextColumn(
-                                "點閱率", width="small"
+                            # 使用 NumberColumn 並指定 format="%,d"，自動幫數字加逗號且保持數值排序
+                            "點閱率": st.column_config.NumberColumn(
+                                "點閱率", format="%,d", width="small"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
