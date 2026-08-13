@@ -899,21 +899,53 @@ with main_tabs[2]:
         target_df = full_df[full_df["榜單類型"] == chart_option_m3].copy()
 
         if not target_df.empty:
+            yt_id_col = (
+                "YouTube ID"
+                if "YouTube ID" in target_df.columns
+                else (
+                    "YouTube_ID"
+                    if "YouTube_ID" in target_df.columns
+                    else ("Video ID" if "Video ID" in target_df.columns else None)
+                )
+            )
+            yt_views_col = (
+                "點閱率"
+                if "點閱率" in target_df.columns
+                else ("觀看次數" if "觀看次數" in target_df.columns else None)
+            )
+
             if is_weekly_chart:
                 target_df["榜單期數"] = target_df["抓取日期"].apply(
                     get_issue_label
                 )
 
+                agg_kwargs = {
+                    "累積上榜期數": ("榜單期數", "nunique"),
+                    "平均名次": (
+                        ("排名", lambda x: round(x.mean(), 1))
+                        if "排名" in target_df.columns
+                        else ("榜單期數", "count")
+                    ),
+                }
+            else:
+                agg_kwargs = {
+                    "累積上榜天數": ("抓取日期", "nunique"),
+                    "平均名次": (
+                        ("排名", lambda x: round(x.mean(), 1))
+                        if "排名" in target_df.columns
+                        else ("抓取日期", "count")
+                    ),
+                }
+
+            if yt_id_col:
+                agg_kwargs["YouTube ID"] = (yt_id_col, "first")
+            if yt_views_col:
+                agg_kwargs["點閱率"] = (yt_views_col, "first")
+
+            if is_weekly_chart:
                 evergreen = (
                     target_df.groupby([song_col, singer_col])
-                    .agg(
-                        累積上榜期數=("榜單期數", "nunique"),
-                        平均名次=(
-                            ("排名", lambda x: round(x.mean(), 1))
-                            if "排名" in target_df.columns
-                            else ("榜單期數", "count")
-                        ),
-                    )
+                    .agg(**agg_kwargs)
                     .reset_index()
                     .sort_values(
                         by=["累積上榜期數", "平均名次"],
@@ -923,20 +955,50 @@ with main_tabs[2]:
             else:
                 evergreen = (
                     target_df.groupby([song_col, singer_col])
-                    .agg(
-                        累積上榜天數=("抓取日期", "nunique"),
-                        平均名次=(
-                            ("排名", lambda x: round(x.mean(), 1))
-                            if "排名" in target_df.columns
-                            else ("抓取日期", "count")
-                        ),
-                    )
+                    .agg(**agg_kwargs)
                     .reset_index()
                     .sort_values(
                         by=["累積上榜天數", "平均名次"],
                         ascending=[False, True],
                     )
                 )
+
+            if not evergreen.empty:
+                def build_yt_url(val):
+                    v = str(val).strip() if pd.notna(val) else ""
+                    if v and v not in ["-", "nan", "None", ""]:
+                        return f"https://www.youtube.com/watch?v={v}"
+                    return None
+
+                if "YouTube ID" in evergreen.columns:
+                    evergreen["影片連結"] = evergreen["YouTube ID"].apply(
+                        build_yt_url
+                    )
+                else:
+                    evergreen["影片連結"] = None
+
+                if "點閱率" in evergreen.columns:
+                    evergreen["點閱率"] = (
+                        evergreen["點閱率"]
+                        .astype(str)
+                        .str.replace(",", "", regex=False)
+                    )
+                    evergreen["點閱率"] = pd.to_numeric(
+                        evergreen["點閱率"], errors="coerce"
+                    )
+                else:
+                    evergreen["點閱率"] = None
+
+                count_col_name = "累積上榜期數" if is_weekly_chart else "累積上榜天數"
+                cols_order = [
+                    song_col,
+                    singer_col,
+                    "點閱率",
+                    count_col_name,
+                    "平均名次",
+                    "影片連結",
+                ]
+                evergreen = evergreen[cols_order]
 
             total_units = (
                 target_df["榜單期數"].nunique()
@@ -946,10 +1008,30 @@ with main_tabs[2]:
             unit_name = "期" if is_weekly_chart else "天"
 
             st.success(
-                f"📈 【{chart_option_m3}（{'週榜' if is_weekly_chart else '日榜'}）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）："
+                f"📈【{chart_option_m3}（{'週榜' if is_weekly_chart else '日榜'}）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）："
             )
+
+            column_config_dict = {
+                "點閱率": st.column_config.NumberColumn(
+                    "點閱率", format="%,d", width="small"
+                ),
+                count_col_name: st.column_config.NumberColumn(
+                    count_col_name, format="%d", width="small"
+                ),
+                "平均名次": st.column_config.NumberColumn(
+                    "平均名次", format="%.1f", width="small"
+                ),
+                "影片連結": st.column_config.LinkColumn(
+                    "影片連結",
+                    display_text="點此觀看",
+                    help="點擊前往 YouTube 觀看 MV",
+                    width="small",
+                ),
+            }
+
             st.dataframe(
                 evergreen,
+                column_config=column_config_dict,
                 hide_index=True,
                 use_container_width=True,
             )
