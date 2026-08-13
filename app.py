@@ -1360,8 +1360,22 @@ with main_tabs[3]:
                     "search_mode": order_mode,
                 }
 
-                if is_topic or singer_matched:
-                  candidates.append(cand)
+                # 1. 檢查歌名是否相符
+                song_matched = (main_sim_norm in v_title_norm) or (main_tra_norm in v_title_norm)
+                if not song_matched:
+                    continue
+
+                # 2. 檢查歌手是否相符（新增的強制阻擋）
+                singer_matched = (
+                    not artist_tokens
+                    or any(tkn in v_title_norm for tkn in artist_tokens)
+                    or any(tkn in channel_norm for tkn in artist_tokens)
+                )
+                if not singer_matched:
+                    continue  # 👈 歌手對不上就直接封殺，絕不放入候選名單！
+
+                cand = { ... }
+                candidates.append(cand)
 
               if candidates:
                 # 若找到多個符合條件的，依然挑選觀看數最高者
