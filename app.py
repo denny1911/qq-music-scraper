@@ -817,7 +817,7 @@ with main_tabs[1]:
                     )
                     chart_data = pivot_rank.loc[top_keys, range_dates].T
 
-                    chart_data.columns = [s for s, si in top_keys]
+                    chart_data.columns = [f"{s} - {si}" for s, si in top_keys]
                     chart_data.index = [
                         (
                             f"第 {i+1} 天"
@@ -1110,10 +1110,6 @@ with main_tabs[2]:
 # ==========================================
 # 📺 模組四：YouTube 點閱測繪（完整固定策略版）
 # ==========================================
-from datetime import date
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-
 with main_tabs[3]:
   st.header("📺 模組四：YouTube 點閱測繪")
   st.markdown(
@@ -1475,9 +1471,11 @@ with main_tabs[3]:
 
           # 👈 【改為以下安全寫法】
           try:
-            rank = int(row.get("排名"))
+            rank = int(row.get("排名", 0))
+            if rank <= 0:  # 若缺值填 0，自動補上 1-based 索引
+              rank = idx + 1
           except (ValueError, TypeError):
-            rank = idx + 1  # 若讀取失敗或為空，自動用當前索引遞補
+            rank = idx + 1
               
           status_text.text(
               f"🔍 ({idx+1}/{test_limit}) 正在檢索點閱：{song} - {singer}"
