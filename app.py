@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（當期起始日對齊版）
+# 🚀 模組二：新進黑馬雷達（點閱率缺失顯示 "-" 修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -598,10 +598,9 @@ with main_tabs[1]:
 
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
-        date_label_map = {}  # 紀錄「實際數據日期 -> 當期初始日標籤」的映射字典
+        date_label_map = {}
 
         if m2_chart_option == "新歌榜":
-            # 新歌榜（日榜）：直接使用實際日期
             target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
@@ -615,7 +614,6 @@ with main_tabs[1]:
             date_label_map = {d: d for d in range_dates}
             label_text = "📊 七日連續追蹤"
         else:
-            # 週榜：記錄「實際採集日」，但標籤一律映射至「當期起始日 (星期四)」
             days_since_thu = (base_dt.weekday() - 3) % 7
             base_thu = base_dt - timedelta(days=days_since_thu)
 
@@ -626,7 +624,6 @@ with main_tabs[1]:
                 target_thu_str = target_thu.strftime("%Y-%m-%d")
                 found_date_for_week = None
 
-                # 順序：四, 五, 六, 日, 一, 二, 三
                 for day_offset in range(7):
                     candidate_dt = target_thu + timedelta(days=day_offset)
                     candidate_str = candidate_dt.strftime("%Y-%m-%d")
@@ -637,7 +634,6 @@ with main_tabs[1]:
 
                 if found_date_for_week:
                     selected_weekly_dates.append(found_date_for_week)
-                    # 🎯 關鍵修復：即使抓到 8/7，標籤一樣綁定為 8/6 期
                     date_label_map[found_date_for_week] = f"{target_thu_str}期"
                 else:
                     break
@@ -734,12 +730,13 @@ with main_tabs[1]:
 
                     rank_surge = initial_rank - current_rank
 
-                    view_growth = 0
+                    # 🎯 關鍵修復：計算點閱淨增量（必須有至少 2 筆有效點閱，否則設為 None）
+                    view_growth = None
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
                         if valid_cols:
                             v_series = pivot_views.loc[idx, valid_cols].dropna()
-                            if not v_series.empty:
+                            if len(v_series) >= 2:
                                 start_views = v_series.iloc[0]
                                 end_views = v_series.iloc[-1]
                                 if pd.notna(start_views) and pd.notna(end_views):
@@ -766,9 +763,12 @@ with main_tabs[1]:
 
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
+                    # 🎯 排序優化：優先比點閱淨增量，無點閱數據 (None/-) 自動依名次爬升幅排序
                     df_result = (
                         df_result.sort_values(
-                            by=["點閱淨增量", "名次總爬升幅"], ascending=[False, False]
+                            by=["點閱淨增量", "名次總爬升幅"],
+                            ascending=[False, False],
+                            na_position="last",
                         )
                         .head(10)
                         .reset_index(drop=True)
@@ -798,7 +798,10 @@ with main_tabs[1]:
                         df_display,
                         column_config={
                             "點閱淨增量": st.column_config.NumberColumn(
-                                "點閱淨增量", format="%,d", width="small"
+                                "點閱淨增量",
+                                format="%,d",
+                                missing_value="-",  # 🎯 無資料或資料不足 2 筆時，畫面上顯示為「-」
+                                width="small",
                             ),
                             "名次總爬升幅": st.column_config.NumberColumn(
                                 "名次總爬升幅", format="+%d", width="small"
@@ -828,7 +831,6 @@ with main_tabs[1]:
 
                     chart_data.columns = [f"{s} - {si}" for s, si in top_keys]
 
-                    # 🎯 映射套用：把實際日期替換成 mapped 標籤 (例如 8/7 替換為 2026-08-06期)
                     chart_data.index = [date_label_map.get(d, d) for d in range_dates]
                     chart_data = chart_data.reset_index().rename(
                         columns={"index": "追蹤時間"}
