@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（直觀流暢修正版）
+# 🚀 模組二：新進黑馬雷達（彈性補位修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -600,6 +600,7 @@ with main_tabs[1]:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
+            # 新歌榜：維持每日連續 7 天追蹤
             target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
@@ -612,18 +613,38 @@ with main_tabs[1]:
             )
             label_text = "📊 七日連續追蹤"
         else:
-            all_thursdays = [
-                d
-                for d in dates
-                if datetime.strptime(d, "%Y-%m-%d").weekday() == 3
-            ]
-            if base_date in all_thursdays:
-                base_idx = all_thursdays.index(base_date)
-                range_dates = all_thursdays[
-                    max(0, base_idx - 6) : base_idx + 1
-                ]
-            else:
-                range_dates = [d for d in all_thursdays if d <= base_date][-7:]
+            # 週榜：彈性追蹤機制（最多回溯 7 期；理想 Target-7 無資料時，在 [Target-1 ~ Target-7] 7 天內彈性補位）
+            selected_weekly_dates = [base_date]
+            current_dt = base_dt
+
+            # 嘗試往前尋找最多 6 個歷史週期（加上基準日共 7 期）
+            for _ in range(6):
+                ideal_target = current_dt - timedelta(days=7)
+                ideal_target_str = ideal_target.strftime("%Y-%m-%d")
+
+                # 1. 首選：7 天前的理想日期有 CSV 資料
+                if ideal_target_str in dates:
+                    selected_weekly_dates.append(ideal_target_str)
+                    current_dt = ideal_target
+                else:
+                    # 2. 次選：開起 7 天彈性搜尋視窗 [current_dt - 1天 ... current_dt - 7天]
+                    found_fallback = False
+                    for day_offset in range(1, 8):
+                        candidate_dt = current_dt - timedelta(days=day_offset)
+                        candidate_str = candidate_dt.strftime("%Y-%m-%d")
+
+                        # 避免重複選取並確保日期在庫中
+                        if candidate_str in dates and candidate_str not in selected_weekly_dates:
+                            selected_weekly_dates.append(candidate_str)
+                            current_dt = candidate_dt
+                            found_fallback = True
+                            break
+
+                    # 3. 若 7 天視窗內完全沒有任何 CSV 資料，停止繼續向前搜尋
+                    if not found_fallback:
+                        break
+
+            range_dates = sorted(list(set(selected_weekly_dates)))
             label_text = "📊 七期連續追蹤"
 
         st.caption(
@@ -668,7 +689,7 @@ with main_tabs[1]:
                 aggfunc="min",
             )
 
-            # 建立點閱率 Pivot (如果有的話)
+            # 建立點閱率 Pivot
             pivot_views = None
             if yt_views_col and yt_views_col in df_all_range.columns:
                 df_all_range[yt_views_col] = (
@@ -697,15 +718,15 @@ with main_tabs[1]:
                             yt_id_map[k] = v
 
             if base_date in pivot_rank.columns:
-                # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
-                min_required = 3
+                # 階段一：基礎過濾（動態判定最小筆數門檻：若追蹤期數少於 3 期時，自動適應為 2 期）
+                min_required = min(2, len(range_dates))
                 processed_rows = []
 
                 for idx, row in pivot_rank.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
 
-                    # 條件 1：追蹤區間內至少有 3 天紀錄
+                    # 條件 1：符合動態門檻筆數
                     if len(valid_history) < min_required:
                         continue
 
@@ -720,7 +741,7 @@ with main_tabs[1]:
                     # 1. 名次總爬升幅 (追蹤期初名次 - 最新名次，正數代表進步)
                     rank_surge = initial_rank - current_rank
 
-                    # 2. 點閱率淨增量 (安全過濾存在的欄位以防 KeyError)
+                    # 2. 點閱率淨增量
                     view_growth = 0
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
@@ -754,7 +775,7 @@ with main_tabs[1]:
 
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
-                    # 階段三：直觀排序（優先依據點閱淨增量，次要依名次總爬升幅）
+                    # 階段三：排序 (優先依據點閱淨增量，次要依名次總爬升幅)
                     df_result = (
                         df_result.sort_values(
                             by=["點閱淨增量", "名次總爬升幅"], ascending=[False, False]
@@ -772,7 +793,7 @@ with main_tabs[1]:
 
                     df_result["影片連結"] = df_result["YouTube ID"].apply(build_yt_url)
 
-                    # 調整欄位順序：歌名、歌手、點閱淨增量、名次總爬升幅、追蹤期初名次、基準日名次、影片連結
+                    # 調整顯示欄位
                     display_cols = [
                         song_col,
                         singer_col,
