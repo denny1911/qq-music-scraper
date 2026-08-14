@@ -1135,7 +1135,7 @@ with main_tabs[2]:
 # ==========================================
 # 📊 原始榜單瀏覽
 # ==========================================
-with main_tabs[4]:
+with main_tabs[3]:
     st.header("📊 原始各榜單數據瀏覽")
 
     selected_date_obj = st.date_input(
