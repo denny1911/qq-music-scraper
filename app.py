@@ -600,6 +600,7 @@ with main_tabs[1]:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
+            # 新歌榜：抓取 7 天內的每日數據
             target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
@@ -612,33 +613,26 @@ with main_tabs[1]:
             )
             label_text = "📊 七日連續追蹤"
         else:
-            # 週榜：7天內彈性補位機制（搜尋極限鎖定在當前日期的 1~7 天內，找不到即中斷，絕不越界至遠古資料）
-            selected_weekly_dates = [base_date]
-            current_anchor_dt = base_dt
+            # 週榜：從基準日往回找最多 7 期，且「相鄰兩期差距嚴格限制在 1~7 天內」
+            # 只要往前找不到 7 天內的資料（遇到斷層），立刻切斷，絕不拉入 12 天前的舊資料！
+            range_dates = [base_date]
+            curr_dt = base_dt
 
             for _ in range(6):
-                ideal_target = current_anchor_dt - timedelta(days=7)
-                ideal_target_str = ideal_target.strftime("%Y-%m-%d")
-
-                if ideal_target_str in dates:
-                    selected_weekly_dates.append(ideal_target_str)
-                    current_anchor_dt = ideal_target
+                # 搜尋在當前日期往前 1~7 天範圍內的候選日期
+                candidates = [
+                    d
+                    for d in dates
+                    if 1 <= (curr_dt - datetime.strptime(d, "%Y-%m-%d")).days <= 7
+                ]
+                if candidates:
+                    next_date = max(candidates)  # 取最靠近當前日期的那一天
+                    range_dates.append(next_date)
+                    curr_dt = datetime.strptime(next_date, "%Y-%m-%d")
                 else:
-                    found_fallback = False
-                    for day_offset in range(1, 8):
-                        candidate_dt = current_anchor_dt - timedelta(days=day_offset)
-                        candidate_str = candidate_dt.strftime("%Y-%m-%d")
+                    break  # 7 天內無任何歷史資料，立即停止
 
-                        if candidate_str in dates and candidate_str not in selected_weekly_dates:
-                            selected_weekly_dates.append(candidate_str)
-                            current_anchor_dt = candidate_dt
-                            found_fallback = True
-                            break
-
-                    if not found_fallback:
-                        break
-
-            range_dates = sorted(list(set(selected_weekly_dates)))
+            range_dates = sorted(range_dates)
             label_text = "📊 七期連續追蹤"
 
         st.caption(
