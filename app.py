@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（精準週期邏輯修正版）
+# 🚀 模組二：新進黑馬雷達（當期起始日對齊版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -598,9 +598,10 @@ with main_tabs[1]:
 
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
+        date_label_map = {}  # 紀錄「實際數據日期 -> 當期初始日標籤」的映射字典
 
         if m2_chart_option == "新歌榜":
-            # 新歌榜（日榜）：抓取 7 天內的每日連續數據
+            # 新歌榜（日榜）：直接使用實際日期
             target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
@@ -611,43 +612,41 @@ with main_tabs[1]:
                     <= base_dt
                 ]
             )
+            date_label_map = {d: d for d in range_dates}
             label_text = "📊 七日連續追蹤"
         else:
-            # 週榜（影視金曲、綜藝新歌、抖音熱歌）：依「期」追蹤（最多前 7 期）
-            # 每期搜尋順序：四 ➡️ 五 ➡️ 六 ➡️ 日 ➡️ 一 ➡️ 二 ➡️ 三 (7 天涵蓋區間)
-            
-            # 計算基準日所在的該週星期四
+            # 週榜：記錄「實際採集日」，但標籤一律映射至「當期起始日 (星期四)」
             days_since_thu = (base_dt.weekday() - 3) % 7
             base_thu = base_dt - timedelta(days=days_since_thu)
 
             selected_weekly_dates = []
 
-            for k in range(7):  # 最多往前尋找 7 期 (k=0 為最新一期)
+            for k in range(7):
                 target_thu = base_thu - timedelta(weeks=k)
+                target_thu_str = target_thu.strftime("%Y-%m-%d")
                 found_date_for_week = None
 
-                # 順序：四(+0), 五(+1), 六(+2), 日(+3), 一(+4), 二(+5), 三(+6)
+                # 順序：四, 五, 六, 日, 一, 二, 三
                 for day_offset in range(7):
                     candidate_dt = target_thu + timedelta(days=day_offset)
                     candidate_str = candidate_dt.strftime("%Y-%m-%d")
 
-                    # 必須存在於資料庫，且不能大於選擇的基準日
                     if candidate_str in dates and candidate_str <= base_date:
                         found_date_for_week = candidate_str
-                        break  # 找到該期優先度最高的日期，結束本期的尋找
+                        break
 
                 if found_date_for_week:
                     selected_weekly_dates.append(found_date_for_week)
+                    # 🎯 關鍵修復：即使抓到 8/7，標籤一樣綁定為 8/6 期
+                    date_label_map[found_date_for_week] = f"{target_thu_str}期"
                 else:
-                    # 若該期 7 天內完全沒有任何資料，代表資料中斷，立即停止往後尋找
                     break
 
-            # 將日期由舊到新排序
             range_dates = sorted(selected_weekly_dates)
             label_text = f"📊 {len(range_dates)}期動態追蹤"
 
         st.caption(
-            f"{label_text}：`{min(range_dates)}` ➡️ `{max(range_dates)}`"
+            f"{label_text}：`{date_label_map[min(range_dates)]}` ➡️ `{date_label_map[max(range_dates)]}`"
         )
 
         range_dfs = []
@@ -717,7 +716,6 @@ with main_tabs[1]:
                             yt_id_map[k] = v
 
             if base_date in pivot_rank.columns:
-                # 動態適應最小筆數門檻 (若總共只有 2 或 3 期，門檻設為 2)
                 min_required = min(2, len(range_dates))
                 processed_rows = []
 
@@ -736,7 +734,6 @@ with main_tabs[1]:
 
                     rank_surge = initial_rank - current_rank
 
-                    # 計算這幾期之間的點閱淨增量
                     view_growth = 0
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
@@ -830,14 +827,9 @@ with main_tabs[1]:
                     chart_data = pivot_rank.loc[top_keys, range_dates].T
 
                     chart_data.columns = [f"{s} - {si}" for s, si in top_keys]
-                    chart_data.index = [
-                        (
-                            f"第 {i+1} 天"
-                            if m2_chart_option == "新歌榜"
-                            else f"第 {i+1} 期"
-                        )
-                        for i in range(len(range_dates))
-                    ]
+
+                    # 🎯 映射套用：把實際日期替換成 mapped 標籤 (例如 8/7 替換為 2026-08-06期)
+                    chart_data.index = [date_label_map.get(d, d) for d in range_dates]
                     chart_data = chart_data.reset_index().rename(
                         columns={"index": "追蹤時間"}
                     )
