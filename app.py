@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（基準日動態對齊修正版）
+# 🚀 模組二：新進黑馬雷達（移除 numpy 依賴修復版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -594,7 +594,7 @@ with main_tabs[1]:
     )
     if base_date not in dates:
         valid_dates = [d for d in dates if d <= base_date]
-        base_date = valid_dates[-1] if valid_dates else dates[0] # 🎯 修正：抓取不小於選定日期的最新一天
+        base_date = valid_dates[-1] if valid_dates else dates[0]
 
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
@@ -667,13 +667,13 @@ with main_tabs[1]:
                     yt_id_col = c
                     break
 
-            # 萬用點閱率解析器
+            # 🎯 萬用點閱率解析器（改用原生 float("nan")，避免 np.nan 缺失引發 NameError）
             def parse_views_num(val):
                 if pd.isna(val) or val is None:
-                    return np.nan
+                    return float("nan")
                 v_str = str(val).strip().replace(",", "")
                 if v_str in ["", "nan", "None", "-", "null"]:
-                    return np.nan
+                    return float("nan")
                 try:
                     if "萬" in v_str or "万" in v_str:
                         return float(v_str.replace("萬", "").replace("万", "")) * 10000
@@ -683,7 +683,7 @@ with main_tabs[1]:
                         return float(v_str.lower().replace("m", "")) * 1000000
                     return float(v_str)
                 except:
-                    return np.nan
+                    return float("nan")
 
             view_cols = [
                 c for c in df_all_range.columns 
@@ -692,7 +692,7 @@ with main_tabs[1]:
 
             pivot_views = None
             if view_cols:
-                df_all_range["__unified_views__"] = np.nan
+                df_all_range["__unified_views__"] = None
                 for vc in view_cols:
                     parsed = df_all_range[vc].apply(parse_views_num)
                     df_all_range["__unified_views__"] = df_all_range["__unified_views__"].fillna(parsed)
@@ -722,7 +722,7 @@ with main_tabs[1]:
                         if pd.notna(v) and str(v).strip() not in ["", "nan", "None", "-"]:
                             yt_id_map[k] = v
 
-            # 🎯 關鍵修復：實際基準日應該取追蹤區間內最後一個實際載入的日期 (例如 2026-08-13)
+            # 實際基準日取追蹤區間內最後一個實際載入的日期
             actual_base_date = max(range_dates) if range_dates else base_date
 
             if actual_base_date in pivot_rank.columns:
