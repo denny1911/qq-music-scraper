@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（點閱率缺失顯示 "-" 修正版）
+# 🚀 模組二：新進黑馬雷達（TypeError 修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -730,7 +730,7 @@ with main_tabs[1]:
 
                     rank_surge = initial_rank - current_rank
 
-                    # 🎯 關鍵修復：計算點閱淨增量（必須有至少 2 筆有效點閱，否則設為 None）
+                    # 計算點閱淨增量（必須有至少 2 筆有效點閱，否則設為 None）
                     view_growth = None
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
@@ -763,7 +763,6 @@ with main_tabs[1]:
 
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
-                    # 🎯 排序優化：優先比點閱淨增量，無點閱數據 (None/-) 自動依名次爬升幅排序
                     df_result = (
                         df_result.sort_values(
                             by=["點閱淨增量", "名次總爬升幅"],
@@ -793,15 +792,17 @@ with main_tabs[1]:
                     ]
                     df_display = df_result[display_cols].copy()
 
+                    # 🎯 關鍵修復：轉為帶千分位的字串，無數值者自動顯示為 "-"
+                    df_display["點閱淨增量"] = df_display["點閱淨增量"].apply(
+                        lambda x: f"{int(x):,}" if pd.notna(x) and x is not None else "-"
+                    )
+
                     st.success("🎯 已鎖定流量暴衝與名次爬升的潛力黑馬！")
                     st.dataframe(
                         df_display,
                         column_config={
-                            "點閱淨增量": st.column_config.NumberColumn(
-                                "點閱淨增量",
-                                format="%,d",
-                                missing_value="-",  # 🎯 無資料或資料不足 2 筆時，畫面上顯示為「-」
-                                width="small",
+                            "點閱淨增量": st.column_config.TextColumn(
+                                "點閱淨增量", width="small"
                             ),
                             "名次總爬升幅": st.column_config.NumberColumn(
                                 "名次總爬升幅", format="+%d", width="small"
