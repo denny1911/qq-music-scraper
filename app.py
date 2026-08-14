@@ -600,7 +600,6 @@ with main_tabs[1]:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
         if m2_chart_option == "新歌榜":
-            # 新歌榜：抓取 7 天內的每日數據
             target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
                 [
@@ -613,26 +612,18 @@ with main_tabs[1]:
             )
             label_text = "📊 七日連續追蹤"
         else:
-            # 週榜：從基準日往回找最多 7 期，且「相鄰兩期差距嚴格限制在 1~7 天內」
-            # 只要往前找不到 7 天內的資料（遇到斷層），立刻切斷，絕不拉入 12 天前的舊資料！
-            range_dates = [base_date]
-            curr_dt = base_dt
-
-            for _ in range(6):
-                # 搜尋在當前日期往前 1~7 天範圍內的候選日期
-                candidates = [
-                    d
-                    for d in dates
-                    if 1 <= (curr_dt - datetime.strptime(d, "%Y-%m-%d")).days <= 7
+            all_thursdays = [
+                d
+                for d in dates
+                if datetime.strptime(d, "%Y-%m-%d").weekday() == 3
+            ]
+            if base_date in all_thursdays:
+                base_idx = all_thursdays.index(base_date)
+                range_dates = all_thursdays[
+                    max(0, base_idx - 6) : base_idx + 1
                 ]
-                if candidates:
-                    next_date = max(candidates)  # 取最靠近當前日期的那一天
-                    range_dates.append(next_date)
-                    curr_dt = datetime.strptime(next_date, "%Y-%m-%d")
-                else:
-                    break  # 7 天內無任何歷史資料，立即停止
-
-            range_dates = sorted(range_dates)
+            else:
+                range_dates = [d for d in all_thursdays if d <= base_date][-7:]
             label_text = "📊 七期連續追蹤"
 
         st.caption(
@@ -706,15 +697,15 @@ with main_tabs[1]:
                             yt_id_map[k] = v
 
             if base_date in pivot_rank.columns:
-                # 階段一：基礎過濾 (動態適應門檻：若追蹤期數不足 3 期，自動適應為 2 期)
-                min_required = min(2, len(range_dates))
+                # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
+                min_required = 3
                 processed_rows = []
 
                 for idx, row in pivot_rank.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
 
-                    # 條件 1：追蹤區間內符合最小歷史筆數
+                    # 條件 1：追蹤區間內至少有 3 天紀錄
                     if len(valid_history) < min_required:
                         continue
 
