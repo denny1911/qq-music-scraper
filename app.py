@@ -564,7 +564,7 @@ with main_tabs[0]:
         else:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
-if m2_chart_option == "新歌榜":
+        if m2_chart_option == "新歌榜":
             # 新歌榜：維持每日連續 7 天追蹤
             target_past_dt = base_dt - timedelta(days=7)
             range_dates = sorted(
