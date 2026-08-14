@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（直觀流暢修正版）
+# 🚀 模組二：新進黑馬雷達（精準 7 天邊界修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -599,32 +599,26 @@ with main_tabs[1]:
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
 
-        if m2_chart_option == "新歌榜":
-            target_past_dt = base_dt - timedelta(days=7)
-            range_dates = sorted(
-                [
-                    d
-                    for d in dates
-                    if target_past_dt
-                    <= datetime.strptime(d, "%Y-%m-%d")
-                    <= base_dt
-                ]
-            )
-            label_text = "📊 七日連續追蹤"
-        else:
-            all_thursdays = [
+        # -------------------------------------------------------------
+        # 🎯 核心修正：嚴格限制追蹤區間最遠只能到基準日期的 7 天前 (T-7)
+        # 徹底卡死時間範圍，跨度 > 7 天的舊資料 (例如 8/01) 一律排除！
+        # -------------------------------------------------------------
+        target_past_dt = base_dt - timedelta(days=7)
+        range_dates = sorted(
+            [
                 d
                 for d in dates
-                if datetime.strptime(d, "%Y-%m-%d").weekday() == 3
+                if target_past_dt
+                <= datetime.strptime(d, "%Y-%m-%d")
+                <= base_dt
             ]
-            if base_date in all_thursdays:
-                base_idx = all_thursdays.index(base_date)
-                range_dates = all_thursdays[
-                    max(0, base_idx - 6) : base_idx + 1
-                ]
-            else:
-                range_dates = [d for d in all_thursdays if d <= base_date][-7:]
-            label_text = "📊 七期連續追蹤"
+        )
+
+        label_text = (
+            "📊 七日連續追蹤"
+            if m2_chart_option == "新歌榜"
+            else "📊 七期連續追蹤"
+        )
 
         st.caption(
             f"{label_text}：`{min(range_dates)}` ➡️ `{max(range_dates)}`"
@@ -668,7 +662,7 @@ with main_tabs[1]:
                 aggfunc="min",
             )
 
-            # 建立點閱率 Pivot (如果有的話)
+            # 建立點閱率 Pivot
             pivot_views = None
             if yt_views_col and yt_views_col in df_all_range.columns:
                 df_all_range[yt_views_col] = (
@@ -686,7 +680,7 @@ with main_tabs[1]:
                     aggfunc="last",
                 )
 
-            # 抓取 YouTube ID (取第一筆不重複的)
+            # 抓取 YouTube ID
             yt_id_map = {}
             if yt_id_col and yt_id_col in df_all_range.columns:
                 for _, row in df_all_range.iterrows():
@@ -697,30 +691,25 @@ with main_tabs[1]:
                             yt_id_map[k] = v
 
             if base_date in pivot_rank.columns:
-                # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
-                min_required = 3
+                # 門檻自動調彈性：若區間內有效天數僅有 2 天，門檻就設為 2，避免無資料
+                min_required = min(2, len(range_dates))
                 processed_rows = []
 
                 for idx, row in pivot_rank.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
 
-                    # 條件 1：追蹤區間內至少有 3 天紀錄
                     if len(valid_history) < min_required:
                         continue
 
-                    # 條件 2：基準日必須在榜上
                     if base_date not in valid_history.index or pd.isna(row[base_date]):
                         continue
 
                     initial_rank = int(valid_history.iloc[0])
                     current_rank = int(row[base_date])
 
-                    # 階段二：計算兩大關鍵指標
-                    # 1. 名次總爬升幅 (追蹤期初名次 - 最新名次，正數代表進步)
                     rank_surge = initial_rank - current_rank
 
-                    # 2. 點閱率淨增量 (安全過濾存在的欄位以防 KeyError)
                     view_growth = 0
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
@@ -732,7 +721,6 @@ with main_tabs[1]:
                                 if pd.notna(start_views) and pd.notna(end_views):
                                     view_growth = int(end_views - start_views)
 
-                    # 篩選門檻：名次必須有爬升 (rank_surge > 0)
                     if rank_surge <= 0:
                         continue
 
@@ -754,7 +742,6 @@ with main_tabs[1]:
 
                 df_result = pd.DataFrame(processed_rows)
                 if not df_result.empty:
-                    # 階段三：直觀排序（優先依據點閱淨增量，次要依名次總爬升幅）
                     df_result = (
                         df_result.sort_values(
                             by=["點閱淨增量", "名次總爬升幅"], ascending=[False, False]
@@ -763,7 +750,6 @@ with main_tabs[1]:
                         .reset_index(drop=True)
                     )
 
-                    # 產生影片連結
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
@@ -772,7 +758,6 @@ with main_tabs[1]:
 
                     df_result["影片連結"] = df_result["YouTube ID"].apply(build_yt_url)
 
-                    # 調整欄位順序：歌名、歌手、點閱淨增量、名次總爬升幅、追蹤期初名次、基準日名次、影片連結
                     display_cols = [
                         song_col,
                         singer_col,
