@@ -734,14 +734,34 @@ with main_tabs[1]:
                     # 計算點閱率淨增量
                     view_growth = 0
                     if pivot_views is not None and idx in pivot_views.index:
-                        valid_cols = [d for d in range_dates if d in pivot_views.columns]
-                        if valid_cols:
-                            v_series = pivot_views.loc[idx, valid_cols].dropna()
-                            if not v_series.empty:
-                                start_views = v_series.iloc[0]
-                                end_views = v_series.iloc[-1]
-                                if pd.notna(start_views) and pd.notna(end_views):
-                                    view_growth = int(end_views - start_views)
+                        # 取得最新一期與期初一期的點閱值
+                        latest_val = (
+                            pivot_views.loc[idx, actual_base_date]
+                            if actual_base_date in pivot_views.columns
+                            else None
+                        )
+
+                        if pd.notna(latest_val):
+                            end_views = int(latest_val)
+
+                            # 尋找期初點閱（排除最新一期）
+                            past_cols = [
+                                d
+                                for d in range_dates
+                                if d in pivot_views.columns and d != actual_base_date
+                            ]
+                            past_series = (
+                                pivot_views.loc[idx, past_cols].dropna()
+                                if past_cols
+                                else pd.Series()
+                            )
+
+                            if not past_series.empty:
+                                start_views = int(past_series.iloc[0])
+                            else:
+                                start_views = 0  # 若先前皆無紀錄，視為從 0 成長
+
+                            view_growth = max(0, end_views - start_views)
 
                     if rank_surge <= 0:
                         continue
