@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（TypeError 修正版）
+# 🚀 模組二：新進黑馬雷達（基準日動態對齊修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -594,7 +594,7 @@ with main_tabs[1]:
     )
     if base_date not in dates:
         valid_dates = [d for d in dates if d <= base_date]
-        base_date = valid_dates[0] if valid_dates else dates[0]
+        base_date = valid_dates[-1] if valid_dates else dates[0] # 🎯 修正：抓取不小於選定日期的最新一天
 
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
@@ -660,20 +660,49 @@ with main_tabs[1]:
             singer_col = "歌手" if "歌手" in df_all_range.columns else "singer"
             rank_col = "排名" if "排名" in df_all_range.columns else "rank"
 
-            yt_id_col = (
-                "YouTube ID"
-                if "YouTube ID" in df_all_range.columns
-                else (
-                    "YouTube_ID"
-                    if "YouTube_ID" in df_all_range.columns
-                    else ("Video ID" if "Video ID" in df_all_range.columns else None)
+            # 抓取 YouTube ID 欄位
+            yt_id_col = None
+            for c in df_all_range.columns:
+                if any(kw in str(c).lower() for kw in ["youtube id", "youtube_id", "video id", "yt_id"]):
+                    yt_id_col = c
+                    break
+
+            # 萬用點閱率解析器
+            def parse_views_num(val):
+                if pd.isna(val) or val is None:
+                    return np.nan
+                v_str = str(val).strip().replace(",", "")
+                if v_str in ["", "nan", "None", "-", "null"]:
+                    return np.nan
+                try:
+                    if "萬" in v_str or "万" in v_str:
+                        return float(v_str.replace("萬", "").replace("万", "")) * 10000
+                    if "k" in v_str.lower():
+                        return float(v_str.lower().replace("k", "")) * 1000
+                    if "m" in v_str.lower():
+                        return float(v_str.lower().replace("m", "")) * 1000000
+                    return float(v_str)
+                except:
+                    return np.nan
+
+            view_cols = [
+                c for c in df_all_range.columns 
+                if any(kw in str(c) for kw in ["點閱", "觀看", "views", "view", "播放"])
+            ]
+
+            pivot_views = None
+            if view_cols:
+                df_all_range["__unified_views__"] = np.nan
+                for vc in view_cols:
+                    parsed = df_all_range[vc].apply(parse_views_num)
+                    df_all_range["__unified_views__"] = df_all_range["__unified_views__"].fillna(parsed)
+
+                pivot_views = df_all_range.pivot_table(
+                    index=[song_col, singer_col],
+                    columns="追蹤日期",
+                    values="__unified_views__",
+                    aggfunc="last",
                 )
-            )
-            yt_views_col = (
-                "點閱率"
-                if "點閱率" in df_all_range.columns
-                else ("觀看次數" if "觀看次數" in df_all_range.columns else None)
-            )
 
             # 建立名次 Pivot
             pivot_rank = df_all_range.pivot_table(
@@ -683,25 +712,7 @@ with main_tabs[1]:
                 aggfunc="min",
             )
 
-            # 建立點閱率 Pivot
-            pivot_views = None
-            if yt_views_col and yt_views_col in df_all_range.columns:
-                df_all_range[yt_views_col] = (
-                    df_all_range[yt_views_col]
-                    .astype(str)
-                    .str.replace(",", "", regex=False)
-                )
-                df_all_range[yt_views_col] = pd.to_numeric(
-                    df_all_range[yt_views_col], errors="coerce"
-                )
-                pivot_views = df_all_range.pivot_table(
-                    index=[song_col, singer_col],
-                    columns="追蹤日期",
-                    values=yt_views_col,
-                    aggfunc="last",
-                )
-
-            # 抓取 YouTube ID
+            # 抓取 YouTube ID 對應
             yt_id_map = {}
             if yt_id_col and yt_id_col in df_all_range.columns:
                 for _, row in df_all_range.iterrows():
@@ -711,7 +722,10 @@ with main_tabs[1]:
                         if pd.notna(v) and str(v).strip() not in ["", "nan", "None", "-"]:
                             yt_id_map[k] = v
 
-            if base_date in pivot_rank.columns:
+            # 🎯 關鍵修復：實際基準日應該取追蹤區間內最後一個實際載入的日期 (例如 2026-08-13)
+            actual_base_date = max(range_dates) if range_dates else base_date
+
+            if actual_base_date in pivot_rank.columns:
                 min_required = min(2, len(range_dates))
                 processed_rows = []
 
@@ -722,15 +736,15 @@ with main_tabs[1]:
                     if len(valid_history) < min_required:
                         continue
 
-                    if base_date not in valid_history.index or pd.isna(row[base_date]):
+                    if actual_base_date not in valid_history.index or pd.isna(row[actual_base_date]):
                         continue
 
                     initial_rank = int(valid_history.iloc[0])
-                    current_rank = int(row[base_date])
+                    current_rank = int(row[actual_base_date])
 
                     rank_surge = initial_rank - current_rank
 
-                    # 計算點閱淨增量（必須有至少 2 筆有效點閱，否則設為 None）
+                    # 計算點閱淨增量
                     view_growth = None
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
@@ -792,9 +806,8 @@ with main_tabs[1]:
                     ]
                     df_display = df_result[display_cols].copy()
 
-                    # 🎯 關鍵修復：轉為帶千分位的字串，無數值者自動顯示為 "-"
                     df_display["點閱淨增量"] = df_display["點閱淨增量"].apply(
-                        lambda x: f"{int(x):,}" if pd.notna(x) and x is not None else "-"
+                        lambda x: f"+{int(x):,}" if pd.notna(x) and x is not None else "-"
                     )
 
                     st.success("🎯 已鎖定流量暴衝與名次爬升的潛力黑馬！")
