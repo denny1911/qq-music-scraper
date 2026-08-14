@@ -565,11 +565,13 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（KeyError 安全防禦與完整功能版）
+# 🚀 模組二：新進黑馬雷達（直觀流暢修正版）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
-    st.markdown("偵測近期新進榜、名次持續爬升且點閱率大幅增長的潛力黑馬！")
+    st.markdown(
+        "偵測近期新進榜、名次持續爬升且點閱率大幅增長的潛力黑馬！"
+    )
 
     m2_chart_option = st.radio(
         "選擇要分析的榜單",
@@ -590,237 +592,292 @@ with main_tabs[1]:
         if isinstance(base_date_obj, date)
         else dates[0]
     )
-    
     if base_date not in dates:
         valid_dates = [d for d in dates if d <= base_date]
-        base_date = valid_dates[-1] if valid_dates else dates[0]
+        base_date = valid_dates[0] if valid_dates else dates[0]
 
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
-        
-        # 建立週區間追蹤 (4期)
-        days_since_thu = (base_dt.weekday() - 3) % 7
-        base_thu = base_dt - timedelta(days=days_since_thu)
-        
-        periods = []
-        for k in range(4):
-            target_thu = base_thu - timedelta(weeks=k)
-            periods.append(target_thu.strftime("%Y-%m-%d"))
-        
-        range_dates = sorted(periods)
-        label_text = f"📊 {len(range_dates)}期窗口動態追蹤"
 
-        st.caption(f"{label_text}：`{range_dates[0]}期` ➡️ `{range_dates[-1]}期`")
+        if m2_chart_option == "新歌榜":
+            target_past_dt = base_dt - timedelta(days=7)
+            range_dates = sorted(
+                [
+                    d
+                    for d in dates
+                    if target_past_dt
+                    <= datetime.strptime(d, "%Y-%m-%d")
+                    <= base_dt
+                ]
+            )
+            label_text = "📊 七日連續追蹤"
+        else:
+            all_thursdays = [
+                d
+                for d in dates
+                if datetime.strptime(d, "%Y-%m-%d").weekday() == 3
+            ]
+            if base_date in all_thursdays:
+                base_idx = all_thursdays.index(base_date)
+                range_dates = all_thursdays[
+                    max(0, base_idx - 6) : base_idx + 1
+                ]
+            else:
+                range_dates = [d for d in all_thursdays if d <= base_date][-7:]
+            label_text = "📊 七期連續追蹤"
 
-        # 🎯 核心邏輯：7天週窗口資料桶整合
-        weekly_data_map = {}
-        date_label_map = {p: f"{p}期" for p in range_dates}
-        
-        for p_date in range_dates:
-            p_dt = datetime.strptime(p_date, "%Y-%m-%d")
-            window_days = [(p_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-            
-            week_dfs = []
-            for d in window_days:
-                if d in dates:
-                    d_full = load_date_data(d)
-                    if not d_full.empty:
-                        d_chart = d_full[d_full["榜單類型"] == m2_chart_option].copy()
-                        if not d_chart.empty:
-                            d_chart["實際採集日"] = d
-                            week_dfs.append(d_chart)
-            
-            if week_dfs:
-                df_week = pd.concat(week_dfs, ignore_index=True)
-                # 每週窗口內取最新採集的數據作為該期代表
-                df_week = df_week.sort_values("實際採集日").groupby(["歌名", "歌手"], as_index=False).last()
-                weekly_data_map[p_date] = df_week
+        st.caption(
+            f"{label_text}：`{min(range_dates)}` ➡️ `{max(range_dates)}`"
+        )
 
-        if weekly_data_map:
-            all_dfs = []
-            for p, df in weekly_data_map.items():
-                df_copy = df.copy()
-                df_copy["期別"] = p
-                all_dfs.append(df_copy)
-            
-            df_all = pd.concat(all_dfs, ignore_index=True)
-            
-            song_col = "歌名" if "歌名" in df_all.columns else "song"
-            singer_col = "歌手" if "歌手" in df_all.columns else "singer"
-            rank_col = "排名" if "排名" in df_all.columns else "rank"
+        range_dfs = []
+        for d in range_dates:
+            d_full = load_date_data(d)
+            if not d_full.empty:
+                d_chart = d_full[d_full["榜單類型"] == m2_chart_option].copy()
+                if not d_chart.empty:
+                    d_chart["追蹤日期"] = d
+                    range_dfs.append(d_chart)
 
-            # 抓取 YouTube ID 欄位
-            yt_id_col = None
-            for c in df_all.columns:
-                if any(kw in str(c).lower() for kw in ["youtube id", "youtube_id", "video id", "yt_id"]):
-                    yt_id_col = c
-                    break
+        if range_dfs:
+            df_all_range = pd.concat(range_dfs, ignore_index=True)
+            song_col = "歌名" if "歌名" in df_all_range.columns else "song"
+            singer_col = "歌手" if "歌手" in df_all_range.columns else "singer"
+            rank_col = "排名" if "排名" in df_all_range.columns else "rank"
 
-            # 萬用點閱率解析器
-            def parse_views_num(val):
-                if pd.isna(val) or val is None: return float("nan")
-                v_str = str(val).strip().replace(",", "")
-                if v_str in ["", "nan", "None", "-", "null"]: return float("nan")
-                try:
-                    if "萬" in v_str or "万" in v_str: return float(v_str.replace("萬", "").replace("万", "")) * 10000
-                    if "k" in v_str.lower(): return float(v_str.lower().replace("k", "")) * 1000
-                    if "m" in v_str.lower(): return float(v_str.lower().replace("m", "")) * 1000000
-                    return float(v_str)
-                except: return float("nan")
+            yt_id_col = (
+                "YouTube ID"
+                if "YouTube ID" in df_all_range.columns
+                else (
+                    "YouTube_ID"
+                    if "YouTube_ID" in df_all_range.columns
+                    else ("Video ID" if "Video ID" in df_all_range.columns else None)
+                )
+            )
+            yt_views_col = (
+                "點閱率"
+                if "點閱率" in df_all_range.columns
+                else ("觀看次數" if "觀看次數" in df_all_range.columns else None)
+            )
 
-            view_cols = [c for c in df_all.columns if any(kw in str(c) for kw in ["點閱", "觀看", "views", "view", "播放"])]
-            df_all["__unified_views__"] = float("nan")
-            for vc in view_cols:
-                parsed = df_all[vc].apply(parse_views_num)
-                df_all["__unified_views__"] = df_all["__unified_views__"].fillna(parsed)
+            # 建立名次 Pivot
+            pivot_rank = df_all_range.pivot_table(
+                index=[song_col, singer_col],
+                columns="追蹤日期",
+                values=rank_col,
+                aggfunc="min",
+            )
 
-            pivot_rank = df_all.pivot_table(index=[song_col, singer_col], columns="期別", values=rank_col, aggfunc="min")
-            pivot_views = df_all.pivot_table(index=[song_col, singer_col], columns="期別", values="__unified_views__", aggfunc="last")
+            # 建立點閱率 Pivot (如果有的話)
+            pivot_views = None
+            if yt_views_col and yt_views_col in df_all_range.columns:
+                df_all_range[yt_views_col] = (
+                    df_all_range[yt_views_col]
+                    .astype(str)
+                    .str.replace(",", "", regex=False)
+                )
+                df_all_range[yt_views_col] = pd.to_numeric(
+                    df_all_range[yt_views_col], errors="coerce"
+                )
+                pivot_views = df_all_range.pivot_table(
+                    index=[song_col, singer_col],
+                    columns="追蹤日期",
+                    values=yt_views_col,
+                    aggfunc="last",
+                )
 
-            # YouTube ID 映射
+            # 抓取 YouTube ID (取第一筆不重複的)
             yt_id_map = {}
-            if yt_id_col and yt_id_col in df_all.columns:
-                for _, row in df_all.iterrows():
+            if yt_id_col and yt_id_col in df_all_range.columns:
+                for _, row in df_all_range.iterrows():
                     k = (row[song_col], row[singer_col])
                     if k not in yt_id_map or pd.isna(yt_id_map[k]):
                         v = row[yt_id_col]
                         if pd.notna(v) and str(v).strip() not in ["", "nan", "None", "-"]:
                             yt_id_map[k] = v
 
-            processed_rows = []
-            latest_period = range_dates[-1]
+            if base_date in pivot_rank.columns:
+                # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
+                min_required = 3
+                processed_rows = []
 
-            for idx, row in pivot_rank.iterrows():
-                song, singer = idx
-                if latest_period not in row.index or pd.isna(row[latest_period]): 
-                    continue
-                
-                valid_periods = row.dropna().index
-                if len(valid_periods) < 2: 
-                    continue
-                
-                initial_period = valid_periods[0]
-                
-                rank_surge = int(row[initial_period] - row[latest_period])
-                if rank_surge <= 0: 
-                    continue
-                
-                # 🎯 關鍵修復：使用 .get() 防禦 KeyError
-                view_growth = None
-                if idx in pivot_views.index:
-                    v_row = pivot_views.loc[idx]
-                    start_val = v_row.get(initial_period)
-                    end_val = v_row.get(latest_period)
-                    if pd.notna(start_val) and pd.notna(end_val):
-                        view_growth = int(end_val - start_val)
+                for idx, row in pivot_rank.iterrows():
+                    song, singer = idx
+                    valid_history = row[range_dates].dropna()
 
-                yt_val = yt_id_map.get(idx, None)
+                    # 條件 1：追蹤區間內至少有 3 天紀錄
+                    if len(valid_history) < min_required:
+                        continue
 
-                processed_rows.append({
-                    song_col: song,
-                    singer_col: singer,
-                    "點閱淨增量": view_growth,
-                    "名次總爬升幅": rank_surge,
-                    "追蹤期初名次": int(row[initial_period]),
-                    "基準日名次": int(row[latest_period]),
-                    "YouTube ID": yt_val,
-                    "raw_song": song,
-                    "raw_singer": singer,
-                })
+                    # 條件 2：基準日必須在榜上
+                    if base_date not in valid_history.index or pd.isna(row[base_date]):
+                        continue
 
-            df_result = pd.DataFrame(processed_rows)
-            
-            if not df_result.empty:
-                df_result = (
-                    df_result.sort_values(
-                        by=["點閱淨增量", "名次總爬升幅"],
-                        ascending=[False, False],
-                        na_position="last",
+                    initial_rank = int(valid_history.iloc[0])
+                    current_rank = int(row[base_date])
+
+                    # 階段二：計算兩大關鍵指標
+                    # 1. 名次總爬升幅 (追蹤期初名次 - 最新名次，正數代表進步)
+                    rank_surge = initial_rank - current_rank
+
+                    # 2. 點閱率淨增量 (安全過濾存在的欄位以防 KeyError)
+                    view_growth = 0
+                    if pivot_views is not None and idx in pivot_views.index:
+                        valid_cols = [d for d in range_dates if d in pivot_views.columns]
+                        if valid_cols:
+                            v_series = pivot_views.loc[idx, valid_cols].dropna()
+                            if not v_series.empty:
+                                start_views = v_series.iloc[0]
+                                end_views = v_series.iloc[-1]
+                                if pd.notna(start_views) and pd.notna(end_views):
+                                    view_growth = int(end_views - start_views)
+
+                    # 篩選門檻：名次必須有爬升 (rank_surge > 0)
+                    if rank_surge <= 0:
+                        continue
+
+                    yt_val = yt_id_map.get(idx, None)
+
+                    processed_rows.append(
+                        {
+                            song_col: song,
+                            singer_col: singer,
+                            "點閱淨增量": view_growth,
+                            "名次總爬升幅": rank_surge,
+                            "追蹤期初名次": initial_rank,
+                            "基準日名次": current_rank,
+                            "YouTube ID": yt_val,
+                            "raw_song": song,
+                            "raw_singer": singer,
+                        }
                     )
-                    .head(10)
-                    .reset_index(drop=True)
-                )
 
-                def build_yt_url(val):
-                    v = str(val).strip() if pd.notna(val) else ""
-                    if v and v not in ["-", "nan", "None", ""]:
-                        return f"https://www.youtube.com/watch?v={v}"
-                    return None
-
-                df_result["影片連結"] = df_result["YouTube ID"].apply(build_yt_url)
-
-                display_cols = [
-                    song_col,
-                    singer_col,
-                    "點閱淨增量",
-                    "名次總爬升幅",
-                    "追蹤期初名次",
-                    "基準日名次",
-                    "影片連結",
-                ]
-                df_display = df_result[display_cols].copy()
-
-                df_display["點閱淨增量"] = df_display["點閱淨增量"].apply(
-                    lambda x: f"+{int(x):,}" if pd.notna(x) and x is not None else "-"
-                )
-
-                st.success(f"🎯 已鎖定 {latest_period} 期流量暴衝與名次爬升的潛力黑馬！")
-                st.dataframe(
-                    df_display,
-                    column_config={
-                        "點閱淨增量": st.column_config.TextColumn("點閱淨增量", width="small"),
-                        "名次總爬升幅": st.column_config.NumberColumn("名次總爬升幅", format="+%d", width="small"),
-                        "追蹤期初名次": st.column_config.NumberColumn("追蹤期初名次", format="%d", width="small"),
-                        "基準日名次": st.column_config.NumberColumn("基準日名次", format="%d", width="small"),
-                        "影片連結": st.column_config.LinkColumn(
-                            "影片連結", display_text="點此觀看", help="點擊前往 YouTube 觀看 MV", width="small"
-                        ),
-                    },
-                    hide_index=True,
-                    use_container_width=True,
-                )
-
-                # 📈 Altair 走勢圖
-                st.markdown("### 📈 黑馬反彈與爬升走勢")
-                top_keys = list(zip(df_result["raw_song"], df_result["raw_singer"]))
-                chart_data = pivot_rank.loc[top_keys, range_dates].T
-
-                chart_data.columns = [f"{s} - {si}" for s, si in top_keys]
-                chart_data.index = [date_label_map.get(d, d) for d in range_dates]
-                chart_data = chart_data.reset_index().rename(columns={"index": "追蹤時間"})
-
-                df_melted = chart_data.melt(
-                    id_vars="追蹤時間",
-                    var_name="歌曲",
-                    value_name="名次",
-                )
-
-                c = (
-                    alt.Chart(df_melted)
-                    .mark_line(point=True, strokeWidth=2.5)
-                    .encode(
-                        x=alt.X("追蹤時間:N", sort=None, title="追蹤時間", axis=alt.Axis(labelAngle=0)),
-                        y=alt.Y("名次:Q", scale=alt.Scale(domain=[1, 100], reverse=True, clamp=True, zero=False), title="名次", axis=alt.Axis(titleAngle=0)),
-                        color=alt.Color("歌曲:N", title="黑馬清單"),
-                        tooltip=["追蹤時間", "歌曲", "名次"],
+                df_result = pd.DataFrame(processed_rows)
+                if not df_result.empty:
+                    # 階段三：直觀排序（優先依據點閱淨增量，次要依名次總爬升幅）
+                    df_result = (
+                        df_result.sort_values(
+                            by=["點閱淨增量", "名次總爬升幅"], ascending=[False, False]
+                        )
+                        .head(10)
+                        .reset_index(drop=True)
                     )
-                    .properties(width="container", height=450)
-                )
 
-                st.altair_chart(c, use_container_width=True)
+                    # 產生影片連結
+                    def build_yt_url(val):
+                        v = str(val).strip() if pd.notna(val) else ""
+                        if v and v not in ["-", "nan", "None", ""]:
+                            return f"https://www.youtube.com/watch?v={v}"
+                        return None
 
-                # 📥 CSV 下載按鈕
-                export_df = df_display.copy()
-                csv = export_df.to_csv(index=False).encode("utf-8-sig")
-                st.download_button(
-                    "📥 匯出黑馬清單 (CSV)",
-                    csv,
-                    f"黑馬清單_{base_date}.csv",
-                    "text/csv",
-                    key="m2_download_btn",
-                )
+                    df_result["影片連結"] = df_result["YouTube ID"].apply(build_yt_url)
+
+                    # 調整欄位順序：歌名、歌手、點閱淨增量、名次總爬升幅、追蹤期初名次、基準日名次、影片連結
+                    display_cols = [
+                        song_col,
+                        singer_col,
+                        "點閱淨增量",
+                        "名次總爬升幅",
+                        "追蹤期初名次",
+                        "基準日名次",
+                        "影片連結",
+                    ]
+                    df_display = df_result[display_cols].copy()
+
+                    st.success("🎯 已鎖定流量暴衝與名次爬升的潛力黑馬！")
+                    st.dataframe(
+                        df_display,
+                        column_config={
+                            "點閱淨增量": st.column_config.NumberColumn(
+                                "點閱淨增量", format="%,d", width="small"
+                            ),
+                            "名次總爬升幅": st.column_config.NumberColumn(
+                                "名次總爬升幅", format="+%d", width="small"
+                            ),
+                            "追蹤期初名次": st.column_config.NumberColumn(
+                                "追蹤期初名次", format="%d", width="small"
+                            ),
+                            "基準日名次": st.column_config.NumberColumn(
+                                "基準日名次", format="%d", width="small"
+                            ),
+                            "影片連結": st.column_config.LinkColumn(
+                                "影片連結",
+                                display_text="點此觀看",
+                                help="點擊前往 YouTube 觀看 MV",
+                                width="small",
+                            ),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+
+                    st.markdown("### 📈 黑馬反彈與爬升走勢")
+                    top_keys = list(
+                        zip(df_result["raw_song"], df_result["raw_singer"])
+                    )
+                    chart_data = pivot_rank.loc[top_keys, range_dates].T
+
+                    chart_data.columns = [f"{s} - {si}" for s, si in top_keys]
+                    chart_data.index = [
+                        (
+                            f"第 {i+1} 天"
+                            if m2_chart_option == "新歌榜"
+                            else f"第 {i+1} 期"
+                        )
+                        for i in range(len(range_dates))
+                    ]
+                    chart_data = chart_data.reset_index().rename(
+                        columns={"index": "追蹤時間"}
+                    )
+
+                    df_melted = chart_data.melt(
+                        id_vars="追蹤時間",
+                        var_name="歌曲",
+                        value_name="名次",
+                    )
+
+                    c = (
+                        alt.Chart(df_melted)
+                        .mark_line(point=True, strokeWidth=2.5)
+                        .encode(
+                            x=alt.X(
+                                "追蹤時間:N",
+                                sort=None,
+                                title="追蹤時間",
+                                axis=alt.Axis(labelAngle=0),
+                            ),
+                            y=alt.Y(
+                                "名次:Q",
+                                scale=alt.Scale(
+                                    domain=[1, 100],
+                                    reverse=True,
+                                    clamp=True,
+                                    zero=False,
+                                ),
+                                title="名次",
+                                axis=alt.Axis(titleAngle=0),
+                            ),
+                            color=alt.Color("歌曲:N", title="黑馬清單"),
+                            tooltip=["追蹤時間", "歌曲", "名次"],
+                        )
+                        .properties(width="container", height=450)
+                    )
+
+                    st.altair_chart(c, use_container_width=True)
+
+                    export_df = df_display.copy()
+                    csv = export_df.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(
+                        "📥 匯出黑馬清單 (CSV)",
+                        csv,
+                        f"黑馬清單_{base_date}.csv",
+                        "text/csv",
+                        key="m2_download_btn",
+                    )
+                else:
+                    st.info("暫無符合條件的黑馬歌曲。")
             else:
-                st.info("該區間內暫無符合爬升條件的黑馬。")
+                st.info("基準日無資料。")
         else:
             st.info("選定日期區間內無數據。")
             
