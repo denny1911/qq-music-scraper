@@ -565,7 +565,7 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
 
 # ==========================================
-# 🚀 模組二：新進黑馬雷達（直觀流暢修正版）
+# 🚀 模組二：新進黑馬雷達（直觀流暢修正版 - 基準日對齊優化）
 # ==========================================
 with main_tabs[1]:
     st.header("🚀 模組二：新進黑馬雷達與動態追蹤")
@@ -592,9 +592,11 @@ with main_tabs[1]:
         if isinstance(base_date_obj, date)
         else dates[0]
     )
+    
+    # 🎯 修正 1：如果選定的日期不在 CSV 日期庫中，自動往前抓取最新的有效日期 (使用 [-1] 而非 [0])
     if base_date not in dates:
         valid_dates = [d for d in dates if d <= base_date]
-        base_date = valid_dates[0] if valid_dates else dates[0]
+        base_date = valid_dates[-1] if valid_dates else dates[-1]
 
     if base_date:
         base_dt = datetime.strptime(base_date, "%Y-%m-%d")
@@ -696,31 +698,34 @@ with main_tabs[1]:
                         if pd.notna(v) and str(v).strip() not in ["", "nan", "None", "-"]:
                             yt_id_map[k] = v
 
-            if base_date in pivot_rank.columns:
+            # 🎯 修正 2：實際基準日自動採用追蹤區間內的最新一天 (如 2026-08-13)
+            actual_base_date = max(range_dates) if range_dates else base_date
+
+            if actual_base_date in pivot_rank.columns:
                 # 階段一：基礎過濾 (至少有 2-3 天紀錄，且基準日必須在榜上)
-                min_required = 3
+                min_required = min(3, len(range_dates))
                 processed_rows = []
 
                 for idx, row in pivot_rank.iterrows():
                     song, singer = idx
                     valid_history = row[range_dates].dropna()
 
-                    # 條件 1：追蹤區間內至少有 3 天紀錄
+                    # 條件 1：追蹤區間內至少有足夠紀錄
                     if len(valid_history) < min_required:
                         continue
 
                     # 條件 2：基準日必須在榜上
-                    if base_date not in valid_history.index or pd.isna(row[base_date]):
+                    if actual_base_date not in valid_history.index or pd.isna(row[actual_base_date]):
                         continue
 
                     initial_rank = int(valid_history.iloc[0])
-                    current_rank = int(row[base_date])
+                    current_rank = int(row[actual_base_date])
 
                     # 階段二：計算兩大關鍵指標
-                    # 1. 名次總爬升幅 (追蹤期初名次 - 最新名次，正數代表進步)
+                    # 1. 名次總爬升幅
                     rank_surge = initial_rank - current_rank
 
-                    # 2. 點閱率淨增量 (安全過濾存在的欄位以防 KeyError)
+                    # 2. 點閱率淨增量
                     view_growth = 0
                     if pivot_views is not None and idx in pivot_views.index:
                         valid_cols = [d for d in range_dates if d in pivot_views.columns]
@@ -772,7 +777,7 @@ with main_tabs[1]:
 
                     df_result["影片連結"] = df_result["YouTube ID"].apply(build_yt_url)
 
-                    # 調整欄位順序：歌名、歌手、點閱淨增量、名次總爬升幅、追蹤期初名次、基準日名次、影片連結
+                    # 調整欄位順序
                     display_cols = [
                         song_col,
                         singer_col,
