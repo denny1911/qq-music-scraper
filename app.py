@@ -1329,42 +1329,48 @@ with main_tabs[3]:
               )
 
               candidates = []
-            for item in video_res.get("items", []):
+              for item in video_res.get("items", []):
                 v_id = item["id"]
                 v_title = item["snippet"]["title"]
                 channel_title = item["snippet"].get("channelTitle", "")
-                v_desc = item["snippet"].get("description", "")  # 👈 新增：抓取影片說明欄
+                v_desc = item["snippet"].get("description", "") # 👈 抓取影片說明欄
                 v_views = int(item["statistics"].get("viewCount", 0))
 
-                duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
+                duration_str = item.get("contentDetails", {}).get(
+                    "duration", "PT0S"
+                )
                 duration_sec = parse_duration(duration_str)
 
                 # 過濾短影音與過長影片 (60秒 ~ 10分鐘)
                 if duration_sec <= 60 or duration_sec > 600:
-                    continue
+                  continue
 
                 v_title_lower = v_title.lower()
                 v_title_norm = normalize_text(v_title)
                 channel_lower = channel_title.lower()
                 channel_norm = normalize_text(channel_title)
-                v_desc_norm = normalize_text(v_desc)             # 👈 新增：規格化說明欄
+                v_desc_norm = normalize_text(v_desc)           # 👈 規格化說明欄
 
                 is_topic = "topic" in channel_lower or "主題" in channel_lower
 
-                has_noise = any(nk in v_title_lower for nk in COMBINED_NOISE_KEYWORDS)
+                has_noise = any(
+                    nk in v_title_lower for nk in COMBINED_NOISE_KEYWORDS
+                )
                 if not is_topic and has_noise:
-                    continue
+                  continue
 
-                song_matched = (main_sim_norm in v_title_norm) or (main_tra_norm in v_title_norm)
+                song_matched = (main_sim_norm in v_title_norm) or (
+                    main_tra_norm in v_title_norm
+                )
                 if not song_matched:
-                    continue
+                  continue
 
-                # 👈 修改：把 v_desc_norm 加進歌手匹配條件中
+                # 👈 歌手比對加入說明欄 v_desc_norm
                 singer_matched = (
                     not artist_tokens
                     or any(tkn in v_title_norm for tkn in artist_tokens)
                     or any(tkn in channel_norm for tkn in artist_tokens)
-                    or any(tkn in v_desc_norm for tkn in artist_tokens)  # 🔥 讓 Topic 頻道從說明欄抓歌手
+                    or any(tkn in v_desc_norm for tkn in artist_tokens)
                 )
 
                 cand = {
