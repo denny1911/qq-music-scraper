@@ -14,7 +14,7 @@ import zhconv
 DATA_DIR = "data"
 MAPPING_FILE = os.path.join(DATA_DIR, "yt_mapping.csv")
 
-# 對照表僅保留 3 個標準欄位（已移除「影片連結」與標題欄位，保持乾淨）
+# 對照表僅保留 3 個標準欄位（保持乾淨）
 REQ_MAPPING_COLS = ["歌名", "歌手", "Video ID"]
 
 # 噪音關鍵字過濾庫（非 Topic 頻道才套用）
@@ -59,10 +59,16 @@ def parse_song_title(song):
 
 
 def normalize_text(text):
-    """清理字串中的所有空格與常見標點符號供模糊比對"""
+    """清理字串中的所有空格、常見標點符號與羅馬數字轉換，供模糊比對"""
     if not text:
         return ""
-    return re.sub(r"[\s\.\-\_\(\)（）]", "", str(text)).lower()
+    t = str(text).lower()
+
+    # 1. 統一將特殊羅馬數字轉為半角英文字母
+    t = t.replace('ⅱ', 'ii').replace('ⅰ', 'i').replace('ⅲ', 'iii').replace('ⅳ', 'iv')
+
+    # 2. 清除空格、括號與引號符號 (包含 「」 《》【】『』)
+    return re.sub(r"[\s\.\-\_\(\)（）「」《》【】『』""'']", "", t)
 
 
 def extract_artist_tokens(singer):
@@ -129,7 +135,7 @@ def build_search_queries(song, singer):
 
 
 # ==========================================
-# 2. 核心 YouTube 雙階段搜尋函式
+# 2. 核心 YouTube 雙階段搜尋函式 (與模組四完全同步)
 # ==========================================
 def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_service):
     """雙階段搜尋機制：先 viewCount 抓 30 筆 ➔ 再 relevance 抓 5 筆補救"""
@@ -152,6 +158,7 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
         if matched_info:
             break
 
+        # 根據搜尋模式動態設定筆數：viewCount 抓 30 筆，relevance 抓 5 筆
         max_results_val = 30 if order_mode == "viewCount" else 5
 
         for query_str in search_queries:
@@ -200,19 +207,21 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             v_id = item["id"]
                             v_title = item["snippet"]["title"]
                             channel_title = item["snippet"].get("channelTitle", "")
+                            v_desc = item["snippet"].get("description", "")  # 👈 抓取影片說明欄
                             v_views = int(item["statistics"].get("viewCount", 0))
 
                             duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
                             duration_sec = parse_duration(duration_str)
 
-                            # 過濾短影音與長影片 (60秒 ~ 10分鐘)
-                            if duration_sec <= 60 or duration_sec > 600:
+                            # 👈 過濾短影音與長影片 (1分5秒 ~ 8分鐘，即 65 秒 ~ 480 秒)
+                            if duration_sec <= 65 or duration_sec > 480:
                                 continue
 
                             v_title_lower = v_title.lower()
                             v_title_norm = normalize_text(v_title)
                             channel_lower = channel_title.lower()
                             channel_norm = normalize_text(channel_title)
+                            v_desc_norm = normalize_text(v_desc)  # 👈 規格化說明欄
 
                             is_topic = "topic" in channel_lower or "主題" in channel_lower
 
@@ -226,11 +235,12 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             if not song_matched:
                                 continue
 
-                            # 歌手檢驗
+                            # 👈 歌手比對（標題、頻道名稱、影片說明欄）
                             singer_matched = (
                                 not artist_tokens
                                 or any(tkn in v_title_norm for tkn in artist_tokens)
                                 or any(tkn in channel_norm for tkn in artist_tokens)
+                                or any(tkn in v_desc_norm for tkn in artist_tokens)
                             )
 
                             cand = {
@@ -241,7 +251,8 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                                 "search_mode": order_mode,
                             }
 
-                            if is_topic or singer_matched:
+                            # 👈 強制進行歌手檢驗，確保不張冠李戴
+                            if singer_matched:
                                 candidates.append(cand)
 
                         if candidates:
@@ -371,7 +382,6 @@ def main():
     if os.path.exists(MAPPING_FILE):
         try:
             df_mapping = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
-            # 清理過時無用欄位，維持數據純淨
             for col_to_drop in ["YT 影片標題", "yt_title", "title", "Video Title", "影片連結"]:
                 if col_to_drop in df_mapping.columns:
                     df_mapping.drop(columns=[col_to_drop], inplace=True)
@@ -416,7 +426,7 @@ def main():
 
             print(f"🔄 [在榜歌曲補抓/搜尋]：{song} - {singer} ...")
 
-            # 套用新版雙階段搜尋邏輯
+            # 套用與模組四完全同步的最新搜尋機制
             matched_info, current_key_idx, youtube_service = search_youtube_video(
                 song, singer, api_keys, current_key_idx, youtube_service
             )
@@ -521,7 +531,7 @@ def main():
                     print(f"⚠️ 批次抓取點閱率未知錯誤: {e}")
                     break
 
-    # 將 YouTube ID 與點閱率合併併寫入今日 CSV
+    # 將 YouTube ID 與點閱率合併寫入今日 CSV
     print("💾 正在附加 YouTube 資訊並儲存今日榜單 CSV 檔案...")
     for tag, (chart_name, df_chart) in fetched_charts.items():
         df_final = pd.merge(
