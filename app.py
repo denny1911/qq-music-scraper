@@ -1341,8 +1341,8 @@ with main_tabs[3]:
                 )
                 duration_sec = parse_duration(duration_str)
 
-                # 過濾短影音與過長影片 (60秒 ~ 10分鐘)
-                if duration_sec <= 60 or duration_sec > 600:
+                # 過濾短影音與過長影片 (1分5秒 ~ 8分鐘)
+                if duration_sec <= 65 or duration_sec > 480:
                   continue
 
                 v_title_lower = v_title.lower()
