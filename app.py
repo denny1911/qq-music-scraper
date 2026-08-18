@@ -1183,25 +1183,41 @@ with main_tabs[3]:
 
     singer_str = str(singer).strip()
 
-    # 依據分隔符拆分成獨立歌手
-    raw_tokens = re.split(
-        r"[/&,\+\·\s\*\-\|\(\)（）]|feat\.?|ft\.?|X|x",
+    # 1. 👈【關鍵修改】只用「真正的合唱分隔符」拆分不同歌手（移除括號 \(\)）
+    raw_artists = re.split(
+        r"[/&,\+\·\*\-\|\s]+|feat\.?|ft\.?|X|x",
         singer_str,
         flags=re.IGNORECASE,
     )
 
-    artist_groups = []  # 👈【改動 1】原本是 set()，現在改為按歌手分組的 2 維串列
+    artist_groups = []
 
-    for raw in raw_tokens:
+    for raw in raw_artists:
       raw = raw.strip()
       if not raw:
         continue
 
-      # 👈【改動 2】為每一位歌手建立獨立的 group_tokens 集合
       group_tokens = set()
+
+      # 2. 提取整體（例如 "田園(小園)"）
       group_tokens.add(zhconv.convert(raw, "zh-hans"))
       group_tokens.add(zhconv.convert(raw, "zh-hant"))
 
+      # 3. 提取去除括號後的主名字（例如 "田園"）
+      clean_raw = re.sub(r"[\(\（][^\)\）]*[\)\）]", "", raw).strip()
+      if clean_raw:
+        group_tokens.add(zhconv.convert(clean_raw, "zh-hans"))
+        group_tokens.add(zhconv.convert(clean_raw, "zh-hant"))
+
+      # 4. 提取括號內的別名/綽號（例如 "小園"），全部放進「同一組」！
+      bracket_content = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", raw)
+      for b in bracket_content:
+        b = b.strip()
+        if b:
+          group_tokens.add(zhconv.convert(b, "zh-hans"))
+          group_tokens.add(zhconv.convert(b, "zh-hant"))
+
+      # 5. 拆解英文/單字片段
       sub_chunks = re.findall(
           r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
       )
@@ -1212,14 +1228,8 @@ with main_tabs[3]:
             group_tokens.add(zhconv.convert(chunk, "zh-hans"))
             group_tokens.add(zhconv.convert(chunk, "zh-hant"))
 
-      # 將該位歌手的所有同義詞規格化
-      norm_group = []
-      for t in group_tokens:
-        norm = normalize_text(t)
-        if norm and len(norm) >= 1:
-          norm_group.append(norm)
-
-      # 把這一位歌手的 token 清單加入總分組中
+      # 規格化
+      norm_group = [normalize_text(t) for t in group_tokens if normalize_text(t)]
       if norm_group:
         artist_groups.append(list(set(norm_group)))
 
