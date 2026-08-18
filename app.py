@@ -8,6 +8,7 @@ import streamlit as st
 import zhconv  # 👈 搬到頂部
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import requests
 
 # 1. 頁面基本設定
 st.set_page_config(
@@ -168,7 +169,8 @@ main_tabs = st.tabs(
         "🔥 模組一：全網霸榜池",
         "🚀 模組二：黑馬雷達與動態追蹤",
         "👑 模組三：榜單常勝軍",
-        "📊 測試區",
+        "📺 模組四：YouTube 點閱測繪",
+        "🌐 QQ 語言標籤測試",
         "📊 原始榜單瀏覽",
     ]
 )
@@ -1686,9 +1688,178 @@ with main_tabs[3]:
             )
 
 # ==========================================
-# 📊 原始榜單瀏覽
+# 🌐 測試區：QQ 榜單原生語言標籤檢測
 # ==========================================
 with main_tabs[4]:
+    st.header("🌐 QQ 榜單前 10 首原生語言檢測")
+    st.markdown(
+        "即時向 QQ 音樂 API 抓取熱門榜單前 10 首歌曲，檢測其 JSON 回傳之原生語言標籤（Language Tag）與分類對照。"
+    )
+
+    # --- 1. QQ 語言對照與 API 抓取輔助函式 ---
+    def map_qq_language(raw_lan):
+        """將 QQ 原生語言字串映射至我們定義的 5 大類別"""
+        if not raw_lan or str(raw_lan).strip() in ["", "nan", "None", "0"]:
+            return "其它", "未標註"
+
+        raw_lan_str = str(raw_lan).strip()
+
+        chinese_keywords = ["國語", "華語", "粵語", "閩南語", "客家語", "中文"]
+        korean_keywords = ["韓語", "韓國", "韩语"]
+        japanese_keywords = ["日語", "日本", "日语"]
+        western_keywords = ["英語", "歐美", "西洋", "英文", "英语"]
+
+        if any(k in raw_lan_str for k in chinese_keywords):
+            return "華語", raw_lan_str
+        elif any(k in raw_lan_str for k in korean_keywords):
+            return "韓語", raw_lan_str
+        elif any(k in raw_lan_str for k in japanese_keywords):
+            return "日語", raw_lan_str
+        elif any(k in raw_lan_str for k in western_keywords):
+            return "西洋", raw_lan_str
+        else:
+            return "其它", raw_lan_str
+
+    def fetch_qq_top10_languages(topid):
+        """呼叫 QQ 音樂官方 API 抓取 Top 10 歌曲資料與語言標籤"""
+        url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://y.qq.com/",
+        }
+
+        # QQ 音樂標準 API Payload (GetDetail)
+        payload = {
+            "comm": {"ct": 24, "cv": 0},
+            "toplist": {
+                "module": "musicToplist.ToplistInfoServer",
+                "method": "GetDetail",
+                "param": {"topid": topid, "num": 10, "period": ""},
+            },
+        }
+
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=10)
+            data = resp.json()
+            song_list = (
+                data.get("toplist", {})
+                .get("data", {})
+                .get("songInfoList", [])
+            )
+
+            results = []
+            for idx, item in enumerate(song_list[:10], start=1):
+                song_name = item.get("title", item.get("name", "Unknown"))
+                singers = " / ".join(
+                    [s.get("name", "") for s in item.get("singer", [])]
+                )
+
+                # 嘗試提取 QQ API 的語言標籤欄位
+                raw_lan = item.get("language", item.get("lan", ""))
+
+                mapped_lan, lan_desc = map_qq_language(raw_lan)
+
+                status_icon = (
+                    "✅ 成功"
+                    if raw_lan and raw_lan != "0"
+                    else "⚠️ 無原生標籤"
+                )
+
+                results.append(
+                    {
+                        "排名": idx,
+                        "歌名": song_name,
+                        "歌手": singers,
+                        "QQ 原生標籤": raw_lan if raw_lan else "未標註",
+                        "最終判斷類別": mapped_lan,
+                        "狀態": status_icon,
+                    }
+                )
+            return pd.DataFrame(results)
+        except Exception as e:
+            st.error(f"❌ 抓取 QQ API 失敗：{e}")
+            return pd.DataFrame()
+
+    # --- 2. 控制面板 UI ---
+    qq_col1, qq_col2 = st.columns([2, 1])
+
+    with qq_col1:
+        chart_dict = {
+            "QQ 熱歌榜 (綜合爆款)": 26,
+            "QQ 飆升榜 (新歌快訊)": 62,
+            "QQ 流行指數榜 (當前熱度)": 4,
+        }
+        selected_chart_name = st.selectbox(
+            "🎵 選擇要測試的 QQ 官方榜單",
+            options=list(chart_dict.keys()),
+            key="qq_lang_chart_select",
+        )
+        selected_topid = chart_dict[selected_chart_name]
+
+    with qq_col2:
+        st.write("")  # 垂直對齊留白
+        st.write("")
+        btn_fetch_qq = st.button(
+            "🔍 抓取前 10 首並分析語言",
+            type="primary",
+            key="qq_lang_fetch_btn",
+        )
+
+    # --- 3. 執行檢測與結果顯示 ---
+    if btn_fetch_qq:
+        with st.spinner(f"正在連線 QQ 音樂 API 抓取【{selected_chart_name}】數據..."):
+            df_qq_res = fetch_qq_top10_languages(selected_topid)
+
+            if not df_qq_res.empty:
+                st.success(
+                    f"🎉 成功取得【{selected_chart_name}】前 10 首歌曲的原生語言資料！"
+                )
+
+                # 使用乾淨的 Dataframe 呈現
+                st.dataframe(
+                    df_qq_res,
+                    column_config={
+                        "排名": st.column_config.NumberColumn(
+                            "排名", format="%d", width="small"
+                        ),
+                        "QQ 原生標籤": st.column_config.TextColumn(
+                            "QQ 原生標籤", width="medium"
+                        ),
+                        "最終判斷類別": st.column_config.TextColumn(
+                            "最終判斷類別", width="medium"
+                        ),
+                        "狀態": st.column_config.TextColumn(
+                            "狀態", width="small"
+                        ),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+                # 統計摘要卡片
+                total_cnt = len(df_qq_res)
+                chinese_cnt = len(
+                    df_qq_res[df_qq_res["最終判斷類別"] == "華語"]
+                )
+                missing_cnt = len(
+                    df_qq_res[df_qq_res["QQ 原生標籤"] == "未標註"]
+                )
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("檢測總曲數", f"{total_cnt} 首")
+                m2.metric("華語歌曲占比", f"{chinese_cnt} / {total_cnt}")
+                m3.metric("缺失原生標籤數", f"{missing_cnt} 首")
+            else:
+                st.warning("無法取得資料，請確認網路連線或 API 是否變更。")
+
+# ==========================================
+# 📊 原始榜單瀏覽
+# ==========================================
+with main_tabs[5]:
     st.header("📊 原始各榜單數據瀏覽")
 
     selected_date_obj = st.date_input(
