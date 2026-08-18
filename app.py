@@ -8,6 +8,8 @@ import streamlit as st
 import zhconv  # 👈 搬到頂部
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import json
+import google.generativeai as genai
 import requests
 
 # 1. 頁面基本設定
