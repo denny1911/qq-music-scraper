@@ -22,11 +22,14 @@ jobs:
 
       - name: 安裝依賴套件
         run: |
-          pip install pandas google-api-python-client zhconv
+          # 👈 新增 google-generativeai 套件
+          pip install pandas google-api-python-client google-generativeai zhconv
 
       - name: 執行初始化腳本
         env:
           YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+          # 👈 新增傳入 Gemini API Key (請確保 GitHub Secrets 中已有設定 GEMINI_API_KEYS)
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
         run: |
           python init_yt_mapping.py
 
@@ -34,9 +37,10 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add data/
+          # 👈 如果 yt_mapping.csv 是在根目錄，請連同 yt_mapping.csv 一起加入 Git 追蹤
+          git add data/ yt_mapping.csv
           if ! git diff-index --quiet HEAD; then
-            git commit -m "Auto update: 每日榜單數據與 YouTube 對照表"
+            git commit -m "Auto update: 每日榜單數據與 YouTube 對照表 (含 Gemini 語言判定)"
             git pull origin main --rebase
             git push
           fi
