@@ -15,30 +15,17 @@ YT_MAPPING_PATH = "data/yt_mapping.csv"
 # 🔑 1. 取得 Gemini API Keys (修改版)
 # ==========================================
 def get_api_keys():
-  """從環境變數 (GitHub Actions)、Streamlit 或本地檔案取得 Key"""
+  """從環境變數 (GitHub Actions) 或本地設定取得 Key"""
   keys = []
 
-  # A. 優先嘗試從系統環境變數讀取 (GitHub Actions 的 API_KEYS)
-  # 注意：我們改用 os.getenv("API_KEYS")，並用 splitlines() 處理換行
+  # 優先讀取環境變數 API_KEYS (對應 GitHub Secrets 設的名字)
   env_keys = os.getenv("API_KEYS", "")
   if env_keys:
     keys = [k.strip() for k in env_keys.splitlines() if k.strip()]
     return keys
 
-  # B. 若沒讀到，才嘗試讀取 Streamlit Secrets
-  try:
-    import streamlit as st
-    if "GEMINI_API_KEYS" in st.secrets:
-      k_config = st.secrets["GEMINI_API_KEYS"]
-      if isinstance(k_config, list):
-        keys = k_config
-      elif isinstance(k_config, str):
-        keys = [k.strip() for k in k_config.split(",") if k.strip()]
-  except Exception:
-    pass
-
-  # C. 嘗試讀取本地 .streamlit/secrets.toml
-  if not keys and os.path.exists(".streamlit/secrets.toml"):
+  # 備用：讀取本地 .streamlit/secrets.toml
+  if os.path.exists(".streamlit/secrets.toml"):
     try:
       import tomllib
       with open(".streamlit/secrets.toml", "rb") as f:
@@ -53,6 +40,9 @@ def get_api_keys():
       pass
 
   return keys
+
+# 確保這裡確實有這行，且變數名稱完全拼對
+API_KEYS = get_api_keys()
 
 # ==========================================
 # 🤖 2. 運用 QQAI 邏輯判定歌曲語言
