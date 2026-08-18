@@ -12,16 +12,22 @@ DATA_DIR = "data"
 YT_MAPPING_PATH = "data/yt_mapping.csv"
 
 # ==========================================
-# 🔑 1. 取得 Gemini API Keys
+# 🔑 1. 取得 Gemini API Keys (修改版)
 # ==========================================
 def get_api_keys():
-  """從 Streamlit Secrets、環境變數或本地 .streamlit/secrets.toml 中取得 Key 清單"""
+  """從環境變數 (GitHub Actions)、Streamlit 或本地檔案取得 Key"""
   keys = []
 
-  # A. 嘗試讀取 Streamlit Secrets (若在 Streamlit 環境下執行)
+  # A. 優先嘗試從系統環境變數讀取 (GitHub Actions 的 API_KEYS)
+  # 注意：我們改用 os.getenv("API_KEYS")，並用 splitlines() 處理換行
+  env_keys = os.getenv("API_KEYS", "")
+  if env_keys:
+    keys = [k.strip() for k in env_keys.splitlines() if k.strip()]
+    return keys
+
+  # B. 若沒讀到，才嘗試讀取 Streamlit Secrets
   try:
     import streamlit as st
-
     if "GEMINI_API_KEYS" in st.secrets:
       k_config = st.secrets["GEMINI_API_KEYS"]
       if isinstance(k_config, list):
@@ -31,11 +37,10 @@ def get_api_keys():
   except Exception:
     pass
 
-  # B. 嘗試讀取本地 .streamlit/secrets.toml (若獨立執行 script)
+  # C. 嘗試讀取本地 .streamlit/secrets.toml
   if not keys and os.path.exists(".streamlit/secrets.toml"):
     try:
-      import tomllib  # Python 3.11+
-
+      import tomllib
       with open(".streamlit/secrets.toml", "rb") as f:
         secrets = tomllib.load(f)
         if "GEMINI_API_KEYS" in secrets:
@@ -47,16 +52,7 @@ def get_api_keys():
     except Exception:
       pass
 
-  # C. 嘗試從系統環境變數讀取
-  if not keys:
-    env_keys = os.getenv("GEMINI_API_KEYS", "")
-    if env_keys:
-      keys = [k.strip() for k in env_keys.split(",") if k.strip()]
-
   return keys
-
-
-API_KEYS = get_api_keys()
 
 # ==========================================
 # 🤖 2. 運用 QQAI 邏輯判定歌曲語言
