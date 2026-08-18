@@ -6,3 +6,4 @@ altair
 yt-dlp
 google-api-python-client
 zhconv
+google-generativeai
