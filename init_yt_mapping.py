@@ -179,11 +179,6 @@ def update_yt_mapping_languages(csv_path=YT_MAPPING_PATH):
         str(row[yt_col]).strip() if yt_col and pd.notna(row[yt_col]) else None
     )
 
-    # 若已判定過語言則自動跳過 (斷點續傳)
-    current_lang = str(row["語言"]).strip()
-    if current_lang and current_lang not in ["nan", "None", "", "未知"]:
-      continue
-
     print(
         f"[{idx+1}/{total_rows}] 分析中：《{song_title}》| 歌手：{singer_name}"
     )
