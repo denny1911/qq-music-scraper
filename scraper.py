@@ -72,13 +72,13 @@ def normalize_text(text):
 
 
 def extract_artist_tokens(singer):
-    """拆解多歌手與簡繁體 Group Token，並正確處理括號內綽號為同組 OR 關係"""
+    """拆解多歌手與簡繁體 Token，並支援括號 ()（）別名同組歸納 (與模組四同步)"""
     if not singer or str(singer).lower() in ["-", "nan", "none"]:
         return []
 
     singer_str = str(singer).strip()
 
-    # 1. 👈【關鍵修改】只用「真正的合唱分隔符」拆分不同歌手（不包含括號）
+    # 1. 只用「真正的合唱分隔符」拆分不同歌手（不以括號切割）
     raw_artists = re.split(
         r"[/&,\+\·\*\-\|\s]+|feat\.?|ft\.?|X|x",
         singer_str,
@@ -104,7 +104,7 @@ def extract_artist_tokens(singer):
             group_tokens.add(zhconv.convert(clean_raw, "zh-hans"))
             group_tokens.add(zhconv.convert(clean_raw, "zh-hant"))
 
-        # 4. 提取括號內的別名/綽號（例如 "小園"），歸為同組
+        # 4. 提取括號內的別名/綽號（例如 "小園"），全部放進「同一組」！
         bracket_content = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", raw)
         for b in bracket_content:
             b = b.strip()
@@ -132,14 +132,14 @@ def extract_artist_tokens(singer):
 
 
 def build_search_queries(song, singer):
-    """產生搜尋字串：包含簡繁體補強與綽號備用詞"""
+    """產生搜尋字串：優先使用去除括號的「主歌名 + 歌手」，並加入繁體補救 (與模組四同步)"""
     clean_s, main_s = parse_song_title(song)
     clean_p = str(singer).strip()
 
     primary_query = f"{main_s} {clean_p}".strip()
     queries = [primary_query]
 
-    # 補強繁體關鍵字搜尋
+    # 繁體中文搜尋補救
     primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}".strip()
     if primary_query_tra not in queries:
         queries.append(primary_query_tra)
@@ -232,7 +232,7 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             v_id = item["id"]
                             v_title = item["snippet"]["title"]
                             channel_title = item["snippet"].get("channelTitle", "")
-                            v_desc = item["snippet"].get("description", "")  # 抓取影片說明欄
+                            v_desc = item["snippet"].get("description", "")
                             v_views = int(item["statistics"].get("viewCount", 0))
 
                             duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
@@ -260,8 +260,10 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             if not song_matched:
                                 continue
 
-                            # 👈 歌手比對：組間 AND，組內 OR（涵蓋標題、頻道名稱、說明欄）
+                            # 組合全文（標題 + 頻道 + 說明欄）
                             v_full_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
+
+                            # 歌手檢驗：要求每一位歌手組 (Group) 都必須至少有一個 Token 命中
                             singer_matched = not artist_tokens or all(
                                 any(tkn in v_full_text for tkn in group)
                                 for group in artist_tokens
@@ -272,6 +274,7 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                                 "title": v_title,
                                 "channel": channel_title,
                                 "views": v_views,
+                                "url": f"https://www.youtube.com/watch?v={v_id}",
                                 "search_mode": order_mode,
                             }
 
