@@ -187,7 +187,13 @@ def update_yt_mapping_languages(csv_path=YT_MAPPING_PATH):
       df.at[idx, "語言判斷依據"] = res["reason"]
       print(f"   └─ ⚠️ 失敗：{res['reason']}")
 
-    time.sleep(0.3)
+    sleep_time = random.uniform(1.5, 3.0)
+    time.sleep(sleep_time)
+
+    # 每 10 筆存檔一次
+    if updated_count > 0 and updated_count % 10 == 0:
+      df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+      print(f"💾 進度已備份至 {csv_path} ...")
 
     # 每 10 筆存檔一次
     if updated_count > 0 and updated_count % 10 == 0:
