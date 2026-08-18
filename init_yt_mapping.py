@@ -9,7 +9,7 @@ import pandas as pd
 import zhconv
 
 DATA_DIR = "data"
-YT_MAPPING_PATH = "yt_mapping.csv"
+YT_MAPPING_PATH = "data/yt_mapping.csv"
 
 # ==========================================
 # 🔑 1. 取得 Gemini API Keys
