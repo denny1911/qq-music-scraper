@@ -104,10 +104,17 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
       }
     except Exception as e:
       last_error = e
-      # 如果遇到 429 流量限制，強制讓該組 Key 冷卻一下
-      if "429" in str(e) or "exhausted" in str(e).lower():
-        print(f"   ⚠️ 觸發 429 流量限制，強制暫停 5 秒讓伺服器喘息...")
-        time.sleep(5)
+      err_str = str(e).lower()
+
+      # 若遇到 429 流量限制或額度耗盡，強制冷卻 3~5 秒再換下一組 Key
+      if "429" in err_str or "exhausted" in err_str:
+        wait_sec = random.uniform(3.0, 5.0)
+        print(f"   ⚠️ 觸發 429 限流，Key 暫時失效，冷卻 {wait_sec:.1f} 秒後切換下一組 Key...")
+        time.sleep(wait_sec)
+      else:
+        # 其他錯誤（如網路微衝擊）小歇 1 秒
+        time.sleep(1.0)
+
       continue
 
   return {
