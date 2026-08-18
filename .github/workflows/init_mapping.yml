@@ -27,12 +27,9 @@ jobs:
 
       - name: 執行初始化腳本
         env:
-          YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
-          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
-          # 加入一個開關，在腳本內判斷是否執行重置
-          SKIP_RESET: "true"
-        run: |
-          python init_yt_mapping.py
+          # 把 GitHub Secret "API_KEYS" 傳進去給環境變數
+          API_KEYS: ${{ secrets.API_KEYS }} 
+        run: python init_yt_mapping.py
 
       - name: Run YT Mapping Initialization
         run: python init_yt_mapping.py
