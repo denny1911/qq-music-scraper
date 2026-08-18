@@ -37,8 +37,8 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # 👈 如果 yt_mapping.csv 是在根目錄，請連同 yt_mapping.csv 一起加入 Git 追蹤
-          git add data/ yt_mapping.csv
+          # 👈 改用 git add -A 自動追蹤所有異動檔案
+          git add -A
           if ! git diff-index --quiet HEAD; then
             git commit -m "Auto update: 每日榜單數據與 YouTube 對照表 (含 Gemini 語言判定)"
             git pull origin main --rebase
