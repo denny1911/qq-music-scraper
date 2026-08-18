@@ -212,44 +212,6 @@ def update_yt_mapping_languages(csv_path=YT_MAPPING_PATH):
   df.to_csv(csv_path, index=False, encoding="utf-8-sig")
   print(f"🎉 語言欄位更新完成！已寫入 {csv_path}\n")
 
-
-# ==========================================
-# 🔄 4. 原有的歷史榜單重置邏輯
-# ==========================================
-def reset_historical_charts():
-  target_files = []
-  all_csvs = glob.glob(os.path.join(DATA_DIR, "**", "*.csv"), recursive=True)
-
-  for f in all_csvs:
-    filename = os.path.basename(f)
-    if "yt_mapping" in filename or "yt_baseline" in filename:
-      continue
-
-    if "2026-07-31" in f or any(
-        f"2026-08-{d:02d}" in f for d in range(1, 12)
-    ):
-      target_files.append(f)
-
-  if not target_files:
-    print("⚠️ 未找到目標歷史榜單 CSV 檔案。")
-    return
-
-  print(
-      f"📂 找到 {len(target_files)} 個歷史榜單檔案，重置點閱率與 YouTube ID..."
-  )
-
-  for f in target_files:
-    try:
-      df = pd.read_csv(f, dtype=str)
-      if "點閱率" in df.columns:
-        df["點閱率"] = "0"
-      if "YouTube ID" in df.columns:
-        df["YouTube ID"] = "-"
-      df.to_csv(f, index=False, encoding="utf-8-sig")
-    except Exception as e:
-      print(f"❌ 處理 {f} 失敗：{e}")
-
-
 if __name__ == "__main__":
   # 1. 執行語言欄位查詢與補全
   update_yt_mapping_languages()
