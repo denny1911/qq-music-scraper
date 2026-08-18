@@ -1222,6 +1222,10 @@ with main_tabs[3]:
     primary_query = f"{main_s} {clean_p}".strip()
     queries = [primary_query]
 
+    primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}".strip()
+    if primary_query_tra not in queries:
+        queries.append(primary_query_tra)
+
     if clean_s != main_s:
       full_query = f"{clean_s} {clean_p}".strip()
       if full_query not in queries:
