@@ -11,6 +11,7 @@ from googleapiclient.errors import HttpError
 import json
 import google.generativeai as genai
 import requests
+import random
 
 # 1. 頁面基本設定
 st.set_page_config(
