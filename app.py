@@ -1690,173 +1690,385 @@ with main_tabs[3]:
             )
 
 # ==========================================
-# 🌐 測試區：QQ 榜單原生語言標籤檢測
+# 🌐 測試區：QQ 榜單 + Gemini AI 智慧語言檢測 & 對照表快搜
 # ==========================================
 with main_tabs[4]:
-    st.header("🌐 QQ 榜單前 10 首原生語言檢測")
+    st.header("🌐 Gemini AI 歌曲語言智慧檢測 & 本地對照表快搜")
     st.markdown(
-        "即時向 QQ 音樂 API 抓取熱門榜單前 10 首歌曲，檢測其 JSON 回傳之原生語言標籤（Language Tag）與分類對照。"
+        "整合 **Gemini 3.1 Flash Lite Preview** 語意模型與 **19 組 Key 輪詢池**，支援單筆測試、QQ 榜單批次分析及中央對照表 (`yt_mapping.csv`) 快搜。"
     )
 
-    # --- 1. QQ 語言對照與 API 抓取輔助函式 ---
-    def map_qq_language(raw_lan):
-        """將 QQ 原生語言字串映射至我們定義的 5 大類別"""
-        if not raw_lan or str(raw_lan).strip() in ["", "nan", "None", "0"]:
-            return "其它", "未標註"
+    # ----------------------------------------------------
+    # 🔑 1. 19 組 Key 池定義
+    # ----------------------------------------------------
+    API_KEYS = []
 
-        raw_lan_str = str(raw_lan).strip()
+    if "GEMINI_API_KEYS" in st.secrets:
+      # 從 secrets.toml 或 Streamlit Cloud 設定中讀取列表
+      keys_config = st.secrets["GEMINI_API_KEYS"]
+      if isinstance(keys_config, list):
+        API_KEYS = keys_config
+      elif isinstance(keys_config, str):
+        API_KEYS = [k.strip() for k in keys_config.split(",") if k.strip()]
 
-        chinese_keywords = ["國語", "華語", "粵語", "閩南語", "客家語", "中文"]
-        korean_keywords = ["韓語", "韓國", "韩语"]
-        japanese_keywords = ["日語", "日本", "日语"]
-        western_keywords = ["英語", "歐美", "西洋", "英文", "英语"]
+    # 若未設定 Secrets 的提示保護
+    if not API_KEYS:
+      st.warning(
+          "⚠️ 未在 Streamlit Secrets 中設定 GEMINI_API_KEYS，請先設定金鑰。"
+      )
+    # ----------------------------------------------------
+    # 🤖 2. Gemini 3.1 Flash Lite API 呼叫函式 (含 Key 重試)
+    # ----------------------------------------------------
+    def call_gemini_single_song(song_title, singer_name):
+        """單筆歌曲語言分析"""
+        shuffled_keys = API_KEYS.copy()
+        random.shuffle(shuffled_keys)
 
-        if any(k in raw_lan_str for k in chinese_keywords):
-            return "華語", raw_lan_str
-        elif any(k in raw_lan_str for k in korean_keywords):
-            return "韓語", raw_lan_str
-        elif any(k in raw_lan_str for k in japanese_keywords):
-            return "日語", raw_lan_str
-        elif any(k in raw_lan_str for k in western_keywords):
-            return "西洋", raw_lan_str
-        else:
-            return "其它", raw_lan_str
+        prompt = f"""
+你是一個專業音樂榜單數據分析專家。請結合歌名與歌手背景知識，將這首歌曲歸類為以下【5 種語言類別】之一：
+1. "華語" (包含國語、粵語、台語、客家語，以及華語歌手發行的歌曲)
+2. "韓語" (K-Pop)
+3. "日語" (J-Pop)
+4. "西洋" (英語或歐美語系歌曲)
+5. "其它"
 
-    def fetch_qq_top10_languages(topid):
-        """呼叫 QQ 音樂官方 API 抓取 Top 10 歌曲資料與語言標籤"""
-        url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            "Referer": "https://y.qq.com/",
+待分析歌曲：
+歌名："{song_title}"
+歌手："{singer_name}"
+
+【判斷邏輯重點】：
+1. 即使歌名為英文 (例如 "Shape of You", "Live", "e", "Love")，若演唱歌手為華語歌手 (如周深、TF家族、鄭中基、宋亞軒)，請務必歸類為 "華語"。
+2. 請嚴格只輸出 JSON 格式，結構如下：
+{{
+  "category": "華語",
+  "reason": "歌手鄭中基為知名華語/粵語歌手"
+}}
+"""
+        last_error = None
+        for idx, current_key in enumerate(shuffled_keys, start=1):
+            try:
+                genai.configure(api_key=current_key)
+                model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+                response = model.generate_content(
+                    prompt,
+                    generation_config={
+                        "response_mime_type": "application/json"
+                    },
+                )
+                result_json = json.loads(response.text.strip())
+                return {
+                    "success": True,
+                    "category": result_json.get("category", "其它"),
+                    "reason": result_json.get("reason", "無詳細說明"),
+                    "used_key_mask": f"{current_key[:6]}...{current_key[-4:]}",
+                    "attempts": idx,
+                }
+            except Exception as e:
+                last_error = e
+                continue
+        return {
+            "success": False,
+            "error": str(last_error),
+            "attempts": len(shuffled_keys),
         }
 
-        # QQ 音樂標準 API Payload (GetDetail)
-        payload = {
-            "comm": {"ct": 24, "cv": 0},
-            "toplist": {
-                "module": "musicToplist.ToplistInfoServer",
-                "method": "GetDetail",
-                "param": {"topid": topid, "num": 10, "period": ""},
-            },
-        }
+    def batch_classify_with_gemini(song_items):
+        """批次 Top 10 歌曲語言分析"""
+        shuffled_keys = API_KEYS.copy()
+        random.shuffle(shuffled_keys)
 
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
-            data = resp.json()
-            song_list = (
-                data.get("toplist", {})
-                .get("data", {})
-                .get("songInfoList", [])
+        prompt_data = [
+            {"id": idx, "title": item["歌名"], "singer": item["歌手"]}
+            for idx, item in enumerate(song_items, start=1)
+        ]
+
+        prompt = f"""
+你是一個專業音樂榜單分析專家。請分析以下 10 首音樂歌曲，將每首歌嚴格歸類為【華語／韓語／日語／西洋／其它】之一。
+
+歌曲清單 (JSON)：
+{json.dumps(prompt_data, ensure_ascii=False)}
+
+【重要規則】：
+1. 即使歌名包含英文單字 (如 "Live", "e", "Love")，若歌手為華語歌手 (如周深、TF家族、鄭中基)，請務必歸類為 "華語"。
+2. 請嚴格只輸出 JSON 陣列，格式如下：
+[
+  {{"id": 1, "category": "華語", "reason": "鄭中基為華語歌手"}},
+  ...
+]
+"""
+        last_error = None
+        for current_key in shuffled_keys:
+            try:
+                genai.configure(api_key=current_key)
+                model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+                response = model.generate_content(
+                    prompt,
+                    generation_config={
+                        "response_mime_type": "application/json"
+                    },
+                )
+                results_json = json.loads(response.text.strip())
+                return {
+                    item["id"]: (
+                        item["category"],
+                        item.get("reason", "Gemini 判斷"),
+                    )
+                    for item in results_json
+                }
+            except Exception as e:
+                last_error = e
+                continue
+        return None
+
+    # ----------------------------------------------------
+    # 📁 3. 本地中央對照表快搜 logic (yt_mapping.csv)
+    # ----------------------------------------------------
+    def normalize_str(text):
+        if not text:
+            return ""
+        t = str(text).lower()
+        t = (
+            t.replace("ⅱ", "ii")
+            .replace("ⅰ", "i")
+            .replace("ⅲ", "iii")
+            .replace("ⅳ", "iv")
+        )
+        return re.sub(r"[\s\.\-\_\(\)（）「」《》【】『』""'']", "", t)
+
+    def lookup_local_mapping(song_title, singer_name):
+        """自 yt_mapping.csv 或 data/ 資料夾中搜尋已有數據"""
+        file_paths = []
+        if os.path.exists("yt_mapping.csv"):
+            file_paths.append("yt_mapping.csv")
+
+        if os.path.exists("data"):
+            for root, _, files in os.walk("data"):
+                for f in files:
+                    if f.endswith(".csv"):
+                        file_paths.append(os.path.join(root, f))
+
+        if not file_paths:
+            return None
+
+        for path in file_paths:
+            try:
+                df = pd.read_csv(path)
+                yt_col = next(
+                    (
+                        c
+                        for c in ["YouTube ID", "Video ID", "YouTube_ID"]
+                        if c in df.columns
+                    ),
+                    None,
+                )
+                song_col = next(
+                    (
+                        c
+                        for c in ["歌名", "song", "歌曲名稱"]
+                        if c in df.columns
+                    ),
+                    None,
+                )
+
+                if not yt_col or not song_col:
+                    continue
+
+                # 比對字串規格化
+                target_song_sim = normalize_str(
+                    zhconv.convert(song_title, "zh-hans")
+                )
+                target_song_tra = normalize_str(
+                    zhconv.convert(song_title, "zh-hant")
+                )
+
+                for _, row in df.iterrows():
+                    row_song = str(row[song_col])
+                    row_song_sim = normalize_str(
+                        zhconv.convert(row_song, "zh-hans")
+                    )
+                    row_song_tra = normalize_str(
+                        zhconv.convert(row_song, "zh-hant")
+                    )
+
+                    if (
+                        target_song_sim == row_song_sim
+                        or target_song_tra == row_song_tra
+                    ):
+                        matched_id = str(row[yt_col]).strip()
+                        if matched_id and matched_id not in [
+                            "-",
+                            "nan",
+                            "None",
+                            "",
+                        ]:
+                            return {
+                                "yt_id": matched_id,
+                                "source_file": os.path.basename(path),
+                            }
+            except Exception:
+                continue
+        return None
+
+    # ----------------------------------------------------
+    # 🎛️ 4. UI 介面區塊 (分為兩大分頁)
+    # ----------------------------------------------------
+    test_mode = st.radio(
+        "📌 請選擇測試模式：",
+        ["🧪 單筆歌曲測試", "🎵 QQ 榜單 Top 10 批次抓取"],
+        horizontal=True,
+    )
+
+    # --- 模式一：單筆歌曲測試 ---
+    if test_mode == "🧪 單筆歌曲測試":
+        st.subheader("🧪 單筆資料分析與對照表檢索")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            input_song = st.text_input(
+                "歌名", value="閉目入神", key="single_song_in"
+            )
+        with c2:
+            input_singer = st.text_input(
+                "歌手 / 團體", value="鄭中基", key="single_singer_in"
             )
 
-            results = []
-            for idx, item in enumerate(song_list[:10], start=1):
-                song_name = item.get("title", item.get("name", "Unknown"))
-                singers = " / ".join(
-                    [s.get("name", "") for s in item.get("singer", [])]
+        if st.button(
+            "🚀 開始檢測 (Gemini + 對照表)",
+            type="primary",
+            key="btn_single_run",
+        ):
+            if not input_song.strip():
+                st.warning("請先輸入歌名！")
+            else:
+                # A. 優先檢索本地對照表
+                local_match = lookup_local_mapping(
+                    input_song.strip(), input_singer.strip()
                 )
+                if local_match:
+                    st.info(
+                        f"⚡ **本地對照表命中**：在 `{local_match['source_file']}` 找到已知 YouTube ID: `{local_match['yt_id']}`"
+                    )
+                else:
+                    st.caption("ℹ️ 本地對照庫無此歌名紀錄，跳過本地匹配。")
 
-                # 嘗試提取 QQ API 的語言標籤欄位
-                raw_lan = item.get("language", item.get("lan", ""))
+                # B. 呼叫 Gemini AI 進行語言判定
+                with st.spinner("正在使用 gemini-3.1-flash-lite-preview 分析語言..."):
+                    res = call_gemini_single_song(
+                        input_song.strip(), input_singer.strip()
+                    )
 
-                mapped_lan, lan_desc = map_qq_language(raw_lan)
+                    if res["success"]:
+                        st.success("🎉 AI 語言判定完成！")
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("判定類別", res["category"])
+                        m2.metric("使用 Key (遮罩)", res["used_key_mask"])
+                        m3.metric("重試次數", f"第 {res['attempts']} 次成功")
 
-                status_icon = (
-                    "✅ 成功"
-                    if raw_lan and raw_lan != "0"
-                    else "⚠️ 無原生標籤"
-                )
+                        st.write(f"💡 **AI 推理依據**：{res['reason']}")
+                    else:
+                        st.error(
+                            f"❌ 19 組 Key 均連線失敗或回應異常。原因：{res['error']}"
+                        )
 
-                results.append(
-                    {
-                        "排名": idx,
-                        "歌名": song_name,
-                        "歌手": singers,
-                        "QQ 原生標籤": raw_lan if raw_lan else "未標註",
-                        "最終判斷類別": mapped_lan,
-                        "狀態": status_icon,
-                    }
-                )
-            return pd.DataFrame(results)
-        except Exception as e:
-            st.error(f"❌ 抓取 QQ API 失敗：{e}")
-            return pd.DataFrame()
+    # --- 模式二：QQ 榜單 Top 10 批次抓取 ---
+    else:
+        st.subheader("🎵 QQ 官方榜單 Top 10 批次分析")
 
-    # --- 2. 控制面板 UI ---
-    qq_col1, qq_col2 = st.columns([2, 1])
-
-    with qq_col1:
         chart_dict = {
             "QQ 熱歌榜 (綜合爆款)": 26,
             "QQ 飆升榜 (新歌快訊)": 62,
             "QQ 流行指數榜 (當前熱度)": 4,
         }
         selected_chart_name = st.selectbox(
-            "🎵 選擇要測試的 QQ 官方榜單",
-            options=list(chart_dict.keys()),
-            key="qq_lang_chart_select",
+            "選擇要測試的 QQ 官方榜單", options=list(chart_dict.keys())
         )
         selected_topid = chart_dict[selected_chart_name]
 
-    with qq_col2:
-        st.write("")  # 垂直對齊留白
-        st.write("")
-        btn_fetch_qq = st.button(
-            "🔍 抓取前 10 首並分析語言",
+        if st.button(
+            "🔍 抓取 Top 10 並進行 Gemini 分析",
             type="primary",
-            key="qq_lang_fetch_btn",
-        )
-
-    # --- 3. 執行檢測與結果顯示 ---
-    if btn_fetch_qq:
-        with st.spinner(f"正在連線 QQ 音樂 API 抓取【{selected_chart_name}】數據..."):
-            df_qq_res = fetch_qq_top10_languages(selected_topid)
-
-            if not df_qq_res.empty:
-                st.success(
-                    f"🎉 成功取得【{selected_chart_name}】前 10 首歌曲的原生語言資料！"
-                )
-
-                # 使用乾淨的 Dataframe 呈現
-                st.dataframe(
-                    df_qq_res,
-                    column_config={
-                        "排名": st.column_config.NumberColumn(
-                            "排名", format="%d", width="small"
-                        ),
-                        "QQ 原生標籤": st.column_config.TextColumn(
-                            "QQ 原生標籤", width="medium"
-                        ),
-                        "最終判斷類別": st.column_config.TextColumn(
-                            "最終判斷類別", width="medium"
-                        ),
-                        "狀態": st.column_config.TextColumn(
-                            "狀態", width="small"
-                        ),
+            key="btn_batch_run",
+        ):
+            with st.spinner("1/2 正在連線 QQ 音樂 API..."):
+                url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
+                headers = {
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://y.qq.com/",
+                }
+                payload = {
+                    "comm": {"ct": 24, "cv": 0},
+                    "toplist": {
+                        "module": "musicToplist.ToplistInfoServer",
+                        "method": "GetDetail",
+                        "param": {"topid": selected_topid, "num": 10, "period": ""},
                     },
-                    hide_index=True,
-                    use_container_width=True,
-                )
+                }
 
-                # 統計摘要卡片
-                total_cnt = len(df_qq_res)
-                chinese_cnt = len(
-                    df_qq_res[df_qq_res["最終判斷類別"] == "華語"]
-                )
-                missing_cnt = len(
-                    df_qq_res[df_qq_res["QQ 原生標籤"] == "未標註"]
-                )
+                try:
+                    resp = requests.post(
+                        url, json=payload, headers=headers, timeout=10
+                    )
+                    song_list = (
+                        resp.json()
+                        .get("toplist", {})
+                        .get("data", {})
+                        .get("songInfoList", [])
+                    )
 
-                m1, m2, m3 = st.columns(3)
-                m1.metric("檢測總曲數", f"{total_cnt} 首")
-                m2.metric("華語歌曲占比", f"{chinese_cnt} / {total_cnt}")
-                m3.metric("缺失原生標籤數", f"{missing_cnt} 首")
-            else:
-                st.warning("無法取得資料，請確認網路連線或 API 是否變更。")
+                    raw_songs = []
+                    for idx, item in enumerate(song_list[:10], start=1):
+                        s_name = item.get("title", item.get("name", "Unknown"))
+                        singers = " / ".join(
+                            [s.get("name", "") for s in item.get("singer", [])]
+                        )
+                        raw_songs.append(
+                            {"排名": idx, "歌名": s_name, "歌手": singers}
+                        )
+                except Exception as e:
+                    st.error(f"❌ 抓取 QQ API 失敗：{e}")
+                    raw_songs = []
+
+            if raw_songs:
+                with st.spinner(
+                    "2/2 正在透過 Gemini 3.1 Flash Lite 批次判定語言與檢索本地對照表..."
+                ):
+                    gemini_res = batch_classify_with_gemini(raw_songs)
+
+                    final_rows = []
+                    for s in raw_songs:
+                        idx = s["排名"]
+
+                        # 語言判定
+                        if gemini_res and idx in gemini_res:
+                            cat, reason = gemini_res[idx]
+                        else:
+                            cat, reason = (
+                                "無法判定",
+                                "Gemini API 呼叫失敗",
+                            )
+
+                        # 本地對照表匹配
+                        local_m = lookup_local_mapping(s["歌名"], s["歌手"])
+                        matched_yt = (
+                            local_m["yt_id"] if local_m else "未命中"
+                        )
+
+                        final_rows.append(
+                            {
+                                "排名": idx,
+                                "歌名": s["歌名"],
+                                "歌手": s["歌手"],
+                                "AI 判定類別": cat,
+                                "判定說明": reason,
+                                "對照表 YT ID": matched_yt,
+                            }
+                        )
+
+                    df_res = pd.DataFrame(final_rows)
+                    st.success("🎉 批次分析成功！")
+                    st.dataframe(
+                        df_res, hide_index=True, use_container_width=True
+                    )
 
 # ==========================================
 # 📊 原始榜單瀏覽
