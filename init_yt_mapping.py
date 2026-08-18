@@ -216,5 +216,3 @@ if __name__ == "__main__":
   # 1. 執行語言欄位查詢與補全
   update_yt_mapping_languages()
 
-  # 2. 執行原有的歷史榜單重置作業
-  reset_historical_charts()
