@@ -34,14 +34,12 @@ jobs:
         run: |
           python init_yt_mapping.py
 
-      - name: Auto Commit & Push result
+      - name: Run YT Mapping Initialization
+        run: python init_yt_mapping.py
+
+      - name: Commit and push changes
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          # 👈 改用 git add -A 自動追蹤所有異動檔案
-          git add -A
-          if ! git diff-index --quiet HEAD; then
-            git commit -m "Auto update: 每日榜單數據與 YouTube 對照表 (含 Gemini 語言判定)"
-            git pull origin main --rebase
-            git push
-          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add yt_mapping.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update song languages via Gemini API" && git push)
