@@ -27,8 +27,7 @@ jobs:
 
       - name: 執行初始化腳本
         env:
-          # 把 GitHub Secret "API_KEYS" 傳進去給環境變數
-          API_KEYS: ${{ secrets.API_KEYS }} 
+          API_KEYS: ${{ secrets.GEMINI_API_KEYS }} # 這裡要跟你在 Secrets 設的名字一樣
         run: python init_yt_mapping.py
 
       - name: Run YT Mapping Initialization
