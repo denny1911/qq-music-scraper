@@ -1182,20 +1182,25 @@ with main_tabs[3]:
       return []
 
     singer_str = str(singer).strip()
-    all_tokens = set()
 
+    # 依據分隔符拆分成獨立歌手
     raw_tokens = re.split(
         r"[/&,\+\·\s\*\-\|\(\)（）]|feat\.?|ft\.?|X|x",
         singer_str,
         flags=re.IGNORECASE,
     )
 
+    artist_groups = []  # 👈【改動 1】原本是 set()，現在改為按歌手分組的 2 維串列
+
     for raw in raw_tokens:
       raw = raw.strip()
       if not raw:
         continue
-      all_tokens.add(zhconv.convert(raw, "zh-hans"))
-      all_tokens.add(zhconv.convert(raw, "zh-hant"))
+
+      # 👈【改動 2】為每一位歌手建立獨立的 group_tokens 集合
+      group_tokens = set()
+      group_tokens.add(zhconv.convert(raw, "zh-hans"))
+      group_tokens.add(zhconv.convert(raw, "zh-hant"))
 
       sub_chunks = re.findall(
           r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
@@ -1204,16 +1209,21 @@ with main_tabs[3]:
         for chunk in sub_chunks:
           chunk = chunk.strip()
           if len(chunk) >= 1:
-            all_tokens.add(zhconv.convert(chunk, "zh-hans"))
-            all_tokens.add(zhconv.convert(chunk, "zh-hant"))
+            group_tokens.add(zhconv.convert(chunk, "zh-hans"))
+            group_tokens.add(zhconv.convert(chunk, "zh-hant"))
 
-    normalized_tokens = []
-    for t in all_tokens:
-      norm = normalize_text(t)
-      if norm and len(norm) >= 1:
-        normalized_tokens.append(norm)
+      # 將該位歌手的所有同義詞規格化
+      norm_group = []
+      for t in group_tokens:
+        norm = normalize_text(t)
+        if norm and len(norm) >= 1:
+          norm_group.append(norm)
 
-    return list(set(normalized_tokens))
+      # 把這一位歌手的 token 清單加入總分組中
+      if norm_group:
+        artist_groups.append(list(set(norm_group)))
+
+    return artist_groups
 
   def build_search_queries(song, singer):
     clean_s, main_s = parse_song_title(song)
@@ -1368,13 +1378,12 @@ with main_tabs[3]:
                 )
                 if not song_matched:
                   continue
+                v_full_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
 
                 # 👈 歌手比對加入說明欄 v_desc_norm
-                singer_matched = (
-                    not artist_tokens
-                    or any(tkn in v_title_norm for tkn in artist_tokens)
-                    or any(tkn in channel_norm for tkn in artist_tokens)
-                    or any(tkn in v_desc_norm for tkn in artist_tokens)
+                singer_matched = not artist_tokens or all(
+                    any(tkn in v_full_text for tkn in group)
+                    for group in artist_tokens
                 )
 
                 cand = {
