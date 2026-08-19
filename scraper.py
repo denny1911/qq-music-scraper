@@ -355,3 +355,228 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
     except Exception as e:
         print(f"❌ 撈取 [{chart_name}] 過程發生錯誤：{e}")
         return None
+        
+# ==========================================
+# 4. 主程式邏輯
+# ==========================================
+def main():
+    tz_taiwan = timezone(timedelta(hours=8))
+    now = datetime.now(tz_taiwan)
+    year_str = now.strftime("%Y")
+    month_str = now.strftime("%Y-%m")
+    date_str = now.strftime("%Y-%m-%d")
+
+    target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
+    os.makedirs(target_dir, exist_ok=True)
+
+    raw_keys = os.getenv("YOUTUBE_API_KEYS", "")
+    api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+    if not api_keys:
+        print("❌ 警告：未找到 YOUTUBE_API_KEYS 環境變數，YouTube 搜尋與點閱抓取功能將無法運作！")
+
+    charts = {
+        "new": {"top_id": 27, "name": "新歌榜"},
+        "film": {"top_id": 29, "name": "影視金曲榜"},
+        "show": {"top_id": 64, "name": "綜藝新歌榜"},
+        "tik": {"top_id": 60, "name": "抖音熱歌榜"},
+    }
+
+    fetched_charts = {}
+    all_charts_df_list = []
+
+    for tag, info in charts.items():
+        df = fetch_qq_music_chart(info["top_id"], info["name"], date_str)
+        if df is not None and not df.empty:
+            fetched_charts[tag] = (info["name"], df)
+            all_charts_df_list.append(df)
+
+    if not all_charts_df_list:
+        print("❌ 今日沒有成功抓取任何榜單資料，程式終止。")
+        return
+
+    df_today_all = pd.concat(all_charts_df_list, ignore_index=True)
+    df_unique_songs = (
+        df_today_all[["歌名", "歌手"]].drop_duplicates().reset_index(drop=True)
+    )
+
+    # 讀取現有對照表
+    if os.path.exists(MAPPING_FILE):
+        try:
+            df_mapping = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
+            for col_to_drop in ["YT 影片標題", "yt_title", "title", "Video Title", "影片連結"]:
+                if col_to_drop in df_mapping.columns:
+                    df_mapping.drop(columns=[col_to_drop], inplace=True)
+        except Exception:
+            df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
+    else:
+        df_mapping = pd.DataFrame(columns=REQ_MAPPING_COLS)
+
+    for col in REQ_MAPPING_COLS:
+        if col not in df_mapping.columns:
+            df_mapping[col] = "-"
+
+    df_mapping = df_mapping[REQ_MAPPING_COLS].drop_duplicates(
+        subset=["歌名", "歌手"], keep="first"
+    )
+
+    current_key_idx = 0
+    youtube_service = (
+        build("youtube", "v3", developerKey=api_keys[0]) if api_keys else None
+    )
+    mapping_updated = False
+
+    if api_keys:
+        print("🔍 開始檢查今日榜單歌曲是否需要建立對照或補抓 YouTube Video ID...")
+
+        for idx, row in df_unique_songs.iterrows():
+            song = str(row["歌名"]).strip()
+            singer = str(row["歌手"]).strip()
+
+            matched_row = df_mapping[
+                (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
+            ]
+            has_valid_id = False
+            if not matched_row.empty:
+                vid_val = str(matched_row.iloc[0]["Video ID"]).strip()
+                if vid_val not in ["-", "", "nan", "None"]:
+                    has_valid_id = True
+
+            # 已有合法 Video ID 則跳過
+            if has_valid_id:
+                continue
+
+            print(f"🔄 [在榜歌曲補抓/搜尋]：{song} - {singer} ...")
+
+            # 套用與模組四完全同步的最新搜尋機制
+            matched_info, current_key_idx, youtube_service = search_youtube_video(
+                song, singer, api_keys, current_key_idx, youtube_service
+            )
+
+            mask = (df_mapping["歌名"] == song) & (df_mapping["歌手"] == singer)
+
+            if matched_info:
+                matched_id = matched_info["id"]
+                matched_views = matched_info["views"]
+                mode_desc = "觀看量優先" if matched_info.get("search_mode") == "viewCount" else "相關性補救"
+
+                print(f"  ✅ 成功匹配 ID: {matched_id} ({mode_desc}) | 點閱: {matched_views:,}")
+
+                if mask.any():
+                    df_mapping.loc[mask, "Video ID"] = matched_id
+                else:
+                    new_m_row = pd.DataFrame([{
+                        "歌名": song,
+                        "歌手": singer,
+                        "Video ID": matched_id,
+                    }])
+                    df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
+                mapping_updated = True
+            else:
+                print("  ❌ 未找到匹配影片。對照表保持 '-'（若明日仍在榜上將繼續嘗試重試）。")
+                if not mask.any():
+                    new_m_row = pd.DataFrame([{
+                        "歌名": song,
+                        "歌手": singer,
+                        "Video ID": "-",
+                    }])
+                    df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
+                    mapping_updated = True
+
+            time.sleep(0.1)
+
+        # 儲存對照表
+        if mapping_updated:
+            df_mapping = df_mapping[REQ_MAPPING_COLS].drop_duplicates(
+                subset=["歌名", "歌手"], keep="first"
+            )
+            df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
+            print(f"💾 對照表更新完成 ➔ {MAPPING_FILE}")
+
+    # 批次查詢最新點閱率
+    all_today_mapped = pd.merge(
+        df_unique_songs,
+        df_mapping[["歌名", "歌手", "Video ID"]],
+        on=["歌名", "歌手"],
+        how="left",
+    )
+
+    unique_vids = [
+        str(vid).strip()
+        for vid in all_today_mapped["Video ID"].dropna().unique()
+        if str(vid).strip() not in ["-", "", "nan", "None"]
+    ]
+
+    view_counts_dict = {}
+    if unique_vids and api_keys:
+        print(f"📊 正在批次向 YouTube 查詢 {len(unique_vids)} 首歌曲的最新點閱率...")
+        for i in range(0, len(unique_vids), 50):
+            chunk = unique_vids[i : i + 50]
+            fetched = False
+            while current_key_idx < len(api_keys) and not fetched:
+                if youtube_service is None:
+                    youtube_service = (
+                        build("youtube", "v3", developerKey=api_keys[current_key_idx])
+                        if current_key_idx < len(api_keys)
+                        else None
+                    )
+                    if not youtube_service:
+                        break
+                try:
+                    v_res = (
+                        youtube_service.videos()
+                        .list(part="statistics", id=",".join(chunk))
+                        .execute()
+                    )
+                    for item in v_res.get("items", []):
+                        v_id = item["id"]
+                        v_views = int(item["statistics"].get("viewCount", 0))
+                        view_counts_dict[v_id] = v_views
+                    fetched = True
+                except HttpError as e:
+                    is_quota_error = e.resp.status in [403, 429] or any(
+                        k in str(e)
+                        for k in ["quotaExceeded", "rateLimitExceeded", "Quota exceeded"]
+                    )
+                    if is_quota_error:
+                        print(f"⚠️ 第 {current_key_idx + 1} 組 API Key 額度用盡，自動切換至下一組 Key...")
+                        current_key_idx += 1
+                        youtube_service = (
+                            build("youtube", "v3", developerKey=api_keys[current_key_idx])
+                            if current_key_idx < len(api_keys)
+                            else None
+                        )
+                    else:
+                        print(f"⚠️ 批次抓取點閱率錯誤: {e}")
+                        break
+                except Exception as e:
+                    print(f"⚠️ 批次抓取點閱率未知錯誤: {e}")
+                    break
+
+    # 將 YouTube ID 與點閱率合併寫入今日 CSV
+    print("💾 正在附加 YouTube 資訊並儲存今日榜單 CSV 檔案...")
+    for tag, (chart_name, df_chart) in fetched_charts.items():
+        df_final = pd.merge(
+            df_chart,
+            df_mapping[["歌名", "歌手", "Video ID"]],
+            on=["歌名", "歌手"],
+            how="left",
+        )
+
+        df_final["YouTube ID"] = df_final["Video ID"].fillna("-")
+
+        raw_views = df_final["Video ID"].map(view_counts_dict).fillna(0)
+        df_final["點閱率"] = raw_views.apply(
+            lambda x: f"{int(x):,}" if x > 0 else "-"
+        )
+
+        df_final = df_final.drop(columns=["Video ID"], errors="ignore")
+
+        csv_filename = os.path.join(target_dir, f"{date_str}_{tag}.csv")
+        df_final.to_csv(csv_filename, index=False, encoding="utf-8-sig")
+        print(f"   ✓ [{chart_name}] 已成功儲存 ➔ {csv_filename}")
+
+    print("✅ 每日排程、YouTube 對照與點閱率附加寫入全部完成！")
+
+
+if __name__ == "__main__":
+    main()
