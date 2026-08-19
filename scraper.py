@@ -310,17 +310,16 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
 
 
 # ==========================================
-# 3. QQ 音樂抓取函式 (帶入 period 抓取歷史榜單)
+# 3. QQ 音樂抓取函式
 # ==========================================
 def fetch_qq_music_chart(top_id, chart_name, date_str):
-    """通用函式：輸入 topId、榜單名稱與日期，帶入 period 撈取歷史 Top 100"""
+    """通用函式：輸入 topId 與榜單名稱，撈取前 100 名資料"""
     url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     payload = {
         "detail": {
             "module": "musicToplist.ToplistInfoServer",
             "method": "GetDetail",
-            # 💡 period 設定為 date_str，即可向 QQ 音樂精準撈取當天的歷史榜單
-            "param": {"topId": top_id, "offset": 0, "num": 100, "period": date_str},
+            "param": {"topId": top_id, "offset": 0, "num": 100, "period": ""},
         },
         "comm": {"ct": 24, "cv": 0},
     }
@@ -331,22 +330,18 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
         ),
         "Referer": "https://y.qq.com/",
     }
-
-    print(f"[{date_str}] 正在撈取 QQ 音樂 [{chart_name}] Top 100 歷史榜單...")
-
+    print(f"[{date_str}] 正在撈取 QQ 音樂 [{chart_name}] Top 100...")
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
         song_list = data["detail"]["data"]["songInfoList"]
-
         song_data = []
         for rank, song in enumerate(song_list, start=1):
             title = song.get("name", "未知歌名")
             singers = "/".join([s.get("name", "") for s in song.get("singer", [])])
             album = song.get("album", {}).get("name", "未知專輯")
             release_date = song.get("time_public") or song.get("album", {}).get("time_public", "未知日期")
-
             song_data.append({
                 "抓取日期": date_str,
                 "榜單類型": chart_name,
@@ -360,16 +355,16 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
     except Exception as e:
         print(f"❌ 撈取 [{chart_name}] 過程發生錯誤：{e}")
         return None
-
-
+        
 # ==========================================
-# 4. 主程式邏輯 (設定為 2026-08-18 專用補抓檔)
+# 4. 主程式邏輯
 # ==========================================
 def main():
-    # ⚠️ 專門用來補抓 2026-08-18 歷史資料的設定
-    date_str = "2026-08-18"
-    year_str = "2026"
-    month_str = "2026-08"
+    tz_taiwan = timezone(timedelta(hours=8))
+    now = datetime.now(tz_taiwan)
+    year_str = now.strftime("%Y")
+    month_str = now.strftime("%Y-%m")
+    date_str = now.strftime("%Y-%m-%d")
 
     target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
     os.makedirs(target_dir, exist_ok=True)
@@ -396,7 +391,7 @@ def main():
             all_charts_df_list.append(df)
 
     if not all_charts_df_list:
-        print(f"❌ 未成功抓取 [{date_str}] 的任何榜單資料，程式終止。")
+        print("❌ 今日沒有成功抓取任何榜單資料，程式終止。")
         return
 
     df_today_all = pd.concat(all_charts_df_list, ignore_index=True)
@@ -431,7 +426,7 @@ def main():
     mapping_updated = False
 
     if api_keys:
-        print(f"🔍 開始檢查 [{date_str}] 榜單歌曲是否需要建立對照或補抓 YouTube Video ID...")
+        print("🔍 開始檢查今日榜單歌曲是否需要建立對照或補抓 YouTube Video ID...")
 
         for idx, row in df_unique_songs.iterrows():
             song = str(row["歌名"]).strip()
@@ -452,6 +447,7 @@ def main():
 
             print(f"🔄 [在榜歌曲補抓/搜尋]：{song} - {singer} ...")
 
+            # 套用與模組四完全同步的最新搜尋機制
             matched_info, current_key_idx, youtube_service = search_youtube_video(
                 song, singer, api_keys, current_key_idx, youtube_service
             )
@@ -476,7 +472,7 @@ def main():
                     df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
                 mapping_updated = True
             else:
-                print("  ❌ 未找到匹配影片。對照表保持 '-'。")
+                print("  ❌ 未找到匹配影片。對照表保持 '-'（若明日仍在榜上將繼續嘗試重試）。")
                 if not mask.any():
                     new_m_row = pd.DataFrame([{
                         "歌名": song,
@@ -496,7 +492,7 @@ def main():
             df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
             print(f"💾 對照表更新完成 ➔ {MAPPING_FILE}")
 
-    # 批次查詢點閱率
+    # 批次查詢最新點閱率
     all_today_mapped = pd.merge(
         df_unique_songs,
         df_mapping[["歌名", "歌手", "Video ID"]],
@@ -512,7 +508,7 @@ def main():
 
     view_counts_dict = {}
     if unique_vids and api_keys:
-        print(f"📊 正在批次向 YouTube 查詢 {len(unique_vids)} 首歌曲的點閱率...")
+        print(f"📊 正在批次向 YouTube 查詢 {len(unique_vids)} 首歌曲的最新點閱率...")
         for i in range(0, len(unique_vids), 50):
             chunk = unique_vids[i : i + 50]
             fetched = False
@@ -556,8 +552,8 @@ def main():
                     print(f"⚠️ 批次抓取點閱率未知錯誤: {e}")
                     break
 
-    # 將 YouTube ID 與點閱率合併寫入 2026-08-18 CSV 檔案
-    print(f"💾 正在附加 YouTube 資訊並儲存 [{date_str}] 榜單 CSV 檔案...")
+    # 將 YouTube ID 與點閱率合併寫入今日 CSV
+    print("💾 正在附加 YouTube 資訊並儲存今日榜單 CSV 檔案...")
     for tag, (chart_name, df_chart) in fetched_charts.items():
         df_final = pd.merge(
             df_chart,
@@ -579,7 +575,7 @@ def main():
         df_final.to_csv(csv_filename, index=False, encoding="utf-8-sig")
         print(f"   ✓ [{chart_name}] 已成功儲存 ➔ {csv_filename}")
 
-    print(f"✅ [{date_str}] 補抓、YouTube 對照與點閱率附加寫入全部完成！")
+    print("✅ 每日排程、YouTube 對照與點閱率附加寫入全部完成！")
 
 
 if __name__ == "__main__":
