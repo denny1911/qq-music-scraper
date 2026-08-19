@@ -179,233 +179,61 @@ main_tabs = st.tabs(
 )
 
 # ==========================================
-# 🏆 模組一：全網霸榜池（最猛爆款）
+# 🏆 模組一：全網霸榜池（單榜連續神曲）
 # ==========================================
 with main_tabs[0]:
     st.header("🔥 模組一：全網跨榜霸榜池")
     st.markdown(
-        "自動比對榜單數據，篩選出**登上 2 個（含）以上榜單**的神曲，指標最硬不踩雷！"
+        "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的神曲，指標最硬不踩雷！"
     )
 
     m1_preset = st.radio(
         "🗓️ 選擇分析時間範圍",
         [
-            "⚡ 單日即時",
             "⚡ 近 7 天",
             "⚡ 近 30 天",
-            "🌐 全部歷史區間",
             "📅 自訂月曆區間",
         ],
         horizontal=True,
         key="m1_preset_radio",
     )
 
-    if m1_preset == "⚡ 單日即時":
-        selected_date_obj = st.date_input(
-            "📅 選擇基準日期 (預設為最新數據)",
-            value=latest_date_obj,
+    # 決定時間區間
+    if m1_preset == "⚡ 近 7 天":
+        start_date_obj = max(
+            earliest_date_obj, latest_date_obj - timedelta(days=6)
+        )
+        end_date_obj = latest_date_obj
+    elif m1_preset == "⚡ 近 30 天":
+        start_date_obj = max(
+            earliest_date_obj,
+            latest_date_obj - timedelta(days=29),
+        )
+        end_date_obj = latest_date_obj
+    else:
+        date_range = st.date_input(
+            "請選取月曆區間（點擊開始與結束日期）",
+            value=(earliest_date_obj, latest_date_obj),
             min_value=earliest_date_obj,
             max_value=latest_date_obj,
-            key="m1_single_date_picker",
+            key="m1_date_picker",
         )
-        selected_date = (
-            selected_date_obj.strftime("%Y-%m-%d")
-            if isinstance(selected_date_obj, date)
-            else None
-        )
-        if selected_date and selected_date not in dates:
-            valid_dates = [d for d in dates if d <= selected_date]
-            selected_date = valid_dates[0] if valid_dates else dates[0]
-
-        if selected_date:
-            df_curr = load_date_data(selected_date)
-            if not df_curr.empty:
-                song_col = (
-                    "歌名"
-                    if "歌名" in df_curr.columns
-                    else ("song" if "song" in df_curr.columns else None)
-                )
-                singer_col = (
-                    "歌手"
-                    if "歌手" in df_curr.columns
-                    else ("singer" if "singer" in df_curr.columns else None)
-                )
-
-                if song_col and singer_col:
-                    yt_id_col = (
-                        "YouTube ID"
-                        if "YouTube ID" in df_curr.columns
-                        else (
-                            "YouTube_ID"
-                            if "YouTube_ID" in df_curr.columns
-                            else (
-                                "Video ID"
-                                if "Video ID" in df_curr.columns
-                                else None
-                            )
-                        )
-                    )
-                    yt_views_col = (
-                        "點閱率"
-                        if "點閱率" in df_curr.columns
-                        else (
-                            "觀看次數"
-                            if "觀看次數" in df_curr.columns
-                            else None
-                        )
-                    )
-
-                    agg_kwargs = {
-                        "登榜數量": ("榜單類型", "nunique"),
-                        "登上榜單": (
-                            "榜單類型",
-                            lambda x: "、".join(sorted(set(x))),
-                        ),
-                        "最高名次": (
-                            ("排名", "min")
-                            if "排名" in df_curr.columns
-                            else ("登榜數量", "count")
-                        ),
-                    }
-                    if yt_id_col:
-                        agg_kwargs["YouTube ID"] = (yt_id_col, "first")
-                    if yt_views_col:
-                        agg_kwargs["點閱率"] = (yt_views_col, "first")
-
-                    grouped = (
-                        df_curr.groupby([song_col, singer_col])
-                        .agg(**agg_kwargs)
-                        .reset_index()
-                    )
-
-                    multi_chart = grouped[grouped["登榜數量"] >= 2].sort_values(
-                        by=["登榜數量", "最高名次"], ascending=[False, True]
-                    )
-
-                    if not multi_chart.empty:
-
-                        def build_yt_url(val):
-                            v = str(val).strip() if pd.notna(val) else ""
-                            if v and v not in ["-", "nan", "None", ""]:
-                                return f"https://www.youtube.com/watch?v={v}"
-                            return None
-
-                        if "YouTube ID" in multi_chart.columns:
-                            multi_chart["影片連結"] = multi_chart[
-                                "YouTube ID"
-                            ].apply(build_yt_url)
-                        else:
-                            multi_chart["影片連結"] = None
-
-                        if "點閱率" in multi_chart.columns:
-                            multi_chart["點閱率"] = (
-                                multi_chart["點閱率"]
-                                .astype(str)
-                                .str.replace(",", "", regex=False)
-                            )
-                            multi_chart["點閱率"] = pd.to_numeric(
-                                multi_chart["點閱率"], errors="coerce"
-                            )
-                        else:
-                            multi_chart["點閱率"] = None
-
-                        cols_order = [
-                            song_col,
-                            singer_col,
-                            "點閱率",
-                            "登榜數量",
-                            "登上榜單",
-                            "最高名次",
-                            "影片連結",
-                        ]
-                        multi_chart = multi_chart[cols_order]
-
-                        st.success(
-                            f"🎯 在 {selected_date} 當天，共找到 {len(multi_chart)} 首跨榜爆款歌曲！"
-                        )
-                        st.dataframe(
-                            multi_chart,
-                            column_config={
-                                "點閱率": st.column_config.NumberColumn(
-                                    "點閱率", format="%,d", width="small"
-                                ),
-                                "登榜數量": st.column_config.NumberColumn(
-                                    "登榜數量", format="%,d", width="small"
-                                ),
-                                "最高名次": st.column_config.NumberColumn(
-                                    "最高名次", format="%,d", width="small"
-                                ),
-                                "影片連結": st.column_config.LinkColumn(
-                                    "影片連結",
-                                    display_text="點此觀看",
-                                    help="點擊前往 YouTube 觀看 MV",
-                                    width="small",
-                                ),
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                        )
-
-                        export_df = get_clean_export_df(df_curr, multi_chart)
-                        csv_data = export_df.to_csv(index=False).encode(
-                            "utf-8-sig"
-                        )
-                        st.download_button(
-                            label="📥 匯出單日霸榜池清單 (CSV)",
-                            data=csv_data,
-                            file_name=f"QQ音樂_單日霸榜池_{selected_date}.csv",
-                            mime="text/csv",
-                            key="m1_download_1d",
-                        )
-                    else:
-                        st.info(
-                            f"在 {selected_date} 當天，暫無同時登上 2 個以上榜單的歌曲。"
-                        )
-                else:
-                    st.warning(
-                        "數據欄位解析異常，請確認 CSV 欄位是否包含『歌名』與『歌手』。"
-                    )
-            else:
-                st.warning(f"{selected_date} 尚無榜單資料。")
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date_obj, end_date_obj = date_range
         else:
-            st.info(
-                "💡 **請先選擇『基準日期』**，即可開始進行單日霸榜池分析。"
-            )
+            st.info("💡 請在月曆上選取『結束日期』以完成選擇。")
+            st.stop()
 
+    start_date = start_date_obj.strftime("%Y-%m-%d")
+    end_date = end_date_obj.strftime("%Y-%m-%d")
+
+    # 取得區間內所有存在的日期清單（已排序）
+    selected_m1_dates = sorted([d for d in dates if start_date <= d <= end_date])
+    X_max_days = len(selected_m1_dates)  # 設定 X 為該區間最大的實際數據天數
+
+    if X_max_days == 0:
+        st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
     else:
-        if m1_preset == "⚡ 近 7 天":
-            start_date_obj = max(
-                earliest_date_obj, latest_date_obj - timedelta(days=6)
-            )
-            end_date_obj = latest_date_obj
-        elif m1_preset == "⚡ 近 30 天":
-            start_date_obj = max(
-                earliest_date_obj,
-                latest_date_obj - timedelta(days=29),
-            )
-            end_date_obj = latest_date_obj
-        elif m1_preset == "🌐 全部歷史區間":
-            start_date_obj = earliest_date_obj
-            end_date_obj = latest_date_obj
-        else:
-            date_range = st.date_input(
-                "請選取月曆區間（點擊開始與結束日期）",
-                value=(earliest_date_obj, latest_date_obj),
-                min_value=earliest_date_obj,
-                max_value=latest_date_obj,
-                key="m1_date_picker",
-            )
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                start_date_obj, end_date_obj = date_range
-            else:
-                st.info("💡 請在月曆上選取『結束日期』以完成選擇。")
-                st.stop()
-
-        start_date = start_date_obj.strftime("%Y-%m-%d")
-        end_date = end_date_obj.strftime("%Y-%m-%d")
-
-        selected_m1_dates = [d for d in dates if start_date <= d <= end_date]
-
         all_dfs = []
         for d in selected_m1_dates:
             d_df = load_date_data(d)
@@ -450,47 +278,92 @@ with main_tabs[0]:
                     )
                 )
 
-                agg_kwargs = {
-                    "跨榜數量": ("榜單類型", "nunique"),
-                    "涵蓋榜單": ("榜單類型", lambda x: "、".join(sorted(set(x)))),
-                    "累積活躍天數": ("抓取日期", "nunique"),
-                    "最高名次": (
-                        ("排名", "min")
-                        if "排名" in df_range.columns
-                        else ("跨榜數量", "count")
-                    ),
-                }
-                if yt_id_col:
-                    agg_kwargs["YouTube ID"] = (yt_id_col, "first")
-                if yt_views_col:
-                    agg_kwargs["點閱率"] = (yt_views_col, "first")
+                # 計算連續天數的輔助函式（中斷即歸零）
+                def calc_max_streak(dates_present, sorted_all_dates):
+                    present_set = set(dates_present)
+                    max_s = 0
+                    curr_s = 0
+                    for d in sorted_all_dates:
+                        if d in present_set:
+                            curr_s += 1
+                            if curr_s > max_s:
+                                max_s = curr_s
+                        else:
+                            curr_s = 0
+                    return max_s
 
-                grouped = (
-                    df_range.groupby([song_col, singer_col])
-                    .agg(**agg_kwargs)
-                    .reset_index()
-                )
+                records = []
+                for (song, singer), sub_df in df_range.groupby([song_col, singer_col]):
+                    # 1. 歷史出現榜單：該區間內所有登上過的榜單
+                    history_charts = "、".join(sorted(sub_df["榜單類型"].unique()))
 
-                multi_chart = grouped[grouped["跨榜數量"] >= 2].sort_values(
-                    by=["跨榜數量", "累積活躍天數", "最高名次"],
-                    ascending=[False, False, True],
-                )
+                    # 2. 個別計算「每個單榜」的最高連續天數
+                    chart_streaks = {}
+                    for chart_name, chart_sub in sub_df.groupby("榜單類型"):
+                        c_dates = chart_sub["抓取日期"].unique()
+                        chart_streaks[chart_name] = calc_max_streak(c_dates, selected_m1_dates)
 
-                if not multi_chart.empty:
+                    # 3. 找出單榜最大連續天數與對應的「連續出現榜單」
+                    if chart_streaks:
+                        max_single_streak = max(chart_streaks.values())
+                        best_charts = [c for c, s in chart_streaks.items() if s == max_single_streak]
+                        continuous_charts = "、".join(sorted(best_charts))
+                    else:
+                        max_single_streak = 0
+                        continuous_charts = "-"
 
+                    # 4. 篩選條件：單榜最大連續天數必須完全等於 X
+                    if max_single_streak == X_max_days:
+                        best_rank = (
+                            sub_df["排名"].min()
+                            if "排名" in sub_df.columns
+                            else None
+                        )
+
+                        # 取得 YouTube 資訊
+                        yt_id = None
+                        if yt_id_col:
+                            valid_ids = sub_df[yt_id_col].dropna()
+                            valid_ids = valid_ids[
+                                ~valid_ids.astype(str).isin(["-", "nan", "None", ""])
+                            ]
+                            if not valid_ids.empty:
+                                yt_id = valid_ids.iloc[0]
+
+                        yt_views = None
+                        if yt_views_col:
+                            valid_views = sub_df[yt_views_col].dropna()
+                            if not valid_views.empty:
+                                yt_views = valid_views.iloc[0]
+
+                        records.append(
+                            {
+                                song_col: song,
+                                singer_col: singer,
+                                "點閱率": yt_views,
+                                "連續在榜天數": max_single_streak,
+                                "連續出現榜單": continuous_charts,
+                                "歷史出現榜單": history_charts,
+                                "最高名次": best_rank,
+                                "YouTube ID": yt_id,
+                            }
+                        )
+
+                if records:
+                    multi_chart = pd.DataFrame(records)
+
+                    # 處理 YouTube 連結
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
                         if v and v not in ["-", "nan", "None", ""]:
                             return f"https://www.youtube.com/watch?v={v}"
                         return None
 
-                    if "YouTube ID" in multi_chart.columns:
-                        multi_chart["影片連結"] = multi_chart[
-                            "YouTube ID"
-                        ].apply(build_yt_url)
-                    else:
-                        multi_chart["影片連結"] = None
+                    multi_chart["影片連結"] = multi_chart["YouTube ID"].apply(
+                        build_yt_url
+                    )
 
+                    # 處理點閱率數字格式
                     if "點閱率" in multi_chart.columns:
                         multi_chart["點閱率"] = (
                             multi_chart["點閱率"]
@@ -500,28 +373,26 @@ with main_tabs[0]:
                         multi_chart["點閱率"] = pd.to_numeric(
                             multi_chart["點閱率"], errors="coerce"
                         )
-                    else:
-                        multi_chart["點閱率"] = None
+
+                    # 排序：最高名次越前面越靠前
+                    multi_chart = multi_chart.sort_values(
+                        by=["最高名次"], ascending=[True]
+                    )
 
                     cols_order = [
                         song_col,
                         singer_col,
                         "點閱率",
-                        "跨榜數量",
-                        "涵蓋榜單",
-                        "累積活躍天數",
+                        "連續在榜天數",
+                        "連續出現榜單",
+                        "歷史出現榜單",
                         "最高名次",
                         "影片連結",
                     ]
                     multi_chart = multi_chart[cols_order]
 
-                    num_days = len(selected_m1_dates)
-                    num_issues = len(
-                        set([get_issue_label(d) for d in selected_m1_dates])
-                    )
-
                     st.success(
-                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {num_days} 天數據 / {num_issues} 期週榜），共找到 {len(multi_chart)} 首跨榜爆款歌曲！"
+                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(multi_chart)} 首單榜全程連續霸榜神曲！"
                     )
                     st.dataframe(
                         multi_chart,
@@ -529,11 +400,8 @@ with main_tabs[0]:
                             "點閱率": st.column_config.NumberColumn(
                                 "點閱率", format="%,d", width="small"
                             ),
-                            "跨榜數量": st.column_config.NumberColumn(
-                                "跨榜數量", format="%d", width="small"
-                            ),
-                            "累積活躍天數": st.column_config.NumberColumn(
-                                "累積活躍天數", format="%d", width="small"
+                            "連續在榜天數": st.column_config.NumberColumn(
+                                "連續在榜天數", format="%d 天", width="small"
                             ),
                             "最高名次": st.column_config.NumberColumn(
                                 "最高名次", format="%d", width="small"
@@ -552,15 +420,15 @@ with main_tabs[0]:
                     export_df = get_clean_export_df(df_range, multi_chart)
                     csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
-                        label="📥 匯出跨榜霸榜池清單 (CSV)",
+                        label="📥 匯出連續霸榜池清單 (CSV)",
                         data=csv_data,
-                        file_name=f"QQ音樂_跨榜霸榜池_{start_date}_至_{end_date}.csv",
+                        file_name=f"QQ音樂_連續霸榜池_{start_date}_至_{end_date}.csv",
                         mime="text/csv",
                         key="m1_download_range",
                     )
                 else:
                     st.info(
-                        f"在 {start_date} ～ {end_date} 區間內，暫無同時登上 2 個以上榜單的歌曲。"
+                        f"在 {start_date} ～ {end_date} 區間內（$X = {X_max_days}$ 天），暫無單榜達到連續 $X$ 天皆在榜的歌曲。"
                     )
             else:
                 st.warning(
@@ -568,7 +436,7 @@ with main_tabs[0]:
                 )
         else:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
-
+            
 # ==========================================
 # 🚀 模組二：新進黑馬雷達（7天窗口對齊與動態期數修復版）
 # ==========================================
