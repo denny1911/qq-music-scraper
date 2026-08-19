@@ -1,19 +1,3 @@
-非常抱歉，這完全是我的責任！
-
-這是一份完整的、直接複製貼上就能運作的 scraper.py。
-
-這份程式碼具備：
-
-你最新優化的 YouTube 精準搜尋與比對邏輯。
-
-已將 QQ 音樂 API 的 period 設定為歷史日期（可以精準拉取 8/18 當天的歷史榜單排名）。
-
-已將執行日期固定為 2026-08-18，並包含了完整的 main() 執行入口。
-
-📋 專門補抓 2026-08-18 資料的完整 scraper.py
-請點擊右上角複製全部程式碼，直接覆蓋 GitHub 上的 scraper.py：
-
-Python
 from datetime import datetime, timedelta, timezone
 import os
 import re
