@@ -187,15 +187,16 @@ with main_tabs[0]:
         "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的神曲，指標最硬不踩雷！"
     )
 
-    # 1. API Key 設定區（優先讀取 st.secrets，若無則顯示輸入框）
-    yt_api_key = st.secrets.get("YOUTUBE_API_KEY", "")
-    with st.expander("⚙️ YouTube API Key 設定（點此展開/填寫）"):
-        yt_api_key = st.text_input(
-            "請輸入 YouTube Data API Key：",
-            value=yt_api_key,
-            type="password",
-            help="若已有設定在 .streamlit/secrets.toml 中可留空",
+    # 1. 自動從 Secrets 提取 API Key 清單的輔助函式
+    def fetch_m1_api_keys():
+        raw_keys = st.secrets.get(
+            "YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", [])
         )
+        if isinstance(raw_keys, str):
+            return [k.strip() for k in raw_keys.split(",") if k.strip()]
+        elif isinstance(raw_keys, list):
+            return [str(k).strip() for k in raw_keys if str(k).strip()]
+        return []
 
     m1_preset = st.radio(
         "🗓️ 選擇分析時間範圍",
@@ -288,7 +289,7 @@ with main_tabs[0]:
                     )
                 )
 
-                # 連續天數計算（中斷即歸零）
+                # 計算連續天數
                 def calc_max_streak(dates_present, sorted_all_dates):
                     present_set = set(dates_present)
                     max_s = 0
@@ -319,11 +320,10 @@ with main_tabs[0]:
                         max_single_streak = 0
                         continuous_charts = "-"
 
-                    # 篩選條件：單榜最大連續天數完全等於 X
                     if max_single_streak == X_max_days:
                         sub_df_sorted = sub_df.sort_values(by="抓取日期")
 
-                        # 1. 取得 YouTube ID
+                        # 取得 YouTube ID
                         yt_id = None
                         if yt_id_col:
                             valid_ids_df = sub_df_sorted[
@@ -335,7 +335,7 @@ with main_tabs[0]:
                             if not valid_ids_df.empty:
                                 yt_id = valid_ids_df[yt_id_col].iloc[-1]
 
-                        # 2. 預設取得「歷史最新一日（如 8/20）」的點閱率
+                        # 預設：取得歷史最新一天的點閱率
                         yt_views = None
                         if yt_views_col:
                             valid_views_df = sub_df_sorted[
@@ -368,44 +368,52 @@ with main_tabs[0]:
                 if records:
                     multi_chart = pd.DataFrame(records)
 
-                    # 按鈕觸發：連線 API 抓取此刻即時點閱
+                    # 點擊按鈕自動調用 Secrets 中的 API Key 抓取即時點閱
                     btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱 (YouTube API)")
 
                     if btn_fetch_realtime:
-                        if not yt_api_key:
-                            st.warning("⚠️ 請先在上方設定欄輸入 YouTube API Key，目前顯示為歷史最新日期點閱。")
+                        api_keys = fetch_m1_api_keys()
+                        if not api_keys:
+                            st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`，已維持顯示歷史最新點閱。")
                         else:
-                            try:
-                                # 收集所有非空的 Video ID
-                                valid_ids = multi_chart["YouTube ID"].dropna().unique().tolist()
-                                valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
+                            valid_ids = multi_chart["YouTube ID"].dropna().unique().tolist()
+                            valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
 
-                                realtime_views_map = {}
-                                # YouTube API 每次最多支援 50 個 ID 批次查詢
-                                batch_size = 50
-                                for i in range(0, len(valid_ids), batch_size):
-                                    batch_ids = valid_ids[i:i + batch_size]
-                                    api_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(batch_ids)}&key={yt_api_key}"
-                                    res = requests.get(api_url, timeout=5)
+                            realtime_views_map = {}
+                            current_key_idx = 0
+                            fetch_success = False
 
-                                    if res.status_code == 200:
-                                        data = res.json()
-                                        for item in data.get("items", []):
-                                            vid = item.get("id")
-                                            v_cnt = item.get("statistics", {}).get("viewCount")
-                                            if v_cnt:
-                                                realtime_views_map[vid] = int(v_cnt)
-                                    else:
-                                        # API 流量耗盡 (403) 或 Key 錯誤時拋出異常觸發降級
-                                        raise Exception(f"API 回傳錯誤 HTTP {res.status_code}：{res.text}")
+                            # 多 Key 輪替批次請求機制
+                            while current_key_idx < len(api_keys) and not fetch_success:
+                                current_key = api_keys[current_key_idx]
+                                try:
+                                    batch_size = 50
+                                    for i in range(0, len(valid_ids), batch_size):
+                                        batch_ids = valid_ids[i:i + batch_size]
+                                        api_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(batch_ids)}&key={current_key}"
+                                        res = requests.get(api_url, timeout=5)
 
-                                # 成功抓取，更新「點閱率」欄位
+                                        if res.status_code == 200:
+                                            data = res.json()
+                                            for item in data.get("items", []):
+                                                vid = item.get("id")
+                                                v_cnt = item.get("statistics", {}).get("viewCount")
+                                                if v_cnt:
+                                                    realtime_views_map[vid] = int(v_cnt)
+                                        else:
+                                            raise Exception(f"HTTP {res.status_code}")
+
+                                    fetch_success = True
+                                except Exception:
+                                    # 當前 Key 耗盡或異常，切換至下一個 Key
+                                    current_key_idx += 1
+
+                            if fetch_success:
                                 multi_chart["點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map).fillna(multi_chart["點閱率"])
                                 st.toast("✅ 已成功切換為此刻最新即時點閱！")
-
-                            except Exception as e:
+                            else:
                                 st.warning(
-                                    f"⚠️ 無法取得即時數據（可能 YouTube API 今日配額已滿或 Key 無效），系統已自動降級切換回區間最新歷史點閱（{selected_m1_dates[-1]}）。"
+                                    f"⚠️ 所有 API Key 今日配額皆已耗盡或連線異常，系統已自動切換回歷史最新點閱（{selected_m1_dates[-1]}）。"
                                 )
 
                     # 處理 YouTube 連結
