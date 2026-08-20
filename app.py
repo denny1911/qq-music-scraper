@@ -456,40 +456,41 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
             
 # ==========================================
-# 👑 模組三：榜單常勝軍（長青熱歌）
+# 👑 模組二：榜單常勝軍（長青熱歌）
 # ==========================================
 with main_tabs[1]:
-    st.header("👑 模組三：榜單常勝軍（長青熱歌）")
+    st.header("👑 模組二：榜單常勝軍（長青熱歌）")
     st.markdown(
-        "統計**指定日期區間**內，在個別榜單的累積天數表現。"
+        "統計**指定日期區間**內，在個別榜單的累積表現（**新歌榜統計天數，其餘三榜依官方週四更新期數統計**）。"
     )
 
-    chart_option_m3 = st.radio(
+    chart_option_m2 = st.radio(
         "選擇要統計常勝軍的榜單",
         ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
         horizontal=True,
-        key="m3_radio",
+        key="m2_radio",
     )
 
-    m3_preset = st.radio(
+    is_weekly_chart = chart_option_m2 != "新歌榜"
+
+    m2_preset = st.radio(
         "🗓️ 選擇統計時間範圍",
         ["⚡ 近 7 天", "⚡ 近 30 天", "🌐 全部歷史區間", "📅 自訂月曆區間"],
         horizontal=True,
-        key="m3_preset_radio",
+        key="m2_preset_radio",
     )
 
-    if m3_preset == "⚡ 近 7 天":
+    if m2_preset == "⚡ 近 7 天":
         start_date_obj = max(
             earliest_date_obj, latest_date_obj - timedelta(days=6)
         )
         end_date_obj = latest_date_obj
-    elif m3_preset == "⚡ 近 30 天":
+    elif m2_preset == "⚡ 近 30 天":
         start_date_obj = max(
-            earliest_date_obj,
-            latest_date_obj - timedelta(days=29),
+            earliest_date_obj, latest_date_obj - timedelta(days=29)
         )
         end_date_obj = latest_date_obj
-    elif m3_preset == "🌐 全部歷史區間":
+    elif m2_preset == "🌐 全部歷史區間":
         start_date_obj = earliest_date_obj
         end_date_obj = latest_date_obj
     else:
@@ -498,7 +499,7 @@ with main_tabs[1]:
             value=(earliest_date_obj, latest_date_obj),
             min_value=earliest_date_obj,
             max_value=latest_date_obj,
-            key="m3_date_picker",
+            key="m2_date_picker",
         )
         if isinstance(date_range, tuple) and len(date_range) == 2:
             start_date_obj, end_date_obj = date_range
@@ -509,10 +510,10 @@ with main_tabs[1]:
     start_date = start_date_obj.strftime("%Y-%m-%d")
     end_date = end_date_obj.strftime("%Y-%m-%d")
 
-    selected_m3_dates = [d for d in dates if start_date <= d <= end_date]
+    selected_m2_dates = [d for d in dates if start_date <= d <= end_date]
 
     all_dfs = []
-    for d in selected_m3_dates:
+    for d in selected_m2_dates:
         d_df = load_date_data(d)
         if not d_df.empty:
             d_df["抓取日期"] = d
@@ -523,90 +524,156 @@ with main_tabs[1]:
         song_col = "歌名" if "歌名" in full_df.columns else "song"
         singer_col = "歌手" if "歌手" in full_df.columns else "singer"
 
-        target_df = full_df[full_df["榜單類型"] == chart_option_m3].copy()
+        # --- 建立全域 (歌名, 歌手) -> YouTube ID 與點閱率對照字典 ---
+        yt_id_col = next(
+            (
+                c
+                for c in ["YouTube ID", "YouTube_ID", "Video ID"]
+                if c in full_df.columns
+            ),
+            None,
+        )
+        yt_views_col = next(
+            (
+                c
+                for c in ["點閱率", "觀看次數", "YT 觀看次數"]
+                if c in full_df.columns
+            ),
+            None,
+        )
+
+        yt_id_map = {}
+        yt_views_map = {}
+
+        for _, row in full_df.iterrows():
+            s_name = str(row.get(song_col, "")).strip()
+            a_name = str(row.get(singer_col, "")).strip()
+            if not s_name:
+                continue
+            key = (s_name, a_name)
+
+            # 提取並保留有效 YouTube ID
+            if yt_id_col and pd.notna(row.get(yt_id_col)):
+                val = str(row[yt_id_col]).strip()
+                if val and val not in ["-", "nan", "None", ""]:
+                    yt_id_map[key] = val
+
+            # 提取最新的有效點閱率
+            if yt_views_col and pd.notna(row.get(yt_views_col)):
+                v_val = str(row[yt_views_col]).strip().replace(",", "")
+                if v_val and v_val not in ["-", "nan", "None", ""]:
+                    try:
+                        yt_views_map[key] = float(v_val)
+                    except ValueError:
+                        pass
+
+        target_df = full_df[full_df["榜單類型"] == chart_option_m2].copy()
 
         if not target_df.empty:
-            yt_id_col = (
-                "YouTube ID"
-                if "YouTube ID" in target_df.columns
-                else (
-                    "YouTube_ID"
-                    if "YouTube_ID" in target_df.columns
-                    else ("Video ID" if "Video ID" in target_df.columns else None)
+            if is_weekly_chart:
+                target_df["榜單期數"] = target_df["抓取日期"].apply(
+                    get_issue_label
                 )
-            )
-            yt_views_col = (
-                "點閱率"
-                if "點閱率" in target_df.columns
-                else ("觀看次數" if "觀看次數" in target_df.columns else None)
-            )
 
-            agg_kwargs = {
-                "累積上榜天數": ("抓取日期", "nunique"),
-            }
+                agg_kwargs = {
+                    "累積上榜期數": ("榜單期數", "nunique"),
+                    "平均名次": (
+                        ("排名", lambda x: round(x.mean(), 1))
+                        if "排名" in target_df.columns
+                        else ("榜單期數", "count")
+                    ),
+                }
+            else:
+                agg_kwargs = {
+                    "累積上榜天數": ("抓取日期", "nunique"),
+                    "平均名次": (
+                        ("排名", lambda x: round(x.mean(), 1))
+                        if "排名" in target_df.columns
+                        else ("抓取日期", "count")
+                    ),
+                }
 
-            if yt_id_col:
-                agg_kwargs["YouTube ID"] = (yt_id_col, "first")
-            if yt_views_col:
-                agg_kwargs["歷史最高點閱率"] = (yt_views_col, "first")
-
-            evergreen = (
-                target_df.groupby([song_col, singer_col])
-                .agg(**agg_kwargs)
-                .reset_index()
-                .sort_values(
-                    by=["累積上榜天數"],
-                    ascending=[False],
+            if is_weekly_chart:
+                evergreen = (
+                    target_df.groupby([song_col, singer_col])
+                    .agg(**agg_kwargs)
+                    .reset_index()
+                    .sort_values(
+                        by=["累積上榜期數", "平均名次"],
+                        ascending=[False, True],
+                    )
                 )
-            )
+            else:
+                evergreen = (
+                    target_df.groupby([song_col, singer_col])
+                    .agg(**agg_kwargs)
+                    .reset_index()
+                    .sort_values(
+                        by=["累積上榜天數", "平均名次"],
+                        ascending=[False, True],
+                    )
+                )
 
             if not evergreen.empty:
+                # 透過 (歌名, 歌手) 鍵值反查對照表補齊數據
+                evergreen["點閱率"] = [
+                    yt_views_map.get(
+                        (str(s).strip(), str(a).strip()), None
+                    )
+                    for s, a in zip(
+                        evergreen[song_col], evergreen[singer_col]
+                    )
+                ]
+                evergreen["YouTube ID"] = [
+                    yt_id_map.get((str(s).strip(), str(a).strip()), None)
+                    for s, a in zip(
+                        evergreen[song_col], evergreen[singer_col]
+                    )
+                ]
+
                 def build_yt_url(val):
                     v = str(val).strip() if pd.notna(val) else ""
                     if v and v not in ["-", "nan", "None", ""]:
                         return f"https://www.youtube.com/watch?v={v}"
                     return None
 
-                if "YouTube ID" in evergreen.columns:
-                    evergreen["影片連結"] = evergreen["YouTube ID"].apply(
-                        build_yt_url
-                    )
-                else:
-                    evergreen["影片連結"] = None
+                evergreen["影片連結"] = evergreen["YouTube ID"].apply(
+                    build_yt_url
+                )
 
-                if "歷史最高點閱率" in evergreen.columns:
-                    evergreen["歷史最高點閱率"] = (
-                        evergreen["歷史最高點閱率"]
-                        .astype(str)
-                        .str.replace(",", "", regex=False)
-                    )
-                    evergreen["歷史最高點閱率"] = pd.to_numeric(
-                        evergreen["歷史最高點閱率"], errors="coerce"
-                    )
-                else:
-                    evergreen["歷史最高點閱率"] = None
-
+                count_col_name = (
+                    "累積上榜期數" if is_weekly_chart else "累積上榜天數"
+                )
                 cols_order = [
                     song_col,
                     singer_col,
-                    "歷史最高點閱率",
-                    "累積上榜天數",
+                    "點閱率",
+                    count_col_name,
+                    "平均名次",
                     "影片連結",
                 ]
                 evergreen = evergreen[cols_order]
 
-            total_days = len(selected_m3_dates)
+            total_units = (
+                target_df["榜單期數"].nunique()
+                if is_weekly_chart
+                else target_df["抓取日期"].nunique()
+            )
+            unit_name = "期" if is_weekly_chart else "天"
 
             st.success(
-                f"📈【{chart_option_m3}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首歌曲）："
+                f"📈【{chart_option_m2}（{'週榜' if is_weekly_chart else '日榜'}）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）："
             )
 
             column_config_dict = {
-                "歷史最高點閱率": st.column_config.NumberColumn(
-                    "歷史最高點閱率", format="%,d", width="small"
+                "點閱率": st.column_config.NumberColumn(
+                    "點閱率", format="%,d", width="small"
                 ),
-                "累積上榜天數": st.column_config.NumberColumn(
-                    "累積上榜天數", format="%d", width="small"
+                count_col_name: st.column_config.NumberColumn(
+                    count_col_name, format="%d", width="small"
+                ),
+                "平均名次": st.column_config.NumberColumn(
+                    "平均名次", format="%.1f", width="small"
                 ),
                 "影片連結": st.column_config.LinkColumn(
                     "影片連結",
@@ -626,15 +693,15 @@ with main_tabs[1]:
             export_df = get_clean_export_df(target_df, evergreen)
             csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
             st.download_button(
-                label=f"📥 匯出【{chart_option_m3}】常勝軍清單 (CSV)",
+                label=f"📥 匯出【{chart_option_m2}】常勝軍清單 (CSV)",
                 data=csv_data,
-                file_name=f"QQ音樂_榜單常勝軍_{chart_option_m3}_{start_date}_至_{end_date}.csv",
+                file_name=f"QQ音樂_榜單常勝軍_{chart_option_m2}_{start_date}_至_{end_date}.csv",
                 mime="text/csv",
-                key="m3_download",
+                key="m2_download",
             )
         else:
             st.info(
-                f"在 {start_date} ～ {end_date} 區間內，尚無【{chart_option_m3}】的數據。"
+                f"在 {start_date} ～ {end_date} 區間內，尚無【{chart_option_m2}】的數據。"
             )
     else:
         st.info("選定日期區間內無數據。")
