@@ -420,7 +420,7 @@ with main_tabs[0]:
                         multi_chart,
                         column_config={
                             "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
+                                "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
                             ),
                             "連續在榜天數": st.column_config.NumberColumn(
                                 "連續在榜天數", format="%d 天", width="small"
