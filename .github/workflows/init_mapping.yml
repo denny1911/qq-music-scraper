@@ -22,15 +22,11 @@ jobs:
 
       - name: 安裝依賴套件
         run: |
-          # 👈 新增 google-generativeai 套件
           pip install pandas google-api-python-client google-generativeai zhconv
 
       - name: 執行初始化腳本
         env:
-          API_KEYS: ${{ secrets.GEMINI_API_KEYS }} # 這裡要跟你在 Secrets 設的名字一樣
-        run: python init_yt_mapping.py
-
-      - name: Run YT Mapping Initialization
+          API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
         run: python init_yt_mapping.py
 
       - name: Commit and push changes
@@ -39,5 +35,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "Auto-update song languages via Gemini API" || exit 0
-          git pull --rebase origin main  # <--- 加上這行，先同步遠端最新狀態
+          git pull --rebase origin main
           git push origin main
