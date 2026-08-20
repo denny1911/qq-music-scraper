@@ -314,21 +314,38 @@ with main_tabs[0]:
 
                     # 4. 篩選條件：單榜最大連續天數必須完全等於 X
                     if max_single_streak == X_max_days:
-                        # 取得 YouTube 資訊
+                        # 先依抓取日期排序，確保能抓到最新日期的數據
+                        sub_df_sorted = sub_df.sort_values(by="抓取日期")
+
+                        # 取得最新有效 YouTube ID
                         yt_id = None
                         if yt_id_col:
-                            valid_ids = sub_df[yt_id_col].dropna()
-                            valid_ids = valid_ids[
-                                ~valid_ids.astype(str).isin(["-", "nan", "None", ""])
-                            ]
-                            if not valid_ids.empty:
-                                yt_id = valid_ids.iloc[0]
+                            valid_ids_df = sub_df_sorted[
+                                ~sub_df_sorted[yt_id_col]
+                                .astype(str)
+                                .str.strip()
+                                .isin(["-", "nan", "None", ""])
+                            ].dropna(subset=[yt_id_col])
+                            if not valid_ids_df.empty:
+                                yt_id = valid_ids_df[yt_id_col].iloc[-1]
 
+                        # 取得最新一天的有效點閱率
                         yt_views = None
                         if yt_views_col:
-                            valid_views = sub_df[yt_views_col].dropna()
-                            if not valid_views.empty:
-                                yt_views = valid_views.iloc[0]
+                            valid_views_df = sub_df_sorted[
+                                ~sub_df_sorted[yt_views_col]
+                                .astype(str)
+                                .str.strip()
+                                .isin(["-", "nan", "None", ""])
+                            ].dropna(subset=[yt_views_col])
+                            
+                            if not valid_views_df.empty:
+                                latest_val = valid_views_df[yt_views_col].iloc[-1]
+                                clean_val = str(latest_val).replace(",", "").strip()
+                                try:
+                                    yt_views = int(float(clean_val))
+                                except ValueError:
+                                    yt_views = None
 
                         records.append(
                             {
@@ -356,21 +373,10 @@ with main_tabs[0]:
                         build_yt_url
                     )
 
-                    # 處理點閱率數字格式
-                    if "點閱率" in multi_chart.columns:
-                        multi_chart["點閱率"] = (
-                            multi_chart["點閱率"]
-                            .astype(str)
-                            .str.replace(",", "", regex=False)
-                        )
-                        multi_chart["點閱率"] = pd.to_numeric(
-                            multi_chart["點閱率"], errors="coerce"
-                        )
-
                     # 排序：優先依點閱率由高到低排序
                     if "點閱率" in multi_chart.columns:
                         multi_chart = multi_chart.sort_values(
-                            by=["點閱率"], ascending=[False]
+                            by=["點閱率"], ascending=[False], na_position="last"
                         )
 
                     cols_order = [
