@@ -526,9 +526,11 @@ with main_tabs[1]:
         yt_id_map = {}
         max_views_map = {}
 
-        # --- 核心新增 1：先優先載入中央對照表 yt_mapping.csv ---
+        # ----------------------------------------------------
+        # 1. 優先讀取中央對照表 yt_mapping.csv 建立字典
+        # ----------------------------------------------------
         import os
-        mapping_file = "yt_mapping.csv"  # 若有特定路徑可改為相對/絕對路徑
+        mapping_file = "yt_mapping.csv"
         if os.path.exists(mapping_file):
             try:
                 map_df = pd.read_csv(mapping_file)
@@ -553,10 +555,12 @@ with main_tabs[1]:
                                     max_views_map[key] = float(v_val)
                                 except ValueError:
                                     pass
-            except Exception as e:
+            except Exception:
                 pass
 
-        # --- 核心新增 2：再由載入的歷史每日資料補強/覆蓋最新的觀看數據 ---
+        # ----------------------------------------------------
+        # 2. 從每日歷史資料進行補充與更新最高點閱率
+        # ----------------------------------------------------
         yt_id_col = next((c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns), None)
         yt_views_col = next((c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in full_df.columns), None)
 
@@ -567,13 +571,11 @@ with main_tabs[1]:
                 continue
             key = (s_name, a_name)
 
-            # 補齊 YouTube ID
             if key not in yt_id_map and yt_id_col and pd.notna(row.get(yt_id_col)):
                 val = str(row[yt_id_col]).strip()
                 if val and val not in ["-", "nan", "None", ""]:
                     yt_id_map[key] = val
 
-            # 更新最高點閱率
             if yt_views_col and pd.notna(row.get(yt_views_col)):
                 v_val = str(row[yt_views_col]).strip().replace(",", "")
                 if v_val and v_val not in ["-", "nan", "None", ""]:
@@ -598,18 +600,16 @@ with main_tabs[1]:
             )
 
             if not evergreen.empty:
-                # 反查對照表 (yt_mapping.csv + 每日歷史) 補齊欄位
+                # ----------------------------------------------------
+                # 3. 以 (歌名, 歌手) 反查補齊 ID 與點閱率
+                # ----------------------------------------------------
                 evergreen["YouTube ID"] = [
                     yt_id_map.get((str(s).strip(), str(a).strip()), None)
-                    for s, a in zip(
-                        evergreen[song_col], evergreen[singer_col]
-                    )
+                    for s, a in zip(evergreen[song_col], evergreen[singer_col])
                 ]
                 evergreen["歷史最高點閱率"] = [
                     max_views_map.get((str(s).strip(), str(a).strip()), None)
-                    for s, a in zip(
-                        evergreen[song_col], evergreen[singer_col]
-                    )
+                    for s, a in zip(evergreen[song_col], evergreen[singer_col])
                 ]
 
                 def build_yt_url(val):
@@ -618,9 +618,7 @@ with main_tabs[1]:
                         return f"https://www.youtube.com/watch?v={v}"
                     return None
 
-                evergreen["影片連結"] = evergreen["YouTube ID"].apply(
-                    build_yt_url
-                )
+                evergreen["影片連結"] = evergreen["YouTube ID"].apply(build_yt_url)
 
                 cols_order = [
                     song_col,
