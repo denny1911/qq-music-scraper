@@ -265,6 +265,28 @@ with main_tabs[0]:
             )
 
             if song_col and singer_col:
+                # 建立中央對照表的 ID 映射
+                yt_id_pair_map = {}
+                import os
+                mapping_file = "data/yt_mapping.csv"
+                if os.path.exists(mapping_file):
+                    try:
+                        map_df = pd.read_csv(mapping_file)
+                        m_song = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else None)
+                        m_singer = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else None)
+                        m_vid = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), None)
+
+                        if m_song and m_singer and m_vid:
+                            for _, r in map_df.iterrows():
+                                s_title = str(r.get(m_song, "")).strip().replace(" ", "").lower()
+                                s_artist = str(r.get(m_singer, "")).strip().replace(" ", "").lower()
+                                v_id = str(r.get(m_vid, "")).strip()
+
+                                if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
+                                    yt_id_pair_map[(s_title, s_artist)] = v_id
+                    except Exception:
+                        pass
+
                 yt_id_col = (
                     "YouTube ID"
                     if "YouTube ID" in df_range.columns
@@ -313,7 +335,7 @@ with main_tabs[0]:
                     if max_single_streak == X_max_days:
                         sub_df_sorted = sub_df.sort_values(by="抓取日期")
 
-                        # 取得 YouTube ID
+                        # 優先從每日數據拿 YouTube ID
                         yt_id = None
                         if yt_id_col:
                             valid_ids_df = sub_df_sorted[
@@ -325,7 +347,12 @@ with main_tabs[0]:
                             if not valid_ids_df.empty:
                                 yt_id = valid_ids_df[yt_id_col].iloc[-1]
 
-                        # 預設不抓歷史點閱率，直接設為 None（顯示為待抓取）
+                        # 若每日數據沒有，則從中央對照表反查
+                        if not yt_id:
+                            clean_s = str(song).strip().replace(" ", "").lower()
+                            clean_a = str(singer).strip().replace(" ", "").lower()
+                            yt_id = yt_id_pair_map.get((clean_s, clean_a), None)
+
                         records.append(
                             {
                                 song_col: song,
@@ -381,7 +408,8 @@ with main_tabs[0]:
                                     current_key_idx += 1
 
                             if fetch_success:
-                                multi_chart["點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map)
+                                # 修正關鍵：寫入「即時點閱率」欄位
+                                multi_chart["即時點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map)
                                 st.toast("✅ 已成功載入此刻最新即時點閱！")
                             else:
                                 st.error("❌ 所有 API Key 今日配額皆已耗盡或連線失敗。")
@@ -395,10 +423,10 @@ with main_tabs[0]:
 
                     multi_chart["影片連結"] = multi_chart["YouTube ID"].apply(build_yt_url)
 
-                    # 依點閱率由高到低排序（未點擊按鈕時點閱率為 None，不影響預設順序）
-                    if "點閱率" in multi_chart.columns:
+                    # 依「即時點閱率」由高到低排序
+                    if "即時點閱率" in multi_chart.columns:
                         multi_chart = multi_chart.sort_values(
-                            by=["點閱率"], ascending=[False], na_position="last"
+                            by=["即時點閱率"], ascending=[False], na_position="last"
                         )
 
                     cols_order = [
@@ -418,7 +446,7 @@ with main_tabs[0]:
                     st.dataframe(
                         multi_chart,
                         column_config={
-                            "點閱率": st.column_config.NumberColumn(
+                            "即時點閱率": st.column_config.NumberColumn(
                                 "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
                             ),
                             "連續在榜天數": st.column_config.NumberColumn(
