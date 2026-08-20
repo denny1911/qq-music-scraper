@@ -523,26 +523,42 @@ with main_tabs[1]:
         song_col = "歌名" if "歌名" in full_df.columns else "song"
         singer_col = "歌手" if "歌手" in full_df.columns else "singer"
 
-        # --- 先藉由 (歌名, 歌手) 建立全域對照字典 ---
-        yt_id_col = next(
-            (
-                c
-                for c in ["YouTube ID", "YouTube_ID", "Video ID"]
-                if c in full_df.columns
-            ),
-            None,
-        )
-        yt_views_col = next(
-            (
-                c
-                for c in ["歷史最高點閱率", "點閱率", "觀看次數"]
-                if c in full_df.columns
-            ),
-            None,
-        )
-
         yt_id_map = {}
         max_views_map = {}
+
+        # --- 核心新增 1：先優先載入中央對照表 yt_mapping.csv ---
+        import os
+        mapping_file = "yt_mapping.csv"  # 若有特定路徑可改為相對/絕對路徑
+        if os.path.exists(mapping_file):
+            try:
+                map_df = pd.read_csv(mapping_file)
+                m_song = "歌名" if "歌名" in map_df.columns else "song"
+                m_singer = "歌手" if "歌手" in map_df.columns else "singer"
+                m_yt = next((c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in map_df.columns), None)
+                m_views = next((c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in map_df.columns), None)
+
+                for _, r in map_df.iterrows():
+                    s = str(r.get(m_song, "")).strip()
+                    a = str(r.get(m_singer, "")).strip()
+                    if s:
+                        key = (s, a)
+                        if m_yt and pd.notna(r.get(m_yt)):
+                            val = str(r[m_yt]).strip()
+                            if val and val not in ["-", "nan", "None", ""]:
+                                yt_id_map[key] = val
+                        if m_views and pd.notna(r.get(m_views)):
+                            v_val = str(r[m_views]).strip().replace(",", "")
+                            if v_val and v_val not in ["-", "nan", "None", ""]:
+                                try:
+                                    max_views_map[key] = float(v_val)
+                                except ValueError:
+                                    pass
+            except Exception as e:
+                pass
+
+        # --- 核心新增 2：再由載入的歷史每日資料補強/覆蓋最新的觀看數據 ---
+        yt_id_col = next((c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns), None)
+        yt_views_col = next((c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in full_df.columns), None)
 
         for _, row in full_df.iterrows():
             s_name = str(row.get(song_col, "")).strip()
@@ -551,13 +567,13 @@ with main_tabs[1]:
                 continue
             key = (s_name, a_name)
 
-            # 抓取有效的 YouTube ID
-            if yt_id_col and pd.notna(row.get(yt_id_col)):
+            # 補齊 YouTube ID
+            if key not in yt_id_map and yt_id_col and pd.notna(row.get(yt_id_col)):
                 val = str(row[yt_id_col]).strip()
                 if val and val not in ["-", "nan", "None", ""]:
                     yt_id_map[key] = val
 
-            # 抓取並計算歷史最高點閱率
+            # 更新最高點閱率
             if yt_views_col and pd.notna(row.get(yt_views_col)):
                 v_val = str(row[yt_views_col]).strip().replace(",", "")
                 if v_val and v_val not in ["-", "nan", "None", ""]:
@@ -582,7 +598,7 @@ with main_tabs[1]:
             )
 
             if not evergreen.empty:
-                # 透過 (歌名, 歌手) 查表補齊 YouTube ID 與點閱率
+                # 反查對照表 (yt_mapping.csv + 每日歷史) 補齊欄位
                 evergreen["YouTube ID"] = [
                     yt_id_map.get((str(s).strip(), str(a).strip()), None)
                     for s, a in zip(
