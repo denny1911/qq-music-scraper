@@ -940,7 +940,7 @@ with main_tabs[2]:
                 ]
                 evergreen = evergreen[cols_order]
 
-            total_days = target_df["抓取日期"].nunique()
+            total_days = len(selected_m3_dates)
 
             st.success(
                 f"📈【{chart_option_m3}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首歌曲）："
