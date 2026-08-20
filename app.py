@@ -314,12 +314,6 @@ with main_tabs[0]:
 
                     # 4. 篩選條件：單榜最大連續天數必須完全等於 X
                     if max_single_streak == X_max_days:
-                        best_rank = (
-                            sub_df["排名"].min()
-                            if "排名" in sub_df.columns
-                            else None
-                        )
-
                         # 取得 YouTube 資訊
                         yt_id = None
                         if yt_id_col:
@@ -344,7 +338,6 @@ with main_tabs[0]:
                                 "連續在榜天數": max_single_streak,
                                 "連續出現榜單": continuous_charts,
                                 "歷史出現榜單": history_charts,
-                                "最高名次": best_rank,
                                 "YouTube ID": yt_id,
                             }
                         )
@@ -374,10 +367,11 @@ with main_tabs[0]:
                             multi_chart["點閱率"], errors="coerce"
                         )
 
-                    # 排序：最高名次越前面越靠前
-                    multi_chart = multi_chart.sort_values(
-                        by=["最高名次"], ascending=[True]
-                    )
+                    # 排序：優先依點閱率由高到低排序
+                    if "點閱率" in multi_chart.columns:
+                        multi_chart = multi_chart.sort_values(
+                            by=["點閱率"], ascending=[False]
+                        )
 
                     cols_order = [
                         song_col,
@@ -386,7 +380,6 @@ with main_tabs[0]:
                         "連續在榜天數",
                         "連續出現榜單",
                         "歷史出現榜單",
-                        "最高名次",
                         "影片連結",
                     ]
                     multi_chart = multi_chart[cols_order]
@@ -402,9 +395,6 @@ with main_tabs[0]:
                             ),
                             "連續在榜天數": st.column_config.NumberColumn(
                                 "連續在榜天數", format="%d 天", width="small"
-                            ),
-                            "最高名次": st.column_config.NumberColumn(
-                                "最高名次", format="%d", width="small"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
