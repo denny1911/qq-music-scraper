@@ -523,34 +523,62 @@ with main_tabs[1]:
         song_col = "歌名" if "歌名" in full_df.columns else "song"
         singer_col = "歌手" if "歌手" in full_df.columns else "singer"
 
+        # Key 格式為：(歌名淨化字串, 歌手淨化字串)
+        yt_id_pair_map = {}
+
+        def clean_key(text):
+            """去除前後空白、全形空格，轉小寫以提升比對成功率"""
+            if pd.isna(text):
+                return ""
+            return str(text).strip().replace(" ", "").lower()
+
         # ----------------------------------------------------
-        # 1. 專門讀取 yt_mapping.csv 中的 Video ID (對照 歌名)
+        # 1. 讀取中央對照表 yt_mapping.csv (需同時包含 歌名 與 歌手)
         # ----------------------------------------------------
         import os
-        yt_id_map = {}
         mapping_file = "yt_mapping.csv"
         
         if os.path.exists(mapping_file):
             try:
                 map_df = pd.read_csv(mapping_file)
                 m_song = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else None)
-                m_vid = "Video ID" if "Video ID" in map_df.columns else ("YouTube ID" if "YouTube ID" in map_df.columns else None)
+                m_singer = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else None)
+                m_vid = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), None)
 
-                if m_song and m_vid:
+                if m_song and m_singer and m_vid:
                     for _, r in map_df.iterrows():
-                        s_title = str(r.get(m_song, "")).strip()
+                        s_title = clean_key(r.get(m_song, ""))
+                        s_artist = clean_key(r.get(m_singer, ""))
                         v_id = str(r.get(m_vid, "")).strip()
-                        if s_title and v_id and v_id not in ["-", "nan", "None", ""]:
-                            yt_id_map[s_title] = v_id
+
+                        if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
+                            yt_id_pair_map[(s_title, s_artist)] = v_id
             except Exception:
                 pass
+
+        # ----------------------------------------------------
+        # 2. 從每日 CSV 補強 ID (若每日資料中有更全的記錄)
+        # ----------------------------------------------------
+        yt_id_col = next(
+            (c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns),
+            None
+        )
+
+        if yt_id_col:
+            for _, row in full_df.iterrows():
+                s_title = clean_key(row.get(song_col, ""))
+                s_artist = clean_key(row.get(singer_col, ""))
+                v_id = str(row.get(yt_id_col, "")).strip()
+
+                if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
+                    key = (s_title, s_artist)
+                    if key not in yt_id_pair_map:
+                        yt_id_pair_map[key] = v_id
 
         target_df = full_df[full_df["榜單類型"] == chart_option_m2].copy()
 
         if not target_df.empty:
-            # ----------------------------------------------------
-            # 2. 點閱率邏輯：按抓取日期排序，取每日 CSV 中最新的點閱率
-            # ----------------------------------------------------
+            # 按日期升冪排序，確保 .agg("last") 取得區間內最新的點閱率
             target_df = target_df.sort_values(by="抓取日期", ascending=True)
 
             yt_views_col = next(
@@ -562,7 +590,6 @@ with main_tabs[1]:
                 "累積上榜天數": ("抓取日期", "nunique"),
             }
 
-            # 取該區間內「最近一日 (last)」出現的點閱率
             if yt_views_col:
                 agg_kwargs["歷史最高點閱率"] = (yt_views_col, "last")
 
@@ -578,11 +605,14 @@ with main_tabs[1]:
 
             if not evergreen.empty:
                 # ----------------------------------------------------
-                # 3. 反查 yt_mapping.csv 補上 Video ID，並生成影片連結
+                # 3. 嚴格以 (歌名, 歌手) 反查 YouTube ID
                 # ----------------------------------------------------
-                evergreen["YouTube ID"] = [
-                    yt_id_map.get(str(s).strip(), None) for s in evergreen[song_col]
-                ]
+                def get_yt_id(row):
+                    s = clean_key(row[song_col])
+                    a = clean_key(row[singer_col])
+                    return yt_id_pair_map.get((s, a), None)
+
+                evergreen["YouTube ID"] = evergreen.apply(get_yt_id, axis=1)
 
                 def build_yt_url(val):
                     v = str(val).strip() if pd.notna(val) else ""
