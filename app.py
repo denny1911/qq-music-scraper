@@ -523,75 +523,52 @@ with main_tabs[1]:
         song_col = "歌名" if "歌名" in full_df.columns else "song"
         singer_col = "歌手" if "歌手" in full_df.columns else "singer"
 
-        yt_id_map = {}
-        max_views_map = {}
-
         # ----------------------------------------------------
-        # 1. 優先讀取中央對照表 yt_mapping.csv 建立字典
+        # 1. 專門讀取 yt_mapping.csv 中的 Video ID (對照 歌名)
         # ----------------------------------------------------
         import os
+        yt_id_map = {}
         mapping_file = "yt_mapping.csv"
+        
         if os.path.exists(mapping_file):
             try:
                 map_df = pd.read_csv(mapping_file)
-                m_song = "歌名" if "歌名" in map_df.columns else "song"
-                m_singer = "歌手" if "歌手" in map_df.columns else "singer"
-                m_yt = next((c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in map_df.columns), None)
-                m_views = next((c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in map_df.columns), None)
+                m_song = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else None)
+                m_vid = "Video ID" if "Video ID" in map_df.columns else ("YouTube ID" if "YouTube ID" in map_df.columns else None)
 
-                for _, r in map_df.iterrows():
-                    s = str(r.get(m_song, "")).strip()
-                    a = str(r.get(m_singer, "")).strip()
-                    if s:
-                        key = (s, a)
-                        if m_yt and pd.notna(r.get(m_yt)):
-                            val = str(r[m_yt]).strip()
-                            if val and val not in ["-", "nan", "None", ""]:
-                                yt_id_map[key] = val
-                        if m_views and pd.notna(r.get(m_views)):
-                            v_val = str(r[m_views]).strip().replace(",", "")
-                            if v_val and v_val not in ["-", "nan", "None", ""]:
-                                try:
-                                    max_views_map[key] = float(v_val)
-                                except ValueError:
-                                    pass
+                if m_song and m_vid:
+                    for _, r in map_df.iterrows():
+                        s_title = str(r.get(m_song, "")).strip()
+                        v_id = str(r.get(m_vid, "")).strip()
+                        if s_title and v_id and v_id not in ["-", "nan", "None", ""]:
+                            yt_id_map[s_title] = v_id
             except Exception:
                 pass
-
-        # ----------------------------------------------------
-        # 2. 從每日歷史資料進行補充與更新最高點閱率
-        # ----------------------------------------------------
-        yt_id_col = next((c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns), None)
-        yt_views_col = next((c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in full_df.columns), None)
-
-        for _, row in full_df.iterrows():
-            s_name = str(row.get(song_col, "")).strip()
-            a_name = str(row.get(singer_col, "")).strip()
-            if not s_name:
-                continue
-            key = (s_name, a_name)
-
-            if key not in yt_id_map and yt_id_col and pd.notna(row.get(yt_id_col)):
-                val = str(row[yt_id_col]).strip()
-                if val and val not in ["-", "nan", "None", ""]:
-                    yt_id_map[key] = val
-
-            if yt_views_col and pd.notna(row.get(yt_views_col)):
-                v_val = str(row[yt_views_col]).strip().replace(",", "")
-                if v_val and v_val not in ["-", "nan", "None", ""]:
-                    try:
-                        num_val = float(v_val)
-                        if key not in max_views_map or num_val > max_views_map[key]:
-                            max_views_map[key] = num_val
-                    except ValueError:
-                        pass
 
         target_df = full_df[full_df["榜單類型"] == chart_option_m2].copy()
 
         if not target_df.empty:
+            # ----------------------------------------------------
+            # 2. 點閱率邏輯：按抓取日期排序，取每日 CSV 中最新的點閱率
+            # ----------------------------------------------------
+            target_df = target_df.sort_values(by="抓取日期", ascending=True)
+
+            yt_views_col = next(
+                (c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in target_df.columns),
+                None
+            )
+
+            agg_kwargs = {
+                "累積上榜天數": ("抓取日期", "nunique"),
+            }
+
+            # 取該區間內「最近一日 (last)」出現的點閱率
+            if yt_views_col:
+                agg_kwargs["歷史最高點閱率"] = (yt_views_col, "last")
+
             evergreen = (
                 target_df.groupby([song_col, singer_col])
-                .agg(累積上榜天數=("抓取日期", "nunique"))
+                .agg(**agg_kwargs)
                 .reset_index()
                 .sort_values(
                     by=["累積上榜天數"],
@@ -601,15 +578,10 @@ with main_tabs[1]:
 
             if not evergreen.empty:
                 # ----------------------------------------------------
-                # 3. 以 (歌名, 歌手) 反查補齊 ID 與點閱率
+                # 3. 反查 yt_mapping.csv 補上 Video ID，並生成影片連結
                 # ----------------------------------------------------
                 evergreen["YouTube ID"] = [
-                    yt_id_map.get((str(s).strip(), str(a).strip()), None)
-                    for s, a in zip(evergreen[song_col], evergreen[singer_col])
-                ]
-                evergreen["歷史最高點閱率"] = [
-                    max_views_map.get((str(s).strip(), str(a).strip()), None)
-                    for s, a in zip(evergreen[song_col], evergreen[singer_col])
+                    yt_id_map.get(str(s).strip(), None) for s in evergreen[song_col]
                 ]
 
                 def build_yt_url(val):
@@ -619,6 +591,18 @@ with main_tabs[1]:
                     return None
 
                 evergreen["影片連結"] = evergreen["YouTube ID"].apply(build_yt_url)
+
+                if "歷史最高點閱率" in evergreen.columns:
+                    evergreen["歷史最高點閱率"] = (
+                        evergreen["歷史最高點閱率"]
+                        .astype(str)
+                        .str.replace(",", "", regex=False)
+                    )
+                    evergreen["歷史最高點閱率"] = pd.to_numeric(
+                        evergreen["歷史最高點閱率"], errors="coerce"
+                    )
+                else:
+                    evergreen["歷史最高點閱率"] = None
 
                 cols_order = [
                     song_col,
