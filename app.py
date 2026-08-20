@@ -187,6 +187,16 @@ with main_tabs[0]:
         "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的神曲，指標最硬不踩雷！"
     )
 
+    # 1. API Key 設定區（優先讀取 st.secrets，若無則顯示輸入框）
+    yt_api_key = st.secrets.get("YOUTUBE_API_KEY", "")
+    with st.expander("⚙️ YouTube API Key 設定（點此展開/填寫）"):
+        yt_api_key = st.text_input(
+            "請輸入 YouTube Data API Key：",
+            value=yt_api_key,
+            type="password",
+            help="若已有設定在 .streamlit/secrets.toml 中可留空",
+        )
+
     m1_preset = st.radio(
         "🗓️ 選擇分析時間範圍",
         [
@@ -229,7 +239,7 @@ with main_tabs[0]:
 
     # 取得區間內所有存在的日期清單（已排序）
     selected_m1_dates = sorted([d for d in dates if start_date <= d <= end_date])
-    X_max_days = len(selected_m1_dates)  # 設定 X 為該區間最大的實際數據天數
+    X_max_days = len(selected_m1_dates)
 
     if X_max_days == 0:
         st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
@@ -278,7 +288,7 @@ with main_tabs[0]:
                     )
                 )
 
-                # 計算連續天數的輔助函式（中斷即歸零）
+                # 連續天數計算（中斷即歸零）
                 def calc_max_streak(dates_present, sorted_all_dates):
                     present_set = set(dates_present)
                     max_s = 0
@@ -294,16 +304,13 @@ with main_tabs[0]:
 
                 records = []
                 for (song, singer), sub_df in df_range.groupby([song_col, singer_col]):
-                    # 1. 歷史出現榜單：該區間內所有登上過的榜單
                     history_charts = "、".join(sorted(sub_df["榜單類型"].unique()))
 
-                    # 2. 個別計算「每個單榜」的最高連續天數
                     chart_streaks = {}
                     for chart_name, chart_sub in sub_df.groupby("榜單類型"):
                         c_dates = chart_sub["抓取日期"].unique()
                         chart_streaks[chart_name] = calc_max_streak(c_dates, selected_m1_dates)
 
-                    # 3. 找出單榜最大連續天數與對應的「連續出現榜單」
                     if chart_streaks:
                         max_single_streak = max(chart_streaks.values())
                         best_charts = [c for c, s in chart_streaks.items() if s == max_single_streak]
@@ -312,12 +319,11 @@ with main_tabs[0]:
                         max_single_streak = 0
                         continuous_charts = "-"
 
-                    # 4. 篩選條件：單榜最大連續天數必須完全等於 X
+                    # 篩選條件：單榜最大連續天數完全等於 X
                     if max_single_streak == X_max_days:
-                        # 先依抓取日期排序，確保能抓到最新日期的數據
                         sub_df_sorted = sub_df.sort_values(by="抓取日期")
 
-                        # 取得最新有效 YouTube ID
+                        # 1. 取得 YouTube ID
                         yt_id = None
                         if yt_id_col:
                             valid_ids_df = sub_df_sorted[
@@ -329,7 +335,7 @@ with main_tabs[0]:
                             if not valid_ids_df.empty:
                                 yt_id = valid_ids_df[yt_id_col].iloc[-1]
 
-                        # 取得最新一天的有效點閱率
+                        # 2. 預設取得「歷史最新一日（如 8/20）」的點閱率
                         yt_views = None
                         if yt_views_col:
                             valid_views_df = sub_df_sorted[
@@ -362,6 +368,46 @@ with main_tabs[0]:
                 if records:
                     multi_chart = pd.DataFrame(records)
 
+                    # 按鈕觸發：連線 API 抓取此刻即時點閱
+                    btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱 (YouTube API)")
+
+                    if btn_fetch_realtime:
+                        if not yt_api_key:
+                            st.warning("⚠️ 請先在上方設定欄輸入 YouTube API Key，目前顯示為歷史最新日期點閱。")
+                        else:
+                            try:
+                                # 收集所有非空的 Video ID
+                                valid_ids = multi_chart["YouTube ID"].dropna().unique().tolist()
+                                valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
+
+                                realtime_views_map = {}
+                                # YouTube API 每次最多支援 50 個 ID 批次查詢
+                                batch_size = 50
+                                for i in range(0, len(valid_ids), batch_size):
+                                    batch_ids = valid_ids[i:i + batch_size]
+                                    api_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(batch_ids)}&key={yt_api_key}"
+                                    res = requests.get(api_url, timeout=5)
+
+                                    if res.status_code == 200:
+                                        data = res.json()
+                                        for item in data.get("items", []):
+                                            vid = item.get("id")
+                                            v_cnt = item.get("statistics", {}).get("viewCount")
+                                            if v_cnt:
+                                                realtime_views_map[vid] = int(v_cnt)
+                                    else:
+                                        # API 流量耗盡 (403) 或 Key 錯誤時拋出異常觸發降級
+                                        raise Exception(f"API 回傳錯誤 HTTP {res.status_code}：{res.text}")
+
+                                # 成功抓取，更新「點閱率」欄位
+                                multi_chart["點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map).fillna(multi_chart["點閱率"])
+                                st.toast("✅ 已成功切換為此刻最新即時點閱！")
+
+                            except Exception as e:
+                                st.warning(
+                                    f"⚠️ 無法取得即時數據（可能 YouTube API 今日配額已滿或 Key 無效），系統已自動降級切換回區間最新歷史點閱（{selected_m1_dates[-1]}）。"
+                                )
+
                     # 處理 YouTube 連結
                     def build_yt_url(val):
                         v = str(val).strip() if pd.notna(val) else ""
@@ -369,11 +415,9 @@ with main_tabs[0]:
                             return f"https://www.youtube.com/watch?v={v}"
                         return None
 
-                    multi_chart["影片連結"] = multi_chart["YouTube ID"].apply(
-                        build_yt_url
-                    )
+                    multi_chart["影片連結"] = multi_chart["YouTube ID"].apply(build_yt_url)
 
-                    # 排序：優先依點閱率由高到低排序
+                    # 依點閱率由高到低排序
                     if "點閱率" in multi_chart.columns:
                         multi_chart = multi_chart.sort_values(
                             by=["點閱率"], ascending=[False], na_position="last"
