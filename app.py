@@ -187,7 +187,7 @@ with main_tabs[0]:
         "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的神曲，指標最硬不踩雷！"
     )
 
-    # 1. 自動從 Secrets 提取 API Key 清單的輔助函式
+    # 1. 自動從 Secrets 提取 API Key 清單
     def fetch_m1_api_keys():
         raw_keys = st.secrets.get(
             "YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", [])
@@ -279,15 +279,6 @@ with main_tabs[0]:
                         )
                     )
                 )
-                yt_views_col = (
-                    "點閱率"
-                    if "點閱率" in df_range.columns
-                    else (
-                        "觀看次數"
-                        if "觀看次數" in df_range.columns
-                        else None
-                    )
-                )
 
                 # 計算連續天數
                 def calc_max_streak(dates_present, sorted_all_dates):
@@ -335,29 +326,12 @@ with main_tabs[0]:
                             if not valid_ids_df.empty:
                                 yt_id = valid_ids_df[yt_id_col].iloc[-1]
 
-                        # 預設：取得歷史最新一天的點閱率
-                        yt_views = None
-                        if yt_views_col:
-                            valid_views_df = sub_df_sorted[
-                                ~sub_df_sorted[yt_views_col]
-                                .astype(str)
-                                .str.strip()
-                                .isin(["-", "nan", "None", ""])
-                            ].dropna(subset=[yt_views_col])
-                            
-                            if not valid_views_df.empty:
-                                latest_val = valid_views_df[yt_views_col].iloc[-1]
-                                clean_val = str(latest_val).replace(",", "").strip()
-                                try:
-                                    yt_views = int(float(clean_val))
-                                except ValueError:
-                                    yt_views = None
-
+                        # 預設不抓歷史點閱率，直接設為 None（顯示為待抓取）
                         records.append(
                             {
                                 song_col: song,
                                 singer_col: singer,
-                                "點閱率": yt_views,
+                                "點閱率": None,
                                 "連續在榜天數": max_single_streak,
                                 "連續出現榜單": continuous_charts,
                                 "歷史出現榜單": history_charts,
@@ -368,13 +342,13 @@ with main_tabs[0]:
                 if records:
                     multi_chart = pd.DataFrame(records)
 
-                    # 點擊按鈕自動調用 Secrets 中的 API Key 抓取即時點閱
+                    # 按鈕觸發：連線 API 抓取此刻即時點閱
                     btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱 (YouTube API)")
 
                     if btn_fetch_realtime:
                         api_keys = fetch_m1_api_keys()
                         if not api_keys:
-                            st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`，已維持顯示歷史最新點閱。")
+                            st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`，無法抓取即時點閱。")
                         else:
                             valid_ids = multi_chart["YouTube ID"].dropna().unique().tolist()
                             valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
@@ -405,16 +379,13 @@ with main_tabs[0]:
 
                                     fetch_success = True
                                 except Exception:
-                                    # 當前 Key 耗盡或異常，切換至下一個 Key
                                     current_key_idx += 1
 
                             if fetch_success:
-                                multi_chart["點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map).fillna(multi_chart["點閱率"])
-                                st.toast("✅ 已成功切換為此刻最新即時點閱！")
+                                multi_chart["點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map)
+                                st.toast("✅ 已成功載入此刻最新即時點閱！")
                             else:
-                                st.warning(
-                                    f"⚠️ 所有 API Key 今日配額皆已耗盡或連線異常，系統已自動切換回歷史最新點閱（{selected_m1_dates[-1]}）。"
-                                )
+                                st.error("❌ 所有 API Key 今日配額皆已耗盡或連線失敗。")
 
                     # 處理 YouTube 連結
                     def build_yt_url(val):
@@ -425,7 +396,7 @@ with main_tabs[0]:
 
                     multi_chart["影片連結"] = multi_chart["YouTube ID"].apply(build_yt_url)
 
-                    # 依點閱率由高到低排序
+                    # 依點閱率由高到低排序（未點擊按鈕時點閱率為 None，不影響預設順序）
                     if "點閱率" in multi_chart.columns:
                         multi_chart = multi_chart.sort_values(
                             by=["點閱率"], ascending=[False], na_position="last"
@@ -449,7 +420,7 @@ with main_tabs[0]:
                         multi_chart,
                         column_config={
                             "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%,d", width="small"
+                                "點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
                             ),
                             "連續在榜天數": st.column_config.NumberColumn(
                                 "連續在榜天數", format="%d 天", width="small"
