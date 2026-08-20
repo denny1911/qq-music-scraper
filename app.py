@@ -331,7 +331,7 @@ with main_tabs[0]:
                             {
                                 song_col: song,
                                 singer_col: singer,
-                                "點閱率": None,
+                                "即時點閱率": None,
                                 "連續在榜天數": max_single_streak,
                                 "連續出現榜單": continuous_charts,
                                 "歷史出現榜單": history_charts,
@@ -405,7 +405,7 @@ with main_tabs[0]:
                     cols_order = [
                         song_col,
                         singer_col,
-                        "點閱率",
+                        "即時點閱率",
                         "連續在榜天數",
                         "連續出現榜單",
                         "歷史出現榜單",
