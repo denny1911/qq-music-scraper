@@ -488,6 +488,17 @@ with main_tabs[1]:
         "統計**指定日期區間**內，在個別榜單的累積天數表現。"
     )
 
+    # 1. API Key 提取函式
+    def fetch_m2_api_keys():
+        raw_keys = st.secrets.get(
+            "YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", [])
+        )
+        if isinstance(raw_keys, str):
+            return [k.strip() for k in raw_keys.split(",") if k.strip()]
+        elif isinstance(raw_keys, list):
+            return [str(k).strip() for k in raw_keys if str(k).strip()]
+        return []
+
     chart_option_m2 = st.radio(
         "選擇要統計常勝軍的榜單",
         ["新歌榜", "影視金曲榜", "綜藝新歌榜", "抖音熱歌榜"],
@@ -553,9 +564,7 @@ with main_tabs[1]:
                 return ""
             return str(text).strip().replace(" ", "").lower()
 
-        # ----------------------------------------------------
-        # 1. 讀取中央對照表 yt_mapping.csv (需同時包含 歌名 與 歌手)
-        # ----------------------------------------------------
+        # 1. 讀取中央對照表 yt_mapping.csv
         import os
         mapping_file = "data/yt_mapping.csv"
         
@@ -577,9 +586,7 @@ with main_tabs[1]:
             except Exception:
                 pass
 
-        # ----------------------------------------------------
-        # 2. 從每日 CSV 補強 ID (若每日資料中有更全的記錄)
-        # ----------------------------------------------------
+        # 2. 從每日 CSV 補強 ID
         yt_id_col = next(
             (c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns),
             None
@@ -599,35 +606,21 @@ with main_tabs[1]:
         target_df = full_df[full_df["榜單類型"] == chart_option_m2].copy()
 
         if not target_df.empty:
-            # 按日期升冪排序，確保 .agg("last") 取得區間內最新的點閱率
             target_df = target_df.sort_values(by="抓取日期", ascending=True)
 
-            yt_views_col = next(
-                (c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in target_df.columns),
-                None
-            )
-
-            agg_kwargs = {
-                "累積上榜天數": ("抓取日期", "nunique"),
-            }
-
-            if yt_views_col:
-                agg_kwargs["歷史最高點閱率"] = (yt_views_col, "last")
-
+            # 聚合計算「累積上榜天數」
             evergreen = (
                 target_df.groupby([song_col, singer_col])
-                .agg(**agg_kwargs)
+                .agg(累積上榜天數=("抓取日期", "nunique"))
                 .reset_index()
-                .sort_values(
-                    by=["累積上榜天數"],
-                    ascending=[False],
-                )
+                .sort_values(by=["累積上榜天數"], ascending=[False])
             )
 
             if not evergreen.empty:
-                # ----------------------------------------------------
-                # 3. 嚴格以 (歌名, 歌手) 反查 YouTube ID
-                # ----------------------------------------------------
+                # 預設即時點閱率為 None
+                evergreen["即時點閱率"] = None
+
+                # 反查 YouTube ID
                 def get_yt_id(row):
                     s = clean_key(row[song_col])
                     a = clean_key(row[singer_col])
@@ -635,6 +628,52 @@ with main_tabs[1]:
 
                 evergreen["YouTube ID"] = evergreen.apply(get_yt_id, axis=1)
 
+                # 按鈕觸發：連線 API 抓取此刻即時點閱
+                btn_fetch_realtime_m2 = st.button("🔄 抓取此刻即時點閱 (YouTube API)", key="m2_fetch_btn")
+
+                if btn_fetch_realtime_m2:
+                    api_keys = fetch_m2_api_keys()
+                    if not api_keys:
+                        st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`，無法抓取即時點閱。")
+                    else:
+                        valid_ids = evergreen["YouTube ID"].dropna().unique().tolist()
+                        valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
+
+                        realtime_views_map = {}
+                        current_key_idx = 0
+                        fetch_success = False
+
+                        # 多 Key 輪替批次請求機制
+                        while current_key_idx < len(api_keys) and not fetch_success:
+                            current_key = api_keys[current_key_idx]
+                            try:
+                                batch_size = 50
+                                for i in range(0, len(valid_ids), batch_size):
+                                    batch_ids = valid_ids[i:i + batch_size]
+                                    api_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(batch_ids)}&key={current_key}"
+                                    res = requests.get(api_url, timeout=5)
+
+                                    if res.status_code == 200:
+                                        data = res.json()
+                                        for item in data.get("items", []):
+                                            vid = item.get("id")
+                                            v_cnt = item.get("statistics", {}).get("viewCount")
+                                            if v_cnt:
+                                                realtime_views_map[vid] = int(v_cnt)
+                                    else:
+                                        raise Exception(f"HTTP {res.status_code}")
+
+                                fetch_success = True
+                            except Exception:
+                                current_key_idx += 1
+
+                        if fetch_success:
+                            evergreen["即時點閱率"] = evergreen["YouTube ID"].map(realtime_views_map)
+                            st.toast("✅ 已成功載入此刻最新即時點閱！")
+                        else:
+                            st.error("❌ 所有 API Key 今日配額皆已耗盡或連線失敗。")
+
+                # 處理影片連結
                 def build_yt_url(val):
                     v = str(val).strip() if pd.notna(val) else ""
                     if v and v not in ["-", "nan", "None", ""]:
@@ -643,22 +682,14 @@ with main_tabs[1]:
 
                 evergreen["影片連結"] = evergreen["YouTube ID"].apply(build_yt_url)
 
-                if "歷史最高點閱率" in evergreen.columns:
-                    evergreen["歷史最高點閱率"] = (
-                        evergreen["歷史最高點閱率"]
-                        .astype(str)
-                        .str.replace(",", "", regex=False)
-                    )
-                    evergreen["歷史最高點閱率"] = pd.to_numeric(
-                        evergreen["歷史最高點閱率"], errors="coerce"
-                    )
-                else:
-                    evergreen["歷史最高點閱率"] = None
+                # 若點擊按鈕更新了點閱率，依點閱率由高到低排序，否則保持原有的上榜天數排序
+                if evergreen["即時點閱率"].notna().any():
+                    evergreen = evergreen.sort_values(by=["即時點閱率"], ascending=[False], na_position="last")
 
                 cols_order = [
                     song_col,
                     singer_col,
-                    "歷史最高點閱率",
+                    "即時點閱率",
                     "累積上榜天數",
                     "影片連結",
                 ]
@@ -671,8 +702,8 @@ with main_tabs[1]:
             )
 
             column_config_dict = {
-                "歷史最高點閱率": st.column_config.NumberColumn(
-                    "歷史最高點閱率", format="%,d", width="small"
+                "即時點閱率": st.column_config.NumberColumn(
+                    "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
                 ),
                 "累積上榜天數": st.column_config.NumberColumn(
                     "累積上榜天數", format="%d", width="small"
