@@ -113,17 +113,17 @@ def extract_artist_tokens(singer):
                 group_tokens.add(zhconv.convert(b, "zh-hant"))
 
         # 5. 拆解英文/單字片段
-        sub_chunks = re.findall(
-            r"[a-zA-Z0-9\.\-\']+|[\u4e00-\u9fa5]+|[\uAC00-\uD7A3]+", raw
-        )
-        if len(sub_chunks) > 1:
-            for chunk in sub_chunks:
-                chunk = chunk.strip()
-                if len(chunk) >= 1:
-                    group_tokens.add(zhconv.convert(chunk, "zh-hans"))
-                    group_tokens.add(zhconv.convert(chunk, "zh-hant"))
+        zh_only = "".join(re.findall(r"[\u4e00-\u9fa5]+", clean_raw)).strip()
+        if len(zh_only) >= 2:
+            group_tokens.add(zhconv.convert(zh_only, "zh-hans"))
+            group_tokens.add(zhconv.convert(zh_only, "zh-hant"))
 
+        # 6. 提取主名稱中的純英文部分（如 "万妮达Vinida Weng" -> "Vinida Weng"）
+        en_only = "".join(re.findall(r"[a-zA-Z0-9\s]+", clean_raw)).strip()
+        if len(en_only) >= 2:
+            group_tokens.add(en_only)
         # 規格化
+
         norm_group = [normalize_text(t) for t in group_tokens if normalize_text(t)]
         if norm_group:
             artist_groups.append(list(set(norm_group)))
