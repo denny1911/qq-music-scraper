@@ -369,7 +369,7 @@ with main_tabs[0]:
                     multi_chart = pd.DataFrame(records)
 
                     # 按鈕觸發：連線 API 抓取此刻即時點閱
-                    btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱 (YouTube API)")
+                    btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱")
 
                     if btn_fetch_realtime:
                         api_keys = fetch_m1_api_keys()
