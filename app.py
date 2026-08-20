@@ -433,7 +433,6 @@ with main_tabs[0]:
                         song_col,
                         singer_col,
                         "即時點閱率",
-                        "連續在榜天數",
                         "連續出現榜單",
                         "歷史出現榜單",
                         "影片連結",
@@ -448,9 +447,6 @@ with main_tabs[0]:
                         column_config={
                             "即時點閱率": st.column_config.NumberColumn(
                                 "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
-                            ),
-                            "連續在榜天數": st.column_config.NumberColumn(
-                                "連續在榜天數", format="%d", width="small"
                             ),
                             "影片連結": st.column_config.LinkColumn(
                                 "影片連結",
