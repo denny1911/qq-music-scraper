@@ -536,7 +536,7 @@ with main_tabs[1]:
         # 1. 讀取中央對照表 yt_mapping.csv (需同時包含 歌名 與 歌手)
         # ----------------------------------------------------
         import os
-        mapping_file = "yt_mapping.csv"
+        mapping_file = "data/yt_mapping.csv"
         
         if os.path.exists(mapping_file):
             try:
