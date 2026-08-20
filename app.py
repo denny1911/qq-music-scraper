@@ -806,7 +806,7 @@ with main_tabs[1]:
 with main_tabs[2]:
     st.header("👑 模組三：榜單常勝軍（長青熱歌）")
     st.markdown(
-        "統計**指定日期區間**內，在個別榜單的累積表現（**新歌榜統計天數，其餘三榜依官方週四更新期數統計**）。"
+        "統計**指定日期區間**內，在個別榜單的累積天數表現。"
     )
 
     chart_option_m3 = st.radio(
@@ -815,8 +815,6 @@ with main_tabs[2]:
         horizontal=True,
         key="m3_radio",
     )
-
-    is_weekly_chart = chart_option_m3 != "新歌榜"
 
     m3_preset = st.radio(
         "🗓️ 選擇統計時間範圍",
@@ -832,7 +830,8 @@ with main_tabs[2]:
         end_date_obj = latest_date_obj
     elif m3_preset == "⚡ 近 30 天":
         start_date_obj = max(
-            earliest_date_obj, latest_date_obj - timedelta(days=29)
+            earliest_date_obj,
+            latest_date_obj - timedelta(days=29),
         )
         end_date_obj = latest_date_obj
     elif m3_preset == "🌐 全部歷史區間":
@@ -887,54 +886,24 @@ with main_tabs[2]:
                 else ("觀看次數" if "觀看次數" in target_df.columns else None)
             )
 
-            if is_weekly_chart:
-                target_df["榜單期數"] = target_df["抓取日期"].apply(
-                    get_issue_label
-                )
-
-                agg_kwargs = {
-                    "累積上榜期數": ("榜單期數", "nunique"),
-                    "平均名次": (
-                        ("排名", lambda x: round(x.mean(), 1))
-                        if "排名" in target_df.columns
-                        else ("榜單期數", "count")
-                    ),
-                }
-            else:
-                agg_kwargs = {
-                    "累積上榜天數": ("抓取日期", "nunique"),
-                    "平均名次": (
-                        ("排名", lambda x: round(x.mean(), 1))
-                        if "排名" in target_df.columns
-                        else ("抓取日期", "count")
-                    ),
-                }
+            agg_kwargs = {
+                "累積上榜天數": ("抓取日期", "nunique"),
+            }
 
             if yt_id_col:
                 agg_kwargs["YouTube ID"] = (yt_id_col, "first")
             if yt_views_col:
-                agg_kwargs["點閱率"] = (yt_views_col, "first")
+                agg_kwargs["歷史最高點閱率"] = (yt_views_col, "first")
 
-            if is_weekly_chart:
-                evergreen = (
-                    target_df.groupby([song_col, singer_col])
-                    .agg(**agg_kwargs)
-                    .reset_index()
-                    .sort_values(
-                        by=["累積上榜期數", "平均名次"],
-                        ascending=[False, True],
-                    )
+            evergreen = (
+                target_df.groupby([song_col, singer_col])
+                .agg(**agg_kwargs)
+                .reset_index()
+                .sort_values(
+                    by=["累積上榜天數"],
+                    ascending=[False],
                 )
-            else:
-                evergreen = (
-                    target_df.groupby([song_col, singer_col])
-                    .agg(**agg_kwargs)
-                    .reset_index()
-                    .sort_values(
-                        by=["累積上榜天數", "平均名次"],
-                        ascending=[False, True],
-                    )
-                )
+            )
 
             if not evergreen.empty:
                 def build_yt_url(val):
@@ -950,49 +919,39 @@ with main_tabs[2]:
                 else:
                     evergreen["影片連結"] = None
 
-                if "點閱率" in evergreen.columns:
-                    evergreen["點閱率"] = (
-                        evergreen["點閱率"]
+                if "歷史最高點閱率" in evergreen.columns:
+                    evergreen["歷史最高點閱率"] = (
+                        evergreen["歷史最高點閱率"]
                         .astype(str)
                         .str.replace(",", "", regex=False)
                     )
-                    evergreen["點閱率"] = pd.to_numeric(
-                        evergreen["點閱率"], errors="coerce"
+                    evergreen["歷史最高點閱率"] = pd.to_numeric(
+                        evergreen["歷史最高點閱率"], errors="coerce"
                     )
                 else:
-                    evergreen["點閱率"] = None
+                    evergreen["歷史最高點閱率"] = None
 
-                count_col_name = "累積上榜期數" if is_weekly_chart else "累積上榜天數"
                 cols_order = [
                     song_col,
                     singer_col,
-                    "點閱率",
-                    count_col_name,
-                    "平均名次",
+                    "歷史最高點閱率",
+                    "累積上榜天數",
                     "影片連結",
                 ]
                 evergreen = evergreen[cols_order]
 
-            total_units = (
-                target_df["榜單期數"].nunique()
-                if is_weekly_chart
-                else target_df["抓取日期"].nunique()
-            )
-            unit_name = "期" if is_weekly_chart else "天"
+            total_days = target_df["抓取日期"].nunique()
 
             st.success(
-                f"📈【{chart_option_m3}（{'週榜' if is_weekly_chart else '日榜'}）】統計區間：{start_date} ～ {end_date}（涵蓋 {total_units} {unit_name}，共 {len(evergreen)} 首歌曲）："
+                f"📈【{chart_option_m3}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首歌曲）："
             )
 
             column_config_dict = {
-                "點閱率": st.column_config.NumberColumn(
-                    "點閱率", format="%,d", width="small"
+                "歷史最高點閱率": st.column_config.NumberColumn(
+                    "歷史最高點閱率", format="%,d", width="small"
                 ),
-                count_col_name: st.column_config.NumberColumn(
-                    count_col_name, format="%d", width="small"
-                ),
-                "平均名次": st.column_config.NumberColumn(
-                    "平均名次", format="%.1f", width="small"
+                "累積上榜天數": st.column_config.NumberColumn(
+                    "累積上榜天數", format="%d", width="small"
                 ),
                 "影片連結": st.column_config.LinkColumn(
                     "影片連結",
