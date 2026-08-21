@@ -2,8 +2,8 @@ name: Daily QQ Music Scraper
 
 on:
   schedule:
-    # 每天台灣時間 12:30 執行 (對應 UTC 時間 04:30)
-    - cron: '30 4 * * *'
+    # 每天台灣時間 16:30 執行 (對應 UTC 時間 08:30)
+    - cron: '30 8 * * *'
   workflow_dispatch:
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
       - name: Run Scraper
         env:
           YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
-          API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }} # 👈 已將 API_KEYS 改為 GEMINI_API_KEYS
         run: python scraper.py
 
       - name: Auto Commit & Push result
@@ -40,5 +40,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
           git commit -m "Auto update: 每日榜單數據與 YouTube 對照表" || exit 0
-          git pull --rebase origin main
+          git pull --rebase --autostash origin main
           git push origin main
