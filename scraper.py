@@ -32,24 +32,32 @@ COMBINED_NOISE_KEYWORDS = [
 # 🔑 Gemini API Keys 取得與語言判定邏輯
 # ==========================================
 def get_gemini_api_keys():
-    """從環境變數 API_KEYS 或 .streamlit/secrets.toml 取得 Gemini API Keys"""
+    """從環境變數或 .streamlit/secrets.toml 取得 Gemini API Keys"""
     keys = []
-    env_keys = os.getenv("API_KEYS", "")
+    # 相容 GitHub Actions 傳入的 GEMINI_API_KEYS 或舊的 API_KEYS
+    env_keys = (
+        os.getenv("GEMINI_API_KEYS")
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("API_KEYS", "")
+    )
+
     if env_keys:
-        keys = [k.strip() for k in env_keys.splitlines() if k.strip()]
-        return keys
+        # 同時支援「多行換行」與「逗號分隔」的 Key 格式
+        raw_list = env_keys.replace(",", "\n").splitlines()
+        keys = [k.strip() for k in raw_list if k.strip()]
+        if keys:
+            return keys
 
     if os.path.exists(".streamlit/secrets.toml"):
         try:
             import tomllib
             with open(".streamlit/secrets.toml", "rb") as f:
                 secrets = tomllib.load(f)
-                if "GEMINI_API_KEYS" in secrets:
-                    k_config = secrets["GEMINI_API_KEYS"]
-                    if isinstance(k_config, list):
-                        keys = k_config
-                    elif isinstance(k_config, str):
-                        keys = [k.strip() for k in k_config.split(",") if k.strip()]
+                k_config = secrets.get("GEMINI_API_KEYS", secrets.get("GEMINI_API_KEY", []))
+                if isinstance(k_config, list):
+                    keys = [str(k).strip() for k in k_config if str(k).strip()]
+                elif isinstance(k_config, str):
+                    keys = [k.strip() for k in k_config.replace(",", "\n").splitlines() if k.strip()]
         except Exception:
             pass
     return keys
