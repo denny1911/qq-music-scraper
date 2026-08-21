@@ -22,9 +22,11 @@ jobs:
 
       - name: 安裝依賴套件
         run: |
-          pip install pandas
+          pip install pandas zhconv google-generativeai
 
       - name: 執行初始化與歷史資料同步腳本
+        env:
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
         run: python init_yt_mapping.py
 
       - name: Commit and push changes
