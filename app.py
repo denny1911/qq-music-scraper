@@ -462,7 +462,6 @@ with main_tabs[0]:
                     cols_order = [
                         song_col,
                         singer_col,
-                        "語言",
                         "即時點閱率",
                         "連續出現榜單",
                         "歷史出現榜單",
@@ -721,7 +720,6 @@ with main_tabs[1]:
                 cols_order = [
                     song_col,
                     singer_col,
-                    "語言",
                     "歷史最高點閱率",
                     "累積上榜天數",
                     "影片連結",
