@@ -69,7 +69,7 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
         print("  ❌ 未找到任何 Gemini API Key")
         return {"success": False, "category": "未知"}
 
-    yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id and yt_id not in ["-", "", "nan", "None"] else "無"
+    yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id and str(yt_id) not in ["-", "", "nan", "None"] else "無"
 
     prompt = f"""
 你是一個專業音樂榜單數據分析專家。請結合歌名、歌手背景知識以及 YouTube 影片資訊，將這首歌曲精準歸類為以下【5 種語言類別】之一（請務必使用繁體中文）：
@@ -84,9 +84,16 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
 - 歌手："{singer_name}"
 - YouTube 連結：{yt_link_info}
 
+【關鍵判斷標準】：
+1. 實際演唱語言絕對優先：請嚴格根據「實際演唱歌詞」做判定，絕對禁止僅憑「歌手國籍、所屬團體或背景」就直接預設歌曲語言！
+2. 華語/亞洲歌手的英文歌（重點修正）：若華語歌手發行的是全英文歌曲（如：嚴浩翔《No More Tomorrow》、張藝興《Crossfire》、王嘉爾英文單曲），不論歌手是誰，請務必歸類為 "西洋"。
+3. 英文歌名的華語歌：只有在歌名包含英文單字、但實際演唱歌詞「絕大部分為華語」時（如周深包含英文歌名的中文歌曲），才可歸類為 "華語"。
+4. 參考 YouTube 資訊：若提供了 YouTube 連結，請結合該影片與知識庫進行精準判定。
+
 請嚴格只輸出 JSON 格式，結構如下：
 {{
-  "category": "華語"
+  "category": "西洋",
+  "reason": "結合 YouTube 影片與背景知識，該歌曲為全英文單曲，演唱語言為英文，故歸類為西洋。"
 }}
 """
 
@@ -97,7 +104,6 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
         current_key = GEMINI_API_KEYS[CURRENT_GEMINI_KEY_IDX]
         genai.configure(api_key=current_key)
         
-        # 使用你指定的 gemini-3.1-flash-lite-preview 模型
         model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
 
         try:
