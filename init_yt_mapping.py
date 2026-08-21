@@ -1,6 +1,3 @@
-這是整合了三階段完整邏輯的 init_yt_mapping.py 程式碼：
-
-Python
 import glob
 import json
 import os
