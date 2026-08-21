@@ -1,4 +1,4 @@
-name: Run YT Mapping Initialization
+name: Run YT Mapping Initialization & Sync History
 
 on:
   workflow_dispatch:
@@ -22,11 +22,9 @@ jobs:
 
       - name: 安裝依賴套件
         run: |
-          pip install pandas google-api-python-client google-generativeai zhconv
+          pip install pandas
 
-      - name: 執行初始化腳本
-        env:
-          API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+      - name: 執行初始化與歷史資料同步腳本
         run: python init_yt_mapping.py
 
       - name: Commit and push changes
@@ -34,6 +32,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Auto-update song languages via Gemini API" || exit 0
+          git commit -m "Clean yt_mapping.csv and backfill languages to historical CSVs" || exit 0
           git pull --rebase origin main
           git push origin main
