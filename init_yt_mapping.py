@@ -47,22 +47,22 @@ API_KEYS = get_api_keys()
 # ==========================================
 # 🤖 2. 運用 QQAI 邏輯判定歌曲語言
 # ==========================================
+# 紀錄當前使用的 Key 索引，實現「固定使用同一隻，壞掉才換下一隻」
+CURRENT_KEY_INDEX = 0
+
 def call_gemini_classify_song(song_title, singer_name, yt_id=None):
-  if not API_KEYS:
-    return {
-        "success": False,
-        "category": "未知",
-        "reason": "未找到 Gemini API Key (請檢查 Streamlit Secrets 或環境變數)",
-    }
+    global CURRENT_KEY_INDEX
+    
+    if not API_KEYS:
+        return {
+            "success": False,
+            "category": "未知",
+            "reason": "未找到 Gemini API Key",
+        }
 
-  shuffled_keys = API_KEYS.copy()
-  random.shuffle(shuffled_keys)
+    yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id else "無"
 
-  yt_link_info = (
-      f"https://www.youtube.com/watch?v={yt_id}" if yt_id else "無"
-  )
-
-  prompt = f"""
+    prompt = f"""
 你是一個專業音樂榜單數據分析專家。請結合歌名、歌手背景知識以及 YouTube 影片資訊，將這首歌曲精準歸類為以下【5 種語言類別】之一：
 1. "華語" (歌詞以國語/粵語/台語為主)
 2. "西洋" (歌詞以英文/歐美語系為主)
@@ -88,40 +88,48 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
 }}
 """
 
-  last_error = None
-  for current_key in shuffled_keys:
-    try:
-      genai.configure(api_key=current_key)
-      model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
-      response = model.generate_content(
-          prompt, generation_config={"response_mime_type": "application/json"}
-      )
-      result_json = json.loads(response.text.strip())
-      return {
-          "success": True,
-          "category": result_json.get("category", "其它"),
-          "reason": result_json.get("reason", "Gemini 判定完成"),
-      }
-    except Exception as e:
-      last_error = e
-      err_str = str(e).lower()
+    max_retries_per_key = 2  # 同一隻 Key 遇到 429 時原地的重試次數
+    total_keys = len(API_KEYS)
+    
+    # 輪詢所有可用 Key
+    for _ in range(total_keys):
+        current_key = API_KEYS[CURRENT_KEY_INDEX]
+        genai.configure(api_key=current_key)
+        model = genai.GenerativeModel("gemini-1.5-flash") # 建議換成穩定的 flash
 
-      # 若遇到 429 流量限制或額度耗盡，強制冷卻 3~5 秒再換下一組 Key
-      if "429" in err_str or "exhausted" in err_str:
-        wait_sec = random.uniform(3.0, 5.0)
-        print(f"   ⚠️ 觸發 429 限流，Key 暫時失效，冷卻 {wait_sec:.1f} 秒後切換下一組 Key...")
-        time.sleep(wait_sec)
-      else:
-        # 其他錯誤（如網路微衝擊）小歇 1 秒
-        time.sleep(1.0)
-
-      continue
-
-  return {
-      "success": False,
-      "category": "未知",
-      "reason": f"所有 Key 呼叫失敗: {last_error}",
-  }
+        for retry in range(max_retries_per_key):
+            try:
+                response = model.generate_content(
+                    prompt, generation_config={"response_mime_type": "application/json"}
+                )
+                result_json = json.loads(response.text.strip())
+                return {
+                    "success": True,
+                    "category": result_json.get("category", "其它"),
+                    "reason": result_json.get("reason", "Gemini 判定完成"),
+                }
+            except Exception as e:
+                err_str = str(e).lower()
+                
+                # 若是 429 (請求太快)，讓「當前 Key」原地冷卻再試一次，不立刻換 Key
+                if "429" in err_str:
+                    wait_sec = 4.0 + (retry * 2.0)
+                    time.sleep(wait_sec)
+                    continue
+                
+                # 若是每日配額耗盡 (Quota Exceeded)，才切換至下一隻 Key
+                elif "quota" in err_str or "exhausted" in err_str:
+                    print(f" ⚠️ 當前 Key (索引 {CURRENT_KEY_INDEX}) 配額已耗盡，切換至下一隻 Key...")
+                    CURRENT_KEY_INDEX = (CURRENT_KEY_INDEX + 1) % total_keys
+                    break # 跳出 retry 迴圈，讓外層迴圈使用新 Key
+                else:
+                    time.sleep(1.0)
+                    
+    return {
+        "success": False,
+        "category": "未知",
+        "reason": "所有 Key 皆遇到錯誤或配額耗盡",
+    }
 
 
 # ==========================================
@@ -196,11 +204,6 @@ def update_yt_mapping_languages(csv_path=YT_MAPPING_PATH):
 
     sleep_time = random.uniform(1.5, 3.0)
     time.sleep(sleep_time)
-
-    # 每 10 筆存檔一次
-    if updated_count > 0 and updated_count % 10 == 0:
-      df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-      print(f"💾 進度已備份至 {csv_path} ...")
 
     # 每 10 筆存檔一次
     if updated_count > 0 and updated_count % 10 == 0:
