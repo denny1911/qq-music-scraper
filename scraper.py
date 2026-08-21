@@ -70,6 +70,7 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
     global CURRENT_GEMINI_KEY_IDX
 
     if not GEMINI_API_KEYS:
+        print("  ❌ 未找到任何 Gemini API Key")
         return {"success": False, "category": "未知"}
 
     yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id and yt_id not in ["-", "", "nan", "None"] else "無"
@@ -87,46 +88,42 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
 - 歌手："{singer_name}"
 - YouTube 連結：{yt_link_info}
 
-【關鍵判斷標準】：
-1. 實際演唱語言優先：請根據歌曲實際演唱的歌詞語言做最終判斷。
-2. 華語/亞洲歌手的全英文歌：若華語歌手發行的是全英文歌曲 (如張藝興 Crossfire、王嘉爾 Jackson Wang 的英文單曲)，請務必歸類為 "西洋"。
-3. 英文歌名的華語歌：若僅是歌名包含英文單字但歌詞與演唱主要是華語 (如周深翻唱或發行的中文歌曲)，請歸類為 "華語"。
-4. 參考 YouTube 資訊：若提供了 YouTube 連結，請結合該影片的歌曲知識庫進行精準判定。
-
 請嚴格只輸出 JSON 格式，結構如下：
 {{
   "category": "華語"
 }}
 """
 
-    max_retries_per_key = 2
     total_keys = len(GEMINI_API_KEYS)
+    keys_tried = 0
 
-    for _ in range(total_keys):
+    while keys_tried < total_keys:
         current_key = GEMINI_API_KEYS[CURRENT_GEMINI_KEY_IDX]
         genai.configure(api_key=current_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        # 使用你指定的 gemini-3.1-flash-lite-preview 模型
+        model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
 
-        for retry in range(max_retries_per_key):
-            try:
-                response = model.generate_content(
-                    prompt, generation_config={"response_mime_type": "application/json"}
-                )
-                result_json = json.loads(response.text.strip())
-                raw_category = result_json.get("category", "其它")
-                trad_category = zhconv.convert(raw_category, "zh-tw")
+        try:
+            response = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"},
+                request_options={"timeout": 15.0}
+            )
+            result_json = json.loads(response.text.strip())
+            raw_category = result_json.get("category", "其它")
+            trad_category = zhconv.convert(raw_category, "zh-tw")
 
-                return {"success": True, "category": trad_category}
-            except Exception as e:
-                err_str = str(e).lower()
-                if "429" in err_str:
-                    time.sleep(4.0 + (retry * 2.0))
-                    continue
-                elif "quota" in err_str or "exhausted" in err_str:
-                    CURRENT_GEMINI_KEY_IDX = (CURRENT_GEMINI_KEY_IDX + 1) % total_keys
-                    break
-                else:
-                    time.sleep(1.0)
+            return {"success": True, "category": trad_category}
+
+        except Exception as e:
+            err_str = str(e)
+            print(f"  ⚠️ Key {CURRENT_GEMINI_KEY_IDX + 1} 發生錯誤: {err_str}")
+            
+            # 遭遇 429 / Quota 超限或無效時自動輪替 Key
+            CURRENT_GEMINI_KEY_IDX = (CURRENT_GEMINI_KEY_IDX + 1) % total_keys
+            keys_tried += 1
+            time.sleep(1.0)
 
     return {"success": False, "category": "未知"}
 
