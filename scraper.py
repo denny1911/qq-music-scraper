@@ -35,11 +35,7 @@ def get_gemini_api_keys():
     """從環境變數或 .streamlit/secrets.toml 取得 Gemini API Keys"""
     keys = []
     # 相容 GitHub Actions 傳入的 GEMINI_API_KEYS 或舊的 API_KEYS
-    env_keys = (
-        os.getenv("GEMINI_API_KEYS")
-        or os.getenv("GEMINI_API_KEY")
-        or os.getenv("API_KEYS", "")
-    )
+    env_keys = os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY", "")
 
     if env_keys:
         # 同時支援「多行換行」與「逗號分隔」的 Key 格式
