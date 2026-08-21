@@ -178,12 +178,12 @@ main_tabs = st.tabs(
 )
 
 # ==========================================
-# 🏆 模組一：全網霸榜池（單榜連續神曲）
+# 🏆 模組一：全網霸榜池（單榜連續神曲 - 僅限華語）
 # ==========================================
 with main_tabs[0]:
-    st.header("🔥 模組一：全網跨榜霸榜池")
+    st.header("🔥 模組一：全網跨榜霸榜池 (華語專屬)")
     st.markdown(
-        "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的神曲，指標最硬不踩雷！"
+        "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的**華語神曲**，指標最硬不踩雷！"
     )
 
     # 1. 自動從 Secrets 提取 API Key 清單
@@ -265,25 +265,33 @@ with main_tabs[0]:
             )
 
             if song_col and singer_col:
-                # 建立中央對照表的 ID 映射
+                # 建立中央對照表的 ID & 語言 映射
                 yt_id_pair_map = {}
+                lang_pair_map = {}
                 import os
                 mapping_file = "data/yt_mapping.csv"
                 if os.path.exists(mapping_file):
                     try:
-                        map_df = pd.read_csv(mapping_file)
+                        map_df = pd.read_csv(mapping_file, dtype=str).fillna("-")
                         m_song = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else None)
                         m_singer = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else None)
                         m_vid = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), None)
+                        m_lang = "語言" if "語言" in map_df.columns else None
 
-                        if m_song and m_singer and m_vid:
+                        if m_song and m_singer:
                             for _, r in map_df.iterrows():
                                 s_title = str(r.get(m_song, "")).strip().replace(" ", "").lower()
                                 s_artist = str(r.get(m_singer, "")).strip().replace(" ", "").lower()
-                                v_id = str(r.get(m_vid, "")).strip()
-
-                                if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
-                                    yt_id_pair_map[(s_title, s_artist)] = v_id
+                                
+                                if m_vid:
+                                    v_id = str(r.get(m_vid, "")).strip()
+                                    if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
+                                        yt_id_pair_map[(s_title, s_artist)] = v_id
+                                
+                                if m_lang:
+                                    v_lang = str(r.get(m_lang, "")).strip()
+                                    if s_title and s_artist and v_lang and v_lang not in ["-", "nan", "None", ""]:
+                                        lang_pair_map[(s_title, s_artist)] = v_lang
                     except Exception:
                         pass
 
@@ -317,6 +325,28 @@ with main_tabs[0]:
 
                 records = []
                 for (song, singer), sub_df in df_range.groupby([song_col, singer_col]):
+                    
+                    # 💡 【新增：語言過濾機制】優先從當日前端 CSV 抓語言，若無則從中央對照表反查
+                    song_lang = None
+                    if "語言" in sub_df.columns:
+                        valid_lang_df = sub_df[
+                            ~sub_df["語言"]
+                            .astype(str)
+                            .str.strip()
+                            .isin(["-", "nan", "None", "", "未知"])
+                        ].dropna(subset=["語言"])
+                        if not valid_lang_df.empty:
+                            song_lang = valid_lang_df["語言"].iloc[-1]
+
+                    if not song_lang:
+                        clean_s = str(song).strip().replace(" ", "").lower()
+                        clean_a = str(singer).strip().replace(" ", "").lower()
+                        song_lang = lang_pair_map.get((clean_s, clean_a), "未知")
+
+                    # 若語言不是「華語」，直接跳過該歌曲！
+                    if str(song_lang).strip() != "華語":
+                        continue
+
                     history_charts = "、".join(sorted(sub_df["榜單類型"].unique()))
 
                     chart_streaks = {}
@@ -357,6 +387,7 @@ with main_tabs[0]:
                             {
                                 song_col: song,
                                 singer_col: singer,
+                                "語言": song_lang,
                                 "即時點閱率": None,
                                 "連續在榜天數": max_single_streak,
                                 "連續出現榜單": continuous_charts,
@@ -369,7 +400,7 @@ with main_tabs[0]:
                     multi_chart = pd.DataFrame(records)
 
                     # 按鈕觸發：連線 API 抓取此刻即時點閱
-                    btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱")
+                    btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱 (YouTube API)")
 
                     if btn_fetch_realtime:
                         api_keys = fetch_m1_api_keys()
@@ -408,7 +439,6 @@ with main_tabs[0]:
                                     current_key_idx += 1
 
                             if fetch_success:
-                                # 修正關鍵：寫入「即時點閱率」欄位
                                 multi_chart["即時點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map)
                                 st.toast("✅ 已成功載入此刻最新即時點閱！")
                             else:
@@ -432,6 +462,7 @@ with main_tabs[0]:
                     cols_order = [
                         song_col,
                         singer_col,
+                        "語言",
                         "即時點閱率",
                         "連續出現榜單",
                         "歷史出現榜單",
@@ -440,7 +471,7 @@ with main_tabs[0]:
                     multi_chart = multi_chart[cols_order]
 
                     st.success(
-                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(multi_chart)} 首單榜全程連續霸榜神曲！"
+                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(multi_chart)} 首華語單榜全程連續霸榜神曲！"
                     )
                     st.dataframe(
                         multi_chart,
@@ -464,13 +495,13 @@ with main_tabs[0]:
                     st.download_button(
                         label="📥 匯出連續霸榜池清單 (CSV)",
                         data=csv_data,
-                        file_name=f"QQ音樂_連續霸榜池_{start_date}_至_{end_date}.csv",
+                        file_name=f"QQ音樂_華語連續霸榜池_{start_date}_至_{end_date}.csv",
                         mime="text/csv",
                         key="m1_download_range",
                     )
                 else:
                     st.info(
-                        f"在 {start_date} ～ {end_date} 區間內（$X = {X_max_days}$ 天），暫無單榜達到連續 $X$ 天皆在榜的歌曲。"
+                        f"在 {start_date} ～ {end_date} 區間內（$X = {X_max_days}$ 天），暫無華語歌曲達到連續 $X$ 天皆在榜。"
                     )
             else:
                 st.warning(
@@ -480,24 +511,13 @@ with main_tabs[0]:
             st.warning(f"在 {start_date} ～ {end_date} 區間內尚無榜單資料。")
             
 # ==========================================
-# 👑 模組二：榜單常勝軍（長青熱歌）
+# 👑 模組二：榜單常勝軍（長青熱歌 - 僅限華語）
 # ==========================================
 with main_tabs[1]:
-    st.header("👑 模組二：榜單常勝軍（長青熱歌）")
+    st.header("👑 模組二：榜單常勝軍（長青熱歌 - 華語專屬）")
     st.markdown(
-        "統計**指定日期區間**內，在個別榜單的累積天數表現。"
+        "統計**指定日期區間**內，在個別榜單的累積天數表現（僅顯示**華語歌曲**）。"
     )
-
-    # 1. API Key 提取函式
-    def fetch_m2_api_keys():
-        raw_keys = st.secrets.get(
-            "YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", [])
-        )
-        if isinstance(raw_keys, str):
-            return [k.strip() for k in raw_keys.split(",") if k.strip()]
-        elif isinstance(raw_keys, list):
-            return [str(k).strip() for k in raw_keys if str(k).strip()]
-        return []
 
     chart_option_m2 = st.radio(
         "選擇要統計常勝軍的榜單",
@@ -508,7 +528,7 @@ with main_tabs[1]:
 
     m2_preset = st.radio(
         "🗓️ 選擇統計時間範圍",
-        ["⚡ 近 7 天", "⚡ 近 30 天", "📅 自訂月曆區間"],
+        ["⚡ 近 7 天", "⚡ 近 30 天", "🌐 全部歷史區間", "📅 自訂月曆區間"],
         horizontal=True,
         key="m2_preset_radio",
     )
@@ -523,6 +543,9 @@ with main_tabs[1]:
             earliest_date_obj,
             latest_date_obj - timedelta(days=29),
         )
+        end_date_obj = latest_date_obj
+    elif m2_preset == "🌐 全部歷史區間":
+        start_date_obj = earliest_date_obj
         end_date_obj = latest_date_obj
     else:
         date_range = st.date_input(
@@ -557,6 +580,7 @@ with main_tabs[1]:
 
         # Key 格式為：(歌名淨化字串, 歌手淨化字串)
         yt_id_pair_map = {}
+        lang_pair_map = {}
 
         def clean_key(text):
             """去除前後空白、全形空格，轉小寫以提升比對成功率"""
@@ -564,63 +588,109 @@ with main_tabs[1]:
                 return ""
             return str(text).strip().replace(" ", "").lower()
 
+        # ----------------------------------------------------
         # 1. 讀取中央對照表 yt_mapping.csv
+        # ----------------------------------------------------
         import os
         mapping_file = "data/yt_mapping.csv"
         
         if os.path.exists(mapping_file):
             try:
-                map_df = pd.read_csv(mapping_file)
+                map_df = pd.read_csv(mapping_file, dtype=str).fillna("-")
                 m_song = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else None)
                 m_singer = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else None)
                 m_vid = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), None)
+                m_lang = "語言" if "語言" in map_df.columns else None
 
-                if m_song and m_singer and m_vid:
+                if m_song and m_singer:
                     for _, r in map_df.iterrows():
                         s_title = clean_key(r.get(m_song, ""))
                         s_artist = clean_key(r.get(m_singer, ""))
-                        v_id = str(r.get(m_vid, "")).strip()
-
-                        if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
-                            yt_id_pair_map[(s_title, s_artist)] = v_id
+                        
+                        if m_vid:
+                            v_id = str(r.get(m_vid, "")).strip()
+                            if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
+                                yt_id_pair_map[(s_title, s_artist)] = v_id
+                        
+                        if m_lang:
+                            v_lang = str(r.get(m_lang, "")).strip()
+                            if s_title and s_artist and v_lang and v_lang not in ["-", "nan", "None", ""]:
+                                lang_pair_map[(s_title, s_artist)] = v_lang
             except Exception:
                 pass
 
-        # 2. 從每日 CSV 補強 ID
+        # ----------------------------------------------------
+        # 2. 從每日 CSV 補強 ID 與 語言 (若每日資料中有更全的記錄)
+        # ----------------------------------------------------
         yt_id_col = next(
             (c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns),
             None
         )
+        lang_col = "語言" if "語言" in full_df.columns else None
 
-        if yt_id_col:
-            for _, row in full_df.iterrows():
-                s_title = clean_key(row.get(song_col, ""))
-                s_artist = clean_key(row.get(singer_col, ""))
+        for _, row in full_df.iterrows():
+            s_title = clean_key(row.get(song_col, ""))
+            s_artist = clean_key(row.get(singer_col, ""))
+            key = (s_title, s_artist)
+
+            if yt_id_col:
                 v_id = str(row.get(yt_id_col, "")).strip()
-
                 if s_title and s_artist and v_id and v_id not in ["-", "nan", "None", ""]:
-                    key = (s_title, s_artist)
                     if key not in yt_id_pair_map:
                         yt_id_pair_map[key] = v_id
+
+            if lang_col:
+                v_lang = str(row.get(lang_col, "")).strip()
+                if s_title and s_artist and v_lang and v_lang not in ["-", "nan", "None", "", "未知"]:
+                    if key not in lang_pair_map:
+                        lang_pair_map[key] = v_lang
 
         target_df = full_df[full_df["榜單類型"] == chart_option_m2].copy()
 
         if not target_df.empty:
+            # 按日期升冪排序，確保 .agg("last") 取得區間內最新的點閱率與語言
             target_df = target_df.sort_values(by="抓取日期", ascending=True)
 
-            # 聚合計算「累積上榜天數」
+            yt_views_col = next(
+                (c for c in ["歷史最高點閱率", "點閱率", "觀看次數"] if c in target_df.columns),
+                None
+            )
+
+            agg_kwargs = {
+                "累積上榜天數": ("抓取日期", "nunique"),
+            }
+
+            if yt_views_col:
+                agg_kwargs["歷史最高點閱率"] = (yt_views_col, "last")
+
             evergreen = (
                 target_df.groupby([song_col, singer_col])
-                .agg(累積上榜天數=("抓取日期", "nunique"))
+                .agg(**agg_kwargs)
                 .reset_index()
-                .sort_values(by=["累積上榜天數"], ascending=[False])
+                .sort_values(
+                    by=["累積上榜天數"],
+                    ascending=[False],
+                )
             )
 
             if not evergreen.empty:
-                # 預設即時點閱率為 None
-                evergreen["即時點閱率"] = None
+                # ----------------------------------------------------
+                # 3. 語言判定與過濾（僅保留「華語」）
+                # ----------------------------------------------------
+                def get_song_lang(row):
+                    s = clean_key(row[song_col])
+                    a = clean_key(row[singer_col])
+                    return lang_pair_map.get((s, a), "未知")
 
-                # 反查 YouTube ID
+                evergreen["語言"] = evergreen.apply(get_song_lang, axis=1)
+
+                # 💡 核心過濾：僅保留華語歌曲
+                evergreen = evergreen[evergreen["語言"] == "華語"].copy()
+
+            if not evergreen.empty:
+                # ----------------------------------------------------
+                # 4. 嚴格以 (歌名, 歌手) 反查 YouTube ID
+                # ----------------------------------------------------
                 def get_yt_id(row):
                     s = clean_key(row[song_col])
                     a = clean_key(row[singer_col])
@@ -628,52 +698,6 @@ with main_tabs[1]:
 
                 evergreen["YouTube ID"] = evergreen.apply(get_yt_id, axis=1)
 
-                # 按鈕觸發：連線 API 抓取此刻即時點閱
-                btn_fetch_realtime_m2 = st.button("🔄 抓取此刻即時點閱 (YouTube API)", key="m2_fetch_btn")
-
-                if btn_fetch_realtime_m2:
-                    api_keys = fetch_m2_api_keys()
-                    if not api_keys:
-                        st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`，無法抓取即時點閱。")
-                    else:
-                        valid_ids = evergreen["YouTube ID"].dropna().unique().tolist()
-                        valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
-
-                        realtime_views_map = {}
-                        current_key_idx = 0
-                        fetch_success = False
-
-                        # 多 Key 輪替批次請求機制
-                        while current_key_idx < len(api_keys) and not fetch_success:
-                            current_key = api_keys[current_key_idx]
-                            try:
-                                batch_size = 50
-                                for i in range(0, len(valid_ids), batch_size):
-                                    batch_ids = valid_ids[i:i + batch_size]
-                                    api_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(batch_ids)}&key={current_key}"
-                                    res = requests.get(api_url, timeout=5)
-
-                                    if res.status_code == 200:
-                                        data = res.json()
-                                        for item in data.get("items", []):
-                                            vid = item.get("id")
-                                            v_cnt = item.get("statistics", {}).get("viewCount")
-                                            if v_cnt:
-                                                realtime_views_map[vid] = int(v_cnt)
-                                    else:
-                                        raise Exception(f"HTTP {res.status_code}")
-
-                                fetch_success = True
-                            except Exception:
-                                current_key_idx += 1
-
-                        if fetch_success:
-                            evergreen["即時點閱率"] = evergreen["YouTube ID"].map(realtime_views_map)
-                            st.toast("✅ 已成功載入此刻最新即時點閱！")
-                        else:
-                            st.error("❌ 所有 API Key 今日配額皆已耗盡或連線失敗。")
-
-                # 處理影片連結
                 def build_yt_url(val):
                     v = str(val).strip() if pd.notna(val) else ""
                     if v and v not in ["-", "nan", "None", ""]:
@@ -682,14 +706,23 @@ with main_tabs[1]:
 
                 evergreen["影片連結"] = evergreen["YouTube ID"].apply(build_yt_url)
 
-                # 若點擊按鈕更新了點閱率，依點閱率由高到低排序，否則保持原有的上榜天數排序
-                if evergreen["即時點閱率"].notna().any():
-                    evergreen = evergreen.sort_values(by=["即時點閱率"], ascending=[False], na_position="last")
+                if "歷史最高點閱率" in evergreen.columns:
+                    evergreen["歷史最高點閱率"] = (
+                        evergreen["歷史最高點閱率"]
+                        .astype(str)
+                        .str.replace(",", "", regex=False)
+                    )
+                    evergreen["歷史最高點閱率"] = pd.to_numeric(
+                        evergreen["歷史最高點閱率"], errors="coerce"
+                    )
+                else:
+                    evergreen["歷史最高點閱率"] = None
 
                 cols_order = [
                     song_col,
                     singer_col,
-                    "即時點閱率",
+                    "語言",
+                    "歷史最高點閱率",
                     "累積上榜天數",
                     "影片連結",
                 ]
@@ -697,41 +730,46 @@ with main_tabs[1]:
 
             total_days = target_df["抓取日期"].nunique()
 
-            st.success(
-                f"📈【{chart_option_m2}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首歌曲）："
-            )
+            if not evergreen.empty:
+                st.success(
+                    f"📈【{chart_option_m2}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首華語歌曲）："
+                )
 
-            column_config_dict = {
-                "即時點閱率": st.column_config.NumberColumn(
-                    "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
-                ),
-                "累積上榜天數": st.column_config.NumberColumn(
-                    "累積上榜天數", format="%d", width="small"
-                ),
-                "影片連結": st.column_config.LinkColumn(
-                    "影片連結",
-                    display_text="點此觀看",
-                    help="點擊前往 YouTube 觀看 MV",
-                    width="small",
-                ),
-            }
+                column_config_dict = {
+                    "歷史最高點閱率": st.column_config.NumberColumn(
+                        "歷史最高點閱率", format="%,d", width="small"
+                    ),
+                    "累積上榜天數": st.column_config.NumberColumn(
+                        "累積上榜天數", format="%d", width="small"
+                    ),
+                    "影片連結": st.column_config.LinkColumn(
+                        "影片連結",
+                        display_text="點此觀看",
+                        help="點擊前往 YouTube 觀看 MV",
+                        width="small",
+                    ),
+                }
 
-            st.dataframe(
-                evergreen,
-                column_config=column_config_dict,
-                hide_index=True,
-                use_container_width=True,
-            )
+                st.dataframe(
+                    evergreen,
+                    column_config=column_config_dict,
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
-            export_df = get_clean_export_df(target_df, evergreen)
-            csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                label=f"📥 匯出【{chart_option_m2}】常勝軍清單 (CSV)",
-                data=csv_data,
-                file_name=f"QQ音樂_榜單常勝軍_{chart_option_m2}_{start_date}_至_{end_date}.csv",
-                mime="text/csv",
-                key="m2_download",
-            )
+                export_df = get_clean_export_df(target_df, evergreen)
+                csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    label=f"📥 匯出【{chart_option_m2}】華語常勝軍清單 (CSV)",
+                    data=csv_data,
+                    file_name=f"QQ音樂_華語榜單常勝軍_{chart_option_m2}_{start_date}_至_{end_date}.csv",
+                    mime="text/csv",
+                    key="m2_download",
+                )
+            else:
+                st.info(
+                    f"在 {start_date} ～ {end_date} 區間內，【{chart_option_m2}】尚無華語歌曲上榜。"
+                )
         else:
             st.info(
                 f"在 {start_date} ～ {end_date} 區間內，尚無【{chart_option_m2}】的數據。"
