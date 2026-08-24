@@ -534,15 +534,10 @@ with main_tabs[1]:
     )
 
     if m2_preset == "⚡ 近 7 天":
-        start_date_obj = max(
-            earliest_date_obj, latest_date_obj - timedelta(days=6)
-        )
+        start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=6))
         end_date_obj = latest_date_obj
     elif m2_preset == "⚡ 近 30 天":
-        start_date_obj = max(
-            earliest_date_obj,
-            latest_date_obj - timedelta(days=29),
-        )
+        start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=29))
         end_date_obj = latest_date_obj
     elif m2_preset == "🌐 全部歷史區間":
         start_date_obj = earliest_date_obj
@@ -578,19 +573,15 @@ with main_tabs[1]:
         song_col = "歌名" if "歌名" in full_df.columns else "song"
         singer_col = "歌手" if "歌手" in full_df.columns else "singer"
 
-        # Key 格式為：(歌名淨化字串, 歌手淨化字串)
         yt_id_pair_map = {}
         lang_pair_map = {}
 
         def clean_key(text):
-            """去除前後空白、全形空格，轉小寫以提升比對成功率"""
             if pd.isna(text):
                 return ""
             return str(text).strip().replace(" ", "").lower()
 
-        # ----------------------------------------------------
-        # 1. 讀取中央對照表 yt_mapping.csv
-        # ----------------------------------------------------
+        # 1. 讀取中央對照表
         import os
         mapping_file = "data/yt_mapping.csv"
         
@@ -619,9 +610,7 @@ with main_tabs[1]:
             except Exception:
                 pass
 
-        # ----------------------------------------------------
-        # 2. 從每日 CSV 補強 ID 與 語言 (若每日資料中有更全的記錄)
-        # ----------------------------------------------------
+        # 2. 補強 ID 與 語言
         yt_id_col = next(
             (c for c in ["YouTube ID", "YouTube_ID", "Video ID"] if c in full_df.columns),
             None
@@ -648,49 +637,30 @@ with main_tabs[1]:
         target_df = full_df[full_df["榜單類型"] == chart_option_m2].copy()
 
         if not target_df.empty:
-            # 按日期升冪排序，確保 .agg("last") 取得區間內最新的點閱率與語言
             target_df = target_df.sort_values(by="抓取日期", ascending=True)
-
-            yt_views_col = next(
-                (c for c in ["即時點閱率", "歷史最高點閱率", "點閱率", "觀看次數"] if c in target_df.columns),
-                None
-            )
-
-            agg_kwargs = {
-                "累積上榜天數": ("抓取日期", "nunique"),
-            }
-
-            if yt_views_col:
-                agg_kwargs["即時點閱率"] = (yt_views_col, "last")
 
             evergreen = (
                 target_df.groupby([song_col, singer_col])
-                .agg(**agg_kwargs)
+                .agg(累積上榜天數=("抓取日期", "nunique"))
                 .reset_index()
-                .sort_values(
-                    by=["累積上榜天數"],
-                    ascending=[False],
-                )
+                .sort_values(by=["累積上榜天數"], ascending=[False])
             )
 
+            # 初始將即時點閱率統一設為 None (同模組一邏輯)
+            evergreen["即時點閱率"] = None
+
             if not evergreen.empty:
-                # ----------------------------------------------------
                 # 3. 語言判定與過濾（僅保留「華語」）
-                # ----------------------------------------------------
                 def get_song_lang(row):
                     s = clean_key(row[song_col])
                     a = clean_key(row[singer_col])
                     return lang_pair_map.get((s, a), "未知")
 
                 evergreen["語言"] = evergreen.apply(get_song_lang, axis=1)
-
-                # 💡 核心過濾：僅保留華語歌曲
                 evergreen = evergreen[evergreen["語言"] == "華語"].copy()
 
             if not evergreen.empty:
-                # ----------------------------------------------------
-                # 4. 嚴格以 (歌名, 歌手) 反查 YouTube ID 與 建立播放連結
-                # ----------------------------------------------------
+                # 4. 反查 YouTube ID 與 建立播放連結
                 def get_yt_id(row):
                     s = clean_key(row[song_col])
                     a = clean_key(row[singer_col])
@@ -706,69 +676,67 @@ with main_tabs[1]:
 
                 evergreen["影片連結"] = evergreen["YouTube ID"].apply(build_yt_url)
 
-                if "即時點閱率" in evergreen.columns:
-                    evergreen["即時點閱率"] = (
-                        evergreen["即時點閱率"]
-                        .astype(str)
-                        .str.replace(",", "", regex=False)
-                    )
-                    evergreen["即時點閱率"] = pd.to_numeric(
-                        evergreen["即時點閱率"], errors="coerce"
-                    )
-                else:
-                    evergreen["即時點閱率"] = None
-
-                # ----------------------------------------------------
-                # 5. 即時點閱率抓取按鈕與 session 紀錄機制
-                # ----------------------------------------------------
+                # 5. 直連 YouTube API 抓取按鈕 (與模組一完全一致)
                 if "m2_live_views" not in st.session_state:
                     st.session_state["m2_live_views"] = {}
 
-                col_btn, col_info = st.columns([1, 3])
-                with col_btn:
-                    fetch_m2_click = st.button("🔄 抓取此刻即時點閱", key="m2_fetch_yt_btn")
+                fetch_m2_click = st.button("🔄 抓取此刻即時點閱 (YouTube API)", key="m2_fetch_yt_btn")
 
                 if fetch_m2_click:
-                    valid_yt_ids = [
-                        str(v).strip() for v in evergreen["YouTube ID"].dropna().unique()
-                        if str(v).strip() and str(v).strip() not in ["-", "nan", "None", ""]
-                    ]
-                    if valid_yt_ids:
-                        with st.spinner("正在透過 YouTube API 抓取最新即時點閱數..."):
-                            # 自動尋找腳本中定義的 YouTube API 批次查詢函式
-                            yt_func = None
-                            for fname in ["fetch_yt_views_batch", "batch_get_yt_views", "get_yt_views_batch", "fetch_youtube_views_batch", "get_youtube_views_batch"]:
-                                if fname in globals() and callable(globals()[fname]):
-                                    yt_func = globals()[fname]
-                                    break
-                            
-                            if yt_func:
-                                try:
-                                    live_dict = yt_func(valid_yt_ids)
-                                    if live_dict:
-                                        st.session_state["m2_live_views"].update(live_dict)
-                                        st.success("✅ 已成功更新為 YouTube 此刻最新點閱率！")
-                                    else:
-                                        st.warning("⚠️ 抓取失敗或未回傳數據。")
-                                except Exception as e:
-                                    st.error(f"❌ 抓取即時點閱率時發生錯誤：{e}")
-                            else:
-                                st.warning("⚠️ 未找到 YouTube API 批次查詢函式，請確認腳本中已定義 API 呼叫函式。")
+                    raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
+                    if isinstance(raw_keys, str):
+                        api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+                    elif isinstance(raw_keys, list):
+                        api_keys = [str(k).strip() for k in raw_keys if str(k).strip()]
                     else:
-                        st.warning("⚠️ 目前無有效的 YouTube ID 可供查詢。")
+                        api_keys = []
 
-                # 若 session_state 中已有最新即時點閱，直接覆蓋更新
+                    if not api_keys:
+                        st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY`，無法抓取即時點閱。")
+                    else:
+                        valid_ids = [
+                            str(v).strip() for v in evergreen["YouTube ID"].dropna().unique()
+                            if str(v).strip() and str(v).strip() not in ["-", "nan", "None", ""]
+                        ]
+                        
+                        if valid_ids:
+                            with st.spinner("正在透過 YouTube API 抓取最新即時點閱數..."):
+                                current_key_idx = 0
+                                fetch_success = False
+
+                                while current_key_idx < len(api_keys) and not fetch_success:
+                                    current_key = api_keys[current_key_idx]
+                                    try:
+                                        batch_size = 50
+                                        for i in range(0, len(valid_ids), batch_size):
+                                            batch_ids = valid_ids[i:i + batch_size]
+                                            api_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(batch_ids)}&key={current_key}"
+                                            res = requests.get(api_url, timeout=5)
+
+                                            if res.status_code == 200:
+                                                data = res.json()
+                                                for item in data.get("items", []):
+                                                    vid = item.get("id")
+                                                    v_cnt = item.get("statistics", {}).get("viewCount")
+                                                    if v_cnt:
+                                                        st.session_state["m2_live_views"][vid] = int(v_cnt)
+                                            else:
+                                                raise Exception(f"HTTP {res.status_code}")
+
+                                        fetch_success = True
+                                    except Exception:
+                                        current_key_idx += 1
+
+                                if fetch_success:
+                                    st.toast("✅ 已成功載入此刻最新即時點閱！")
+                                else:
+                                    st.error("❌ 所有 API Key 今日配額皆已耗盡或連線失敗。")
+                        else:
+                            st.warning("⚠️ 目前無有效的 YouTube ID 可供查詢。")
+
+                # 若已抓取過即時點閱，映射回表格
                 if st.session_state["m2_live_views"]:
-                    def update_live_view(row):
-                        yid = row.get("YouTube ID")
-                        if yid in st.session_state["m2_live_views"]:
-                            return st.session_state["m2_live_views"][yid]
-                        return row.get("即時點閱率")
-
-                    evergreen["即時點閱率"] = evergreen.apply(update_live_view, axis=1)
-                    evergreen["即時點閱率"] = pd.to_numeric(
-                        evergreen["即時點閱率"], errors="coerce"
-                    )
+                    evergreen["即時點閱率"] = evergreen["YouTube ID"].map(st.session_state["m2_live_views"])
 
                 cols_order = [
                     song_col,
@@ -786,24 +754,22 @@ with main_tabs[1]:
                     f"📈【{chart_option_m2}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首華語歌曲）："
                 )
 
-                column_config_dict = {
-                    "即時點閱率": st.column_config.NumberColumn(
-                        "即時點閱率", format="%,d", width="small"
-                    ),
-                    "累積上榜天數": st.column_config.NumberColumn(
-                        "累積上榜天數", format="%d", width="small"
-                    ),
-                    "影片連結": st.column_config.LinkColumn(
-                        "影片連結",
-                        display_text="點此觀看",
-                        help="點擊前往 YouTube 觀看 MV",
-                        width="small",
-                    ),
-                }
-
                 st.dataframe(
                     evergreen_display,
-                    column_config=column_config_dict,
+                    column_config={
+                        "即時點閱率": st.column_config.NumberColumn(
+                            "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
+                        ),
+                        "累積上榜天數": st.column_config.NumberColumn(
+                            "累積上榜天數", format="%d", width="small"
+                        ),
+                        "影片連結": st.column_config.LinkColumn(
+                            "影片連結",
+                            display_text="點此觀看",
+                            help="點擊前往 YouTube 觀看 MV",
+                            width="small",
+                        ),
+                    },
                     hide_index=True,
                     use_container_width=True,
                 )
