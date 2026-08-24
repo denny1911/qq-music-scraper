@@ -913,8 +913,6 @@ with main_tabs[2]:
                 # 寫回 CSV 檔案
                 map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
                 
-                # 顯示目前對照表預覽
-                st.dataframe(map_df.tail(5), use_container_width=True, hide_index=True)
 
 # ==========================================
 # 📊 原始榜單瀏覽
