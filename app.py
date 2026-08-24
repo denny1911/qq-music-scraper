@@ -833,7 +833,7 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
-    st.markdown("輸入欲修改的**歌名**與**歌手**，系統將直接更新或新增至 `data/yt_mapping.csv` 對照表中。")
+    st.markdown("輸入欲修改的**歌名**與**歌手**，系統將直接更新至 `data/yt_mapping.csv` 並同步上傳至 GitHub。")
 
     mapping_file = "data/yt_mapping.csv"
 
@@ -910,9 +910,40 @@ with main_tabs[2]:
                     map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
                     st.success(f"➕ 找不到舊紀錄，已新增一筆：《{target_song} - {target_singer}》")
 
-                # 寫回 CSV 檔案
+                # 1. 本地硬碟寫入 CSV 檔案
                 map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
-                
+
+                # 2. 自動同步 commit/push 到 GitHub Repository (若已配置 secrets)
+                if "github" in st.secrets:
+                    try:
+                        from github import Github
+                        g = Github(st.secrets["github"]["token"])
+                        repo = g.get_repo(st.secrets["github"]["repo"])
+                        
+                        # 取得 GitHub 上的舊檔案資訊
+                        contents = repo.get_contents("data/yt_mapping.csv")
+                        updated_csv_content = map_df.to_csv(index=False, encoding="utf-8-sig")
+                        
+                        # 推送更新
+                        repo.update_file(
+                            path="data/yt_mapping.csv",
+                            message=f"Update yt_mapping.csv: {target_song} - {target_singer}",
+                            content=updated_csv_content,
+                            sha=contents.sha,
+                            branch="main"  # 若為 master 請改為 master
+                        )
+                        st.info("🚀 已成功同步推送到 GitHub 倉庫！")
+                    except Exception as e:
+                        st.error(f"❌ GitHub 同步失敗：{e}")
+
+                # 3. 提供備用下載按鈕
+                csv_bytes = map_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+                st.download_button(
+                    label="📥 下載最新的 yt_mapping.csv 檔案",
+                    data=csv_bytes,
+                    file_name="yt_mapping.csv",
+                    mime="text/csv"
+                )
 
 # ==========================================
 # 📊 原始榜單瀏覽
