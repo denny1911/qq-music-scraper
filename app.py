@@ -171,9 +171,10 @@ main_tabs = st.tabs(
     [
         "🔥 模組一：全網霸榜池",
         "👑 模組二：榜單常勝軍",
+        "✏️ 模組三：ID、語言修正",
+        "📊 原始榜單瀏覽",
         "📺 測試1：YT點閱率",
         "🌐 測試2：語言標籤",
-        "📊 原始榜單瀏覽",
     ]
 )
 
@@ -828,9 +829,264 @@ with main_tabs[1]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# 📺 測試1：YT點閱率（完整固定策略版）
+# ✏️ 模組三：指定歌曲手動修正
 # ==========================================
 with main_tabs[2]:
+    st.header("✏️ 指定歌曲欄位手動修正")
+    st.markdown("輸入欲修改的**歌名**與**歌手**，系統將直接更新或新增至 `data/yt_mapping.csv` 對照表中。")
+
+    mapping_file = "data/yt_mapping.csv"
+
+    # 建立表單輸入
+    with st.form("update_song_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            target_song = st.text_input("🎵 輸入歌名", placeholder="例如：晴天")
+        with col2:
+            target_singer = st.text_input("🎤 輸入歌手", placeholder="例如：周杰倫")
+
+        st.markdown("---")
+
+        col3, col4 = st.columns(2)
+        with col3:
+            new_video_id = st.text_input("📺 新的 Video ID", placeholder="例如：dQw4w9WgXcQ")
+        with col4:
+            new_language = st.selectbox("🌐 新的語言標籤", ["華語", "西洋", "韓語", "日語", "其它"])
+
+        submitted = st.form_submit_button("💾 立即更新寫入對照表", type="primary")
+
+        if submitted:
+            if not target_song.strip() or not target_singer.strip():
+                st.warning("⚠️ 「歌名」與「歌手」為必填欄位，不得為空！")
+            else:
+                # 確保 data 資料夾存在
+                os.makedirs(os.path.dirname(mapping_file), exist_ok=True)
+
+                # 讀取或初始化對照表
+                if os.path.exists(mapping_file):
+                    try:
+                        map_df = pd.read_csv(mapping_file, dtype=str).fillna("")
+                    except Exception:
+                        map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
+                else:
+                    map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
+
+                # 標準化欄位名稱檢查
+                song_col_name = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else "歌名")
+                singer_col_name = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else "歌手")
+                vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
+                lang_col_name = "語言" if "語言" in map_df.columns else "語言"
+
+                # 確保必要欄位存在
+                for col in [song_col_name, singer_col_name, vid_col_name, lang_col_name]:
+                    if col not in map_df.columns:
+                        map_df[col] = ""
+
+                # 比對是否已存在該首歌（去除前後空白與大小寫比對）
+                clean_target_song = target_song.strip().lower()
+                clean_target_singer = target_singer.strip().lower()
+
+                match_idx = None
+                for idx, row in map_df.iterrows():
+                    r_song = str(row.get(song_col_name, "")).strip().lower()
+                    r_singer = str(row.get(singer_col_name, "")).strip().lower()
+                    if r_song == clean_target_song and r_singer == clean_target_singer:
+                        match_idx = idx
+                        break
+
+                if match_idx is not None:
+                    # 更新現有列
+                    map_df.at[match_idx, vid_col_name] = new_video_id.strip()
+                    map_df.at[match_idx, lang_col_name] = new_language.strip()
+                    st.success(f"✅ 成功更新現有紀錄：《{target_song} - {target_singer}》")
+                else:
+                    # 新增一列
+                    new_row = {
+                        song_col_name: target_song.strip(),
+                        singer_col_name: target_singer.strip(),
+                        vid_col_name: new_video_id.strip(),
+                        lang_col_name: new_language.strip()
+                    }
+                    map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
+                    st.success(f"➕ 找不到舊紀錄，已新增一筆：《{target_song} - {target_singer}》")
+
+                # 寫回 CSV 檔案
+                map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
+                
+                # 顯示目前對照表預覽
+                st.dataframe(map_df.tail(5), use_container_width=True, hide_index=True)
+
+# ==========================================
+# 📊 原始榜單瀏覽
+# ==========================================
+with main_tabs[3]:
+    st.header("📊 原始各榜單數據瀏覽")
+
+    selected_date_obj = st.date_input(
+        "📅 選擇基準日期 (預設為最新數據)",
+        value=latest_date_obj,
+        min_value=earliest_date_obj,
+        max_value=latest_date_obj,
+        key="m5_date_picker",
+    )
+    selected_date = (
+        selected_date_obj.strftime("%Y-%m-%d")
+        if isinstance(selected_date_obj, date)
+        else None
+    )
+    if selected_date and selected_date not in dates:
+        valid_dates = [d for d in dates if d <= selected_date]
+        selected_date = valid_dates[0] if valid_dates else dates[0]
+
+    if selected_date:
+        charts = {
+            "新歌榜 (日榜)": "new",
+            "影視金曲榜 (週榜)": "film",
+            "綜藝新歌榜 (週榜)": "show",
+            "抖音熱歌榜 (週榜)": "tik",
+        }
+
+        sub_tabs = st.tabs(list(charts.keys()))
+        year_str = selected_date[:4]
+        month_str = selected_date[:7]
+        day_path = os.path.join(data_dir, year_str, month_str, selected_date)
+
+        for tab, (chart_name, chart_key) in zip(sub_tabs, charts.items()):
+            with tab:
+                file_name = f"{selected_date}_{chart_key}.csv"
+                file_path = os.path.join(day_path, file_name)
+
+                if os.path.exists(file_path):
+                    # 1. 讀取與基礎清洗原始資料 df
+                    df = pd.read_csv(file_path)
+
+                    cols_to_drop = [
+                        c
+                        for c in ["抓取日期", "榜單類型", "榜單種類"]
+                        if c in df.columns
+                    ]
+                    if cols_to_drop:
+                        df = df.drop(columns=cols_to_drop)
+
+                    if "排名" in df.columns:
+                        df["排名"] = (
+                            pd.to_numeric(df["排名"], errors="coerce")
+                            .fillna(0)
+                            .astype(int)
+                        )
+
+                    expected_order = [
+                        "排名",
+                        "歌名",
+                        "歌手",
+                        "專輯",
+                        "發行日期",
+                        "YouTube ID",
+                        "點閱率",
+                    ]
+                    existing_order = [
+                        c for c in expected_order if c in df.columns
+                    ]
+                    other_cols = [
+                        c for c in df.columns if c not in existing_order
+                    ]
+                    df = df[existing_order + other_cols]
+
+                    st.success(
+                        f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料"
+                    )
+
+                    # 表格內即時關鍵字搜尋
+                    search_term = st.text_input(
+                        f"🔍 在【{chart_name}】中搜尋歌名或歌手",
+                        key=f"raw_{chart_key}",
+                    )
+                    if search_term:
+                        mask = (
+                            df.astype(str)
+                            .apply(
+                                lambda x: x.str.contains(
+                                    search_term, case=False
+                                )
+                            )
+                            .any(axis=1)
+                        )
+                        df = df[mask]
+
+                    # 2. 建立僅用於 UI 前端顯示的 df_display
+                    df_display = df.copy()
+
+                    # 【修正 1】：將點閱率轉回純數值，確保大小排序正確
+                    if "點閱率" in df_display.columns:
+                        df_display["點閱率"] = pd.to_numeric(
+                            df_display["點閱率"].astype(str).str.replace(",", ""),
+                            errors="coerce",
+                        )
+
+                    # 【修正 2】：無影片時傳回 None，避免按鈕可點擊或顯示 None 文字
+                    def build_yt_url(val):
+                        v = str(val).strip() if pd.notna(val) else ""
+                        if v and v not in ["-", "nan", "None", ""]:
+                            return f"https://www.youtube.com/watch?v={v}"
+                        return None
+
+                    if "YouTube ID" in df_display.columns:
+                        df_display["影片連結"] = df_display[
+                            "YouTube ID"
+                        ].apply(build_yt_url)
+
+                    # 調整欄位順序：移除 YouTube ID，把「影片連結」擺至最右側
+                    display_cols = [
+                        c
+                        for c in df_display.columns
+                        if c not in ["YouTube ID", "影片連結"]
+                    ]
+                    if "影片連結" in df_display.columns:
+                        display_cols.append("影片連結")
+                    df_display = df_display[display_cols]
+
+                    # 3. 渲染前端表格
+                    st.dataframe(
+                        df_display,
+                        column_config={
+                            "排名": st.column_config.NumberColumn(
+                                "排名", format="%,d", width="small"
+                            ),
+                            # 使用 NumberColumn 並指定 format="%,d"，自動幫數字加逗號且保持數值排序
+                            "點閱率": st.column_config.NumberColumn(
+                                "點閱率", format="%,d", width="small"
+                            ),
+                            "影片連結": st.column_config.LinkColumn(
+                                "影片連結",
+                                display_text="點此觀看",
+                                help="點擊前往 YouTube 觀看 MV",
+                                width="small",
+                            ),
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+
+                    # 4. 匯出按鈕
+                    csv_data = df.to_csv(index=False).encode("utf-8-sig")
+                    st.download_button(
+                        label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
+                        data=csv_data,
+                        file_name=f"{selected_date}_{chart_key}.csv",
+                        mime="text/csv",
+                        key=f"raw_download_{chart_key}",
+                    )
+                else:
+                    st.warning(
+                        f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。"
+                    )
+    else:
+        st.info("💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。")
+
+# ==========================================
+# 📺 測試1：YT點閱率（完整固定策略版）
+# ==========================================
+with main_tabs[4]:
     st.header("📺 模組四：YouTube 點閱測繪")
     st.markdown(
         "自動向 Git 數據源讀取最新榜單資料，並進行 YouTube 影片搜尋與點閱數據測繪。"
@@ -1437,7 +1693,7 @@ with main_tabs[2]:
 # ==========================================
 # 🌐 測試2：語言標籤
 # ==========================================
-with main_tabs[3]:
+with main_tabs[5]:
   st.header("🌐 Gemini AI 歌曲語言智慧檢測 & 本地對照表快搜")
   st.markdown(
       "整合 **Gemini 3.1 Flash Lite Preview** 語意模型與 **Key"
@@ -1780,170 +2036,3 @@ with main_tabs[3]:
           df_res = pd.DataFrame(final_rows)
           st.success("🎉 批次分析成功！")
           st.dataframe(df_res, hide_index=True, use_container_width=True)
-
-# ==========================================
-# 📊 原始榜單瀏覽
-# ==========================================
-with main_tabs[4]:
-    st.header("📊 原始各榜單數據瀏覽")
-
-    selected_date_obj = st.date_input(
-        "📅 選擇基準日期 (預設為最新數據)",
-        value=latest_date_obj,
-        min_value=earliest_date_obj,
-        max_value=latest_date_obj,
-        key="m5_date_picker",
-    )
-    selected_date = (
-        selected_date_obj.strftime("%Y-%m-%d")
-        if isinstance(selected_date_obj, date)
-        else None
-    )
-    if selected_date and selected_date not in dates:
-        valid_dates = [d for d in dates if d <= selected_date]
-        selected_date = valid_dates[0] if valid_dates else dates[0]
-
-    if selected_date:
-        charts = {
-            "新歌榜 (日榜)": "new",
-            "影視金曲榜 (週榜)": "film",
-            "綜藝新歌榜 (週榜)": "show",
-            "抖音熱歌榜 (週榜)": "tik",
-        }
-
-        sub_tabs = st.tabs(list(charts.keys()))
-        year_str = selected_date[:4]
-        month_str = selected_date[:7]
-        day_path = os.path.join(data_dir, year_str, month_str, selected_date)
-
-        for tab, (chart_name, chart_key) in zip(sub_tabs, charts.items()):
-            with tab:
-                file_name = f"{selected_date}_{chart_key}.csv"
-                file_path = os.path.join(day_path, file_name)
-
-                if os.path.exists(file_path):
-                    # 1. 讀取與基礎清洗原始資料 df
-                    df = pd.read_csv(file_path)
-
-                    cols_to_drop = [
-                        c
-                        for c in ["抓取日期", "榜單類型", "榜單種類"]
-                        if c in df.columns
-                    ]
-                    if cols_to_drop:
-                        df = df.drop(columns=cols_to_drop)
-
-                    if "排名" in df.columns:
-                        df["排名"] = (
-                            pd.to_numeric(df["排名"], errors="coerce")
-                            .fillna(0)
-                            .astype(int)
-                        )
-
-                    expected_order = [
-                        "排名",
-                        "歌名",
-                        "歌手",
-                        "專輯",
-                        "發行日期",
-                        "YouTube ID",
-                        "點閱率",
-                    ]
-                    existing_order = [
-                        c for c in expected_order if c in df.columns
-                    ]
-                    other_cols = [
-                        c for c in df.columns if c not in existing_order
-                    ]
-                    df = df[existing_order + other_cols]
-
-                    st.success(
-                        f"📅 數據日期：{selected_date}｜共 {len(df)} 筆排名資料"
-                    )
-
-                    # 表格內即時關鍵字搜尋
-                    search_term = st.text_input(
-                        f"🔍 在【{chart_name}】中搜尋歌名或歌手",
-                        key=f"raw_{chart_key}",
-                    )
-                    if search_term:
-                        mask = (
-                            df.astype(str)
-                            .apply(
-                                lambda x: x.str.contains(
-                                    search_term, case=False
-                                )
-                            )
-                            .any(axis=1)
-                        )
-                        df = df[mask]
-
-                    # 2. 建立僅用於 UI 前端顯示的 df_display
-                    df_display = df.copy()
-
-                    # 【修正 1】：將點閱率轉回純數值，確保大小排序正確
-                    if "點閱率" in df_display.columns:
-                        df_display["點閱率"] = pd.to_numeric(
-                            df_display["點閱率"].astype(str).str.replace(",", ""),
-                            errors="coerce",
-                        )
-
-                    # 【修正 2】：無影片時傳回 None，避免按鈕可點擊或顯示 None 文字
-                    def build_yt_url(val):
-                        v = str(val).strip() if pd.notna(val) else ""
-                        if v and v not in ["-", "nan", "None", ""]:
-                            return f"https://www.youtube.com/watch?v={v}"
-                        return None
-
-                    if "YouTube ID" in df_display.columns:
-                        df_display["影片連結"] = df_display[
-                            "YouTube ID"
-                        ].apply(build_yt_url)
-
-                    # 調整欄位順序：移除 YouTube ID，把「影片連結」擺至最右側
-                    display_cols = [
-                        c
-                        for c in df_display.columns
-                        if c not in ["YouTube ID", "影片連結"]
-                    ]
-                    if "影片連結" in df_display.columns:
-                        display_cols.append("影片連結")
-                    df_display = df_display[display_cols]
-
-                    # 3. 渲染前端表格
-                    st.dataframe(
-                        df_display,
-                        column_config={
-                            "排名": st.column_config.NumberColumn(
-                                "排名", format="%,d", width="small"
-                            ),
-                            # 使用 NumberColumn 並指定 format="%,d"，自動幫數字加逗號且保持數值排序
-                            "點閱率": st.column_config.NumberColumn(
-                                "點閱率", format="%,d", width="small"
-                            ),
-                            "影片連結": st.column_config.LinkColumn(
-                                "影片連結",
-                                display_text="點此觀看",
-                                help="點擊前往 YouTube 觀看 MV",
-                                width="small",
-                            ),
-                        },
-                        hide_index=True,
-                        use_container_width=True,
-                    )
-
-                    # 4. 匯出按鈕
-                    csv_data = df.to_csv(index=False).encode("utf-8-sig")
-                    st.download_button(
-                        label=f"📥 匯出【{chart_name}】原始資料 (CSV)",
-                        data=csv_data,
-                        file_name=f"{selected_date}_{chart_key}.csv",
-                        mime="text/csv",
-                        key=f"raw_download_{chart_key}",
-                    )
-                else:
-                    st.warning(
-                        f"⚠️ {selected_date} 尚未抓取到 {chart_name} 的 CSV 檔案 ({file_name})。"
-                    )
-    else:
-        st.info("💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。")
