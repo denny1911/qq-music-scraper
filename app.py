@@ -837,7 +837,7 @@ with main_tabs[2]:
 
     mapping_file = "data/yt_mapping.csv"
 
-    # 建立表單輸入
+    # 1. 建立表單輸入區塊
     with st.form("update_song_form"):
         col1, col2 = st.columns(2)
         with col1:
@@ -855,95 +855,83 @@ with main_tabs[2]:
 
         submitted = st.form_submit_button("💾 立即更新寫入對照表", type="primary")
 
-        if submitted:
-            if not target_song.strip() or not target_singer.strip():
-                st.warning("⚠️ 「歌名」與「歌手」為必填欄位，不得為空！")
-            else:
-                # 確保 data 資料夾存在
-                os.makedirs(os.path.dirname(mapping_file), exist_ok=True)
+    # 2. 將提交後的動作放到 form 外面執行
+    if submitted:
+        if not target_song.strip() or not target_singer.strip():
+            st.warning("⚠️ 「歌名」與「歌手」為必填欄位，不得為空！")
+        else:
+            # 確保 data 資料夾存在
+            os.makedirs(os.path.dirname(mapping_file), exist_ok=True)
 
-                # 讀取或初始化對照表
-                if os.path.exists(mapping_file):
-                    try:
-                        map_df = pd.read_csv(mapping_file, dtype=str).fillna("")
-                    except Exception:
-                        map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
-                else:
+            # 讀取或初始化對照表
+            if os.path.exists(mapping_file):
+                try:
+                    map_df = pd.read_csv(mapping_file, dtype=str).fillna("")
+                except Exception:
                     map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
+            else:
+                map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
 
-                # 標準化欄位名稱檢查
-                song_col_name = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else "歌名")
-                singer_col_name = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else "歌手")
-                vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
-                lang_col_name = "語言" if "語言" in map_df.columns else "語言"
+            # 標準化欄位名稱檢查
+            song_col_name = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else "歌名")
+            singer_col_name = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else "歌手")
+            vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
+            lang_col_name = "語言" if "語言" in map_df.columns else "語言"
 
-                # 確保必要欄位存在
-                for col in [song_col_name, singer_col_name, vid_col_name, lang_col_name]:
-                    if col not in map_df.columns:
-                        map_df[col] = ""
+            # 確保必要欄位存在
+            for col in [song_col_name, singer_col_name, vid_col_name, lang_col_name]:
+                if col not in map_df.columns:
+                    map_df[col] = ""
 
-                # 比對是否已存在該首歌（去除前後空白與大小寫比對）
-                clean_target_song = target_song.strip().lower()
-                clean_target_singer = target_singer.strip().lower()
+            # 比對是否已存在該首歌
+            clean_target_song = target_song.strip().lower()
+            clean_target_singer = target_singer.strip().lower()
 
-                match_idx = None
-                for idx, row in map_df.iterrows():
-                    r_song = str(row.get(song_col_name, "")).strip().lower()
-                    r_singer = str(row.get(singer_col_name, "")).strip().lower()
-                    if r_song == clean_target_song and r_singer == clean_target_singer:
-                        match_idx = idx
-                        break
+            match_idx = None
+            for idx, row in map_df.iterrows():
+                r_song = str(row.get(song_col_name, "")).strip().lower()
+                r_singer = str(row.get(singer_col_name, "")).strip().lower()
+                if r_song == clean_target_song and r_singer == clean_target_singer:
+                    match_idx = idx
+                    break
 
-                if match_idx is not None:
-                    # 更新現有列
-                    map_df.at[match_idx, vid_col_name] = new_video_id.strip()
-                    map_df.at[match_idx, lang_col_name] = new_language.strip()
-                    st.success(f"✅ 成功更新現有紀錄：《{target_song} - {target_singer}》")
-                else:
-                    # 新增一列
-                    new_row = {
-                        song_col_name: target_song.strip(),
-                        singer_col_name: target_singer.strip(),
-                        vid_col_name: new_video_id.strip(),
-                        lang_col_name: new_language.strip()
-                    }
-                    map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
-                    st.success(f"➕ 找不到舊紀錄，已新增一筆：《{target_song} - {target_singer}》")
+            if match_idx is not None:
+                map_df.at[match_idx, vid_col_name] = new_video_id.strip()
+                map_df.at[match_idx, lang_col_name] = new_language.strip()
+                st.success(f"✅ 成功更新現有紀錄：《{target_song} - {target_singer}》")
+            else:
+                new_row = {
+                    song_col_name: target_song.strip(),
+                    singer_col_name: target_singer.strip(),
+                    vid_col_name: new_video_id.strip(),
+                    lang_col_name: new_language.strip()
+                }
+                map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
+                st.success(f"➕ 找不到舊紀錄，已新增一筆：《{target_song} - {target_singer}》")
 
-                # 1. 本地硬碟寫入 CSV 檔案
-                map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
+            # 本地硬碟寫入 CSV
+            map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
 
-                # 2. 自動同步 commit/push 到 GitHub Repository (若已配置 secrets)
-                if "github" in st.secrets:
-                    try:
-                        from github import Github
-                        g = Github(st.secrets["github"]["token"])
-                        repo = g.get_repo(st.secrets["github"]["repo"])
-                        
-                        # 取得 GitHub 上的舊檔案資訊
-                        contents = repo.get_contents("data/yt_mapping.csv")
-                        updated_csv_content = map_df.to_csv(index=False, encoding="utf-8-sig")
-                        
-                        # 推送更新
-                        repo.update_file(
-                            path="data/yt_mapping.csv",
-                            message=f"Update yt_mapping.csv: {target_song} - {target_singer}",
-                            content=updated_csv_content,
-                            sha=contents.sha,
-                            branch="main"  # 若為 master 請改為 master
-                        )
-                        st.info("🚀 已成功同步推送到 GitHub 倉庫！")
-                    except Exception as e:
-                        st.error(f"❌ GitHub 同步失敗：{e}")
-
-                # 3. 提供備用下載按鈕
-                csv_bytes = map_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-                st.download_button(
-                    label="📥 下載最新的 yt_mapping.csv 檔案",
-                    data=csv_bytes,
-                    file_name="yt_mapping.csv",
-                    mime="text/csv"
-                )
+            # 自動同步 commit/push 到 GitHub Repository
+            if "github" in st.secrets:
+                try:
+                    from github import Github
+                    g = Github(st.secrets["github"]["token"])
+                    repo = g.get_repo(st.secrets["github"]["repo"])
+                    
+                    contents = repo.get_contents("data/yt_mapping.csv")
+                    updated_csv_content = map_df.to_csv(index=False, encoding="utf-8-sig")
+                    
+                    repo.update_file(
+                        path="data/yt_mapping.csv",
+                        message=f"Update yt_mapping.csv: {target_song} - {target_singer}",
+                        content=updated_csv_content,
+                        sha=contents.sha,
+                        branch="main"  # 若你的預設分支是 master 請改為 master
+                    )
+                    st.info("🚀 已成功同步推送到 GitHub 倉庫！")
+                except Exception as e:
+                    st.error(f"❌ GitHub 同步失敗：{e}")
 
 # ==========================================
 # 📊 原始榜單瀏覽
