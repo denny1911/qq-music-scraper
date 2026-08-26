@@ -979,9 +979,9 @@ with main_tabs[2]:
     # 5. 下方結果顯示與控制按鈕
     if st.session_state["m3_stage"] == "submitted":
         st.success(st.session_state["m3_last_msg"])
-        if st.session_state["m3_github_msg"]:
-            st.info(st.session_state["m3_github_msg"])
-
+        if "❌" in st.session_state.get("m3_github_msg", ""):
+            st.error(st.session_state["m3_github_msg"])
+        
         st.markdown("---")
         btn_col1, btn_col2, _ = st.columns([1.5, 1.5, 3])
         with btn_col1:
