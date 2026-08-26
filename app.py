@@ -795,11 +795,11 @@ with main_tabs[1]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# ✏️ 模組三：指定歌曲手動修正 (三階段狀態控管)
+# ✏️ 模組三：指定歌曲手動修正 (鎖定時保留填寫資料)
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
-    st.markdown("雙階段查詢與鎖定流程：查詢解鎖 ➔ 修改儲存 ➔ 鎖定並顯示結果（可選擇重新編輯或清除重置）。")
+    st.markdown("雙階段查詢與鎖定流程：查詢解鎖 ➔ 修改儲存 ➔ 鎖定並保留結果顯示（可選擇重新編輯或清除重置）。")
 
     mapping_file = "data/yt_mapping.csv"
 
@@ -878,6 +878,7 @@ with main_tabs[2]:
 
     lang_options = ["華語", "西洋", "韓語", "日語", "其它"]
     is_editing = (st.session_state["m3_stage"] == "editing")
+    has_data = (st.session_state["m3_stage"] in ["editing", "submitted"])  # 編輯中與已提交皆保留資料顯示
 
     # 狀態顯示提示
     if st.session_state["m3_stage"] == "editing":
@@ -897,7 +898,7 @@ with main_tabs[2]:
         with col3:
             new_video_id = st.text_input(
                 "📺 Video ID（若留空將保留原紀錄）",
-                value=st.session_state["m3_vid"] if is_editing else "",
+                value=st.session_state["m3_vid"] if has_data else "",
                 placeholder="例如：dQw4w9WgXcQ",
                 disabled=not is_editing
             )
@@ -905,7 +906,7 @@ with main_tabs[2]:
             new_language = st.selectbox(
                 "🌐 語言標籤",
                 options=lang_options,
-                index=default_lang_idx if is_editing else 0,
+                index=default_lang_idx if has_data else 0,
                 disabled=not is_editing
             )
 
@@ -965,7 +966,7 @@ with main_tabs[2]:
             except Exception as e:
                 st.error(f"❌ GitHub 同步失敗：{e}")
 
-        # 更新狀態：顯示寫入結果並鎖定表單
+        # 更新狀態：顯示寫入結果並鎖定表單，保留剛剛填寫的新資料持續呈現
         st.session_state["m3_vid"] = final_vid
         st.session_state["m3_lang"] = new_language.strip()
         st.session_state["m3_last_msg"] = f"✅ 已成功將《{song_title} - {singer_title}》的 Video ID 更新為：`{final_vid or '（無）'}`，語言標籤更新為：`{new_language.strip()}`"
