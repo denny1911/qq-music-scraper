@@ -799,86 +799,110 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
-    st.markdown("輸入欲修改的**歌名**與**歌手**，系統將直接更新至 `data/yt_mapping.csv` 並同步上傳至 GitHub。")
+    st.markdown("輸入歌名與歌手後，系統將自動比對資料庫紀錄並預設帶入。更新後會同步寫入 `data/yt_mapping.csv` 並上傳至 GitHub。")
 
     mapping_file = "data/yt_mapping.csv"
 
-    # 1. 建立表單輸入區塊
+    # 1. 讀取現有對照表
+    map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
+    if os.path.exists(mapping_file):
+        try:
+            map_df = pd.read_csv(mapping_file, dtype=str).fillna("")
+        except Exception:
+            pass
+
+    # 欄位名稱自動對齊
+    song_col_name = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else "歌名")
+    singer_col_name = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else "歌手")
+    vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
+    lang_col_name = "語言" if "語言" in map_df.columns else "語言"
+
+    # 2. 第一階段：輸入歌名與歌手（即時比對）
+    col1, col2 = st.columns(2)
+    with col1:
+        target_song = st.text_input("🎵 輸入歌名", placeholder="例如：晴天", key="m3_song_input")
+    with col2:
+        target_singer = st.text_input("🎤 輸入歌手", placeholder="例如：周杰倫", key="m3_singer_input")
+
+    # 比對邏輯與舊資料提取
+    clean_s = target_song.strip().lower()
+    clean_a = target_singer.strip().lower()
+
+    existing_vid = ""
+    existing_lang = "華語"
+    match_idx = None
+
+    if clean_s and clean_a:
+        for idx, row in map_df.iterrows():
+            r_song = str(row.get(song_col_name, "")).strip().lower()
+            r_singer = str(row.get(singer_col_name, "")).strip().lower()
+            if r_song == clean_s and r_singer == clean_a:
+                match_idx = idx
+                existing_vid = str(row.get(vid_col_name, "")).strip()
+                existing_lang = str(row.get(lang_col_name, "")).strip()
+                break
+
+        if match_idx is not None:
+            st.info(f"💡 **已找到現有紀錄** ｜ 目前 Video ID：`{existing_vid or '無'}` ｜ 目前語言：`{existing_lang or '未設定'}`")
+        else:
+            st.caption("ℹ️ **查無舊紀錄**：提交後將自動新增此歌曲至對照表。")
+
+    lang_options = ["華語", "西洋", "韓語", "日語", "其它"]
+    default_lang_idx = lang_options.index(existing_lang) if existing_lang in lang_options else 0
+
+    st.markdown("---")
+
+    # 3. 第二階段：修改表單（自動帶入舊資料）
     with st.form("update_song_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            target_song = st.text_input("🎵 輸入歌名", placeholder="例如：晴天")
-        with col2:
-            target_singer = st.text_input("🎤 輸入歌手", placeholder="例如：周杰倫")
-
-        st.markdown("---")
-
         col3, col4 = st.columns(2)
         with col3:
-            new_video_id = st.text_input("📺 新的 Video ID", placeholder="例如：dQw4w9WgXcQ")
+            new_video_id = st.text_input(
+                "📺 Video ID（若留空將保留原紀錄）",
+                value=existing_vid,
+                placeholder="例如：dQw4w9WgXcQ"
+            )
         with col4:
-            new_language = st.selectbox("🌐 新的語言標籤", ["華語", "西洋", "韓語", "日語", "其它"])
+            new_language = st.selectbox(
+                "🌐 語言標籤",
+                options=lang_options,
+                index=default_lang_idx
+            )
 
         submitted = st.form_submit_button("💾 立即更新寫入對照表", type="primary")
 
-    # 2. 將提交後的動作放到 form 外面執行
+    # 4. 表單提交寫入
     if submitted:
         if not target_song.strip() or not target_singer.strip():
             st.warning("⚠️ 「歌名」與「歌手」為必填欄位，不得為空！")
         else:
-            # 確保 data 資料夾存在
             os.makedirs(os.path.dirname(mapping_file), exist_ok=True)
-
-            # 讀取或初始化對照表
-            if os.path.exists(mapping_file):
-                try:
-                    map_df = pd.read_csv(mapping_file, dtype=str).fillna("")
-                except Exception:
-                    map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
-            else:
-                map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
-
-            # 標準化欄位名稱檢查
-            song_col_name = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else "歌名")
-            singer_col_name = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else "歌手")
-            vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
-            lang_col_name = "語言" if "語言" in map_df.columns else "語言"
 
             # 確保必要欄位存在
             for col in [song_col_name, singer_col_name, vid_col_name, lang_col_name]:
                 if col not in map_df.columns:
                     map_df[col] = ""
 
-            # 比對是否已存在該首歌
-            clean_target_song = target_song.strip().lower()
-            clean_target_singer = target_singer.strip().lower()
-
-            match_idx = None
-            for idx, row in map_df.iterrows():
-                r_song = str(row.get(song_col_name, "")).strip().lower()
-                r_singer = str(row.get(singer_col_name, "")).strip().lower()
-                if r_song == clean_target_song and r_singer == clean_target_singer:
-                    match_idx = idx
-                    break
+            # ID 防呆邏輯：若沒輸入新值且有舊值，自動保留舊值
+            final_vid = new_video_id.strip() if new_video_id.strip() else existing_vid
 
             if match_idx is not None:
-                map_df.at[match_idx, vid_col_name] = new_video_id.strip()
+                map_df.at[match_idx, vid_col_name] = final_vid
                 map_df.at[match_idx, lang_col_name] = new_language.strip()
                 st.success(f"✅ 成功更新現有紀錄：《{target_song} - {target_singer}》")
             else:
                 new_row = {
                     song_col_name: target_song.strip(),
                     singer_col_name: target_singer.strip(),
-                    vid_col_name: new_video_id.strip(),
+                    vid_col_name: final_vid,
                     lang_col_name: new_language.strip()
                 }
                 map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
-                st.success(f"➕ 找不到舊紀錄，已新增一筆：《{target_song} - {target_singer}》")
+                st.success(f"➕ 已新增一筆新紀錄：《{target_song} - {target_singer}》")
 
-            # 本地硬碟寫入 CSV
+            # 本地寫入
             map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
 
-            # 自動同步 commit/push 到 GitHub Repository
+            # GitHub 同步
             if "github" in st.secrets:
                 try:
                     from github import Github
@@ -893,7 +917,7 @@ with main_tabs[2]:
                         message=f"Update yt_mapping.csv: {target_song} - {target_singer}",
                         content=updated_csv_content,
                         sha=contents.sha,
-                        branch="main"  # 若你的預設分支是 master 請改為 master
+                        branch="main"
                     )
                     st.info("🚀 已成功同步推送到 GitHub 倉庫！")
                 except Exception as e:
