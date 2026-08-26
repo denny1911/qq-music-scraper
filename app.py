@@ -917,7 +917,7 @@ with main_tabs[2]:
         col3, col4 = st.columns(2)
         with col3:
             new_video_id = st.text_input(
-                "📺 Video ID（若留空將保留原紀錄）",
+                "📺 Video ID（若留空將保留原紀錄，另外如想將ID設為空則填入「-」）",
                 value=st.session_state["m3_vid"] if has_data else "",
                 placeholder="例如：dQw4w9WgXcQ",
                 disabled=not is_editing
