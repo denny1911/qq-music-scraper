@@ -795,7 +795,7 @@ with main_tabs[1]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# ✏️ 模組三：指定歌曲手動修正 (優化流暢度無二次刷新)
+# ✏️ 模組三：指定歌曲手動修正 (更新後上方隱藏、下方顯示結果)
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
@@ -818,6 +818,8 @@ with main_tabs[2]:
         st.session_state["m3_match_idx"] = None
     if "m3_last_msg" not in st.session_state:
         st.session_state["m3_last_msg"] = ""
+    if "m3_github_msg" not in st.session_state:
+        st.session_state["m3_github_msg"] = ""
 
     # 2. 讀取現有對照表
     map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
@@ -869,6 +871,7 @@ with main_tabs[2]:
             st.session_state["m3_vid"] = found_vid
             st.session_state["m3_lang"] = found_lang if found_lang else "華語"
             st.session_state["m3_stage"] = "editing"  # 切換為可編輯解鎖狀態
+            st.rerun()
 
     st.markdown("---")
 
@@ -877,17 +880,16 @@ with main_tabs[2]:
 
     lang_options = ["華語", "西洋", "韓語", "日語", "其它"]
     is_editing = (st.session_state["m3_stage"] == "editing")
-    has_data = (st.session_state["m3_stage"] in ["editing", "submitted"])
+    is_submitted = (st.session_state["m3_stage"] == "submitted")
+    has_data = is_editing or is_submitted
 
-    # 狀態顯示提示
-    if st.session_state["m3_stage"] == "editing":
+    # 上方提示：僅在「編輯中 (editing)」時顯示舊紀錄訊息，提交完成後隱藏
+    if is_editing:
         if st.session_state["m3_match_idx"] is not None:
             st.info(f"💡 **已找到現有紀錄**：《{st.session_state['m3_song']} - {st.session_state['m3_singer']}》｜ 目前 Video ID：`{st.session_state['m3_vid'] or '無'}` ｜ 目前語言：`{st.session_state['m3_lang']}`")
         else:
             st.caption(f"ℹ️ **查無舊紀錄**：《{st.session_state['m3_song']} - {st.session_state['m3_singer']}》提交後將自動新增至對照表。")
-    elif st.session_state["m3_stage"] == "submitted":
-        st.success(st.session_state["m3_last_msg"])
-    else:
+    elif not is_submitted:
         st.warning("👈 請先完成第一步的歌曲查詢，下方修改區將自動解鎖。")
 
     default_lang_idx = lang_options.index(st.session_state["m3_lang"]) if st.session_state["m3_lang"] in lang_options else 0
@@ -945,6 +947,7 @@ with main_tabs[2]:
         # 本地與 GitHub 同步
         map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
 
+        github_status = ""
         if "github" in st.secrets:
             try:
                 from github import Github
@@ -961,23 +964,30 @@ with main_tabs[2]:
                     sha=contents.sha,
                     branch="main"
                 )
-                st.info("🚀 已成功同步推送到 GitHub 倉庫！")
+                github_status = "🚀 已成功同步推送到 GitHub 倉庫！"
             except Exception as e:
-                st.error(f"❌ GitHub 同步失敗：{e}")
+                github_status = f"❌ GitHub 同步失敗：{e}"
 
-        # 更新狀態：顯示寫入結果並鎖定表單，保留剛剛填寫的新資料持續呈現
+        # 切換狀態至 submitted 並更新訊息內容
         st.session_state["m3_vid"] = final_vid
         st.session_state["m3_lang"] = new_language.strip()
-        st.session_state["m3_last_msg"] = f"✅ 已成功將《{song_title} - {singer_title}》的 Video ID 更新為：`{final_vid or '（無）'}`，語言標籤更新為：`{new_language.strip()}`"
+        st.session_state["m3_last_msg"] = f"✅ 已將 Video ID 更新為：`{final_vid or '（無）'}` ｜ 語言標籤更新為：`{new_language.strip()}`"
+        st.session_state["m3_github_msg"] = github_status
         st.session_state["m3_stage"] = "submitted"
+        st.rerun()
 
-    # 5. 提交完成後的快捷控制按鈕：重新編輯 / 清除重置
-    if st.session_state["m3_stage"] == "submitted":
+    # 下方結果顯示：提交成功後，在表單正下方顯示更新結果與 GitHub 訊息
+    if is_submitted:
+        st.success(st.session_state["m3_last_msg"])
+        if st.session_state["m3_github_msg"]:
+            st.info(st.session_state["m3_github_msg"])
+
         st.markdown("---")
         btn_col1, btn_col2, _ = st.columns([1.5, 1.5, 3])
         with btn_col1:
             if st.button("✏️ 重新編輯這首歌", key="m3_reedit_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "editing"
+                st.rerun()
         with btn_col2:
             if st.button("🧹 清除重置（下一首）", key="m3_clear_all_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "init"
@@ -987,6 +997,8 @@ with main_tabs[2]:
                 st.session_state["m3_lang"] = "華語"
                 st.session_state["m3_match_idx"] = None
                 st.session_state["m3_last_msg"] = ""
+                st.session_state["m3_github_msg"] = ""
+                st.rerun()
 
 # ==========================================
 # 📊 原始榜單瀏覽
