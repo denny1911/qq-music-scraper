@@ -795,17 +795,29 @@ with main_tabs[1]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# ✏️ 模組三：指定歌曲手動修正 (雙階段獨立表單)
+# ✏️ 模組三：指定歌曲手動修正 (三階段狀態控管)
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
-    st.markdown("採用雙階段獨立表單：輸入過程零延遲，完成第一步查詢後解鎖下方修改區。")
+    st.markdown("雙階段查詢與鎖定流程：查詢解鎖 ➔ 修改儲存 ➔ 鎖定並顯示結果（可選擇重新編輯或清除重置）。")
 
     mapping_file = "data/yt_mapping.csv"
 
     # 1. 初始化 Session State 狀態
-    if "m3_search_data" not in st.session_state:
-        st.session_state["m3_search_data"] = None
+    if "m3_stage" not in st.session_state:
+        st.session_state["m3_stage"] = "init"  # 狀態：init（未查詢）, editing（可編輯）, submitted（已提交鎖定）
+    if "m3_song" not in st.session_state:
+        st.session_state["m3_song"] = ""
+    if "m3_singer" not in st.session_state:
+        st.session_state["m3_singer"] = ""
+    if "m3_vid" not in st.session_state:
+        st.session_state["m3_vid"] = ""
+    if "m3_lang" not in st.session_state:
+        st.session_state["m3_lang"] = "華語"
+    if "m3_match_idx" not in st.session_state:
+        st.session_state["m3_match_idx"] = None
+    if "m3_last_msg" not in st.session_state:
+        st.session_state["m3_last_msg"] = ""
 
     # 2. 讀取現有對照表
     map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
@@ -820,18 +832,17 @@ with main_tabs[2]:
     vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
     lang_col_name = "語言" if "語言" in map_df.columns else "語言"
 
-    # 3. 第一階段：查詢表單 (st.form 完全阻斷輸入時的頁面刷新)
+    # 3. 第一階段：查詢表單
     with st.form("m3_search_form"):
         st.subheader("1️⃣ 第一步：查詢歌曲紀錄")
         col1, col2 = st.columns(2)
         with col1:
-            search_song = st.text_input("🎵 輸入歌名", placeholder="例如：晴天")
+            search_song = st.text_input("🎵 輸入歌名", value=st.session_state["m3_song"], placeholder="例如：晴天")
         with col2:
-            search_singer = st.text_input("🎤 輸入歌手", placeholder="例如：周杰倫")
+            search_singer = st.text_input("🎤 輸入歌手", value=st.session_state["m3_singer"], placeholder="例如：周杰倫")
         
         search_submitted = st.form_submit_button("🔍 查詢舊紀錄", type="primary")
 
-    # 處理第一階段查詢邏輯
     if search_submitted:
         clean_s = search_song.strip()
         clean_a = search_singer.strip()
@@ -843,7 +854,6 @@ with main_tabs[2]:
             found_vid = ""
             found_lang = "華語"
             
-            # 比對資料庫
             for idx, row in map_df.iterrows():
                 r_song = str(row.get(song_col_name, "")).strip().lower()
                 r_singer = str(row.get(singer_col_name, "")).strip().lower()
@@ -853,18 +863,13 @@ with main_tabs[2]:
                     found_lang = str(row.get(lang_col_name, "")).strip()
                     break
 
-            # 暫存查詢結果至 session_state
-            st.session_state["m3_search_data"] = {
-                "song": clean_s,
-                "singer": clean_a,
-                "match_idx": match_idx,
-                "vid": found_vid,
-                "lang": found_lang if found_lang else "華語"
-            }
+            st.session_state["m3_song"] = clean_s
+            st.session_state["m3_singer"] = clean_a
+            st.session_state["m3_match_idx"] = match_idx
+            st.session_state["m3_vid"] = found_vid
+            st.session_state["m3_lang"] = found_lang if found_lang else "華語"
+            st.session_state["m3_stage"] = "editing"  # 切換為可編輯解鎖狀態
             st.rerun()
-
-    search_data = st.session_state["m3_search_data"]
-    is_searched = search_data is not None
 
     st.markdown("---")
 
@@ -872,68 +877,62 @@ with main_tabs[2]:
     st.subheader("2️⃣ 第二步：修改資料並寫入")
 
     lang_options = ["華語", "西洋", "韓語", "日語", "其它"]
+    is_editing = (st.session_state["m3_stage"] == "editing")
 
-    if is_searched:
-        song_title = search_data["song"]
-        singer_title = search_data["singer"]
-        match_idx = search_data["match_idx"]
-        existing_vid = search_data["vid"]
-        existing_lang = search_data["lang"]
-
-        if match_idx is not None:
-            st.info(f"💡 **已找到現有紀錄**：《{song_title} - {singer_title}》｜ 目前 Video ID：`{existing_vid or '無'}` ｜ 目前語言：`{existing_lang}`")
+    # 狀態顯示提示
+    if st.session_state["m3_stage"] == "editing":
+        if st.session_state["m3_match_idx"] is not None:
+            st.info(f"💡 **已找到現有紀錄**：《{st.session_state['m3_song']} - {st.session_state['m3_singer']}》｜ 目前 Video ID：`{st.session_state['m3_vid'] or '無'}` ｜ 目前語言：`{st.session_state['m3_lang']}`")
         else:
-            st.caption(f"ℹ️ **查無舊紀錄**：《{song_title} - {singer_title}》提交後將自動新增至對照表。")
-
-        default_lang_idx = lang_options.index(existing_lang) if existing_lang in lang_options else 0
+            st.caption(f"ℹ️ **查無舊紀錄**：《{st.session_state['m3_song']} - {st.session_state['m3_singer']}》提交後將自動新增至對照表。")
+    elif st.session_state["m3_stage"] == "submitted":
+        st.success(st.session_state["m3_last_msg"])
     else:
         st.warning("👈 請先完成第一步的歌曲查詢，下方修改區將自動解鎖。")
-        existing_vid = ""
-        default_lang_idx = 0
+
+    default_lang_idx = lang_options.index(st.session_state["m3_lang"]) if st.session_state["m3_lang"] in lang_options else 0
 
     with st.form("m3_update_form"):
         col3, col4 = st.columns(2)
         with col3:
             new_video_id = st.text_input(
                 "📺 Video ID（若留空將保留原紀錄）",
-                value=existing_vid if is_searched else "",
+                value=st.session_state["m3_vid"] if is_editing else "",
                 placeholder="例如：dQw4w9WgXcQ",
-                disabled=not is_searched
+                disabled=not is_editing
             )
         with col4:
             new_language = st.selectbox(
                 "🌐 語言標籤",
                 options=lang_options,
-                index=default_lang_idx if is_searched else 0,
-                disabled=not is_searched
+                index=default_lang_idx if is_editing else 0,
+                disabled=not is_editing
             )
 
         update_submitted = st.form_submit_button(
             "💾 立即更新寫入對照表",
             type="primary",
-            disabled=not is_searched
+            disabled=not is_editing
         )
 
-    # 處理第二階段寫入邏輯
-    if update_submitted and is_searched:
+    # 處理寫入邏輯
+    if update_submitted and is_editing:
         os.makedirs(os.path.dirname(mapping_file), exist_ok=True)
 
         for col in [song_col_name, singer_col_name, vid_col_name, lang_col_name]:
             if col not in map_df.columns:
                 map_df[col] = ""
 
-        song_title = search_data["song"]
-        singer_title = search_data["singer"]
-        match_idx = search_data["match_idx"]
-        existing_vid = search_data["vid"]
+        song_title = st.session_state["m3_song"]
+        singer_title = st.session_state["m3_singer"]
+        match_idx = st.session_state["m3_match_idx"]
+        existing_vid = st.session_state["m3_vid"]
 
-        # 保留舊 ID 的防呆邏輯
         final_vid = new_video_id.strip() if new_video_id.strip() else existing_vid
 
         if match_idx is not None:
             map_df.at[match_idx, vid_col_name] = final_vid
             map_df.at[match_idx, lang_col_name] = new_language.strip()
-            st.success(f"✅ 成功更新現有紀錄：《{song_title} - {singer_title}》")
         else:
             new_row = {
                 song_col_name: song_title,
@@ -942,9 +941,8 @@ with main_tabs[2]:
                 lang_col_name: new_language.strip()
             }
             map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
-            st.success(f"➕ 已新增一筆新紀錄：《{song_title} - {singer_title}》")
 
-        # 本地寫入與 GitHub 自動同步
+        # 本地與 GitHub 同步
         map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
 
         if "github" in st.secrets:
@@ -967,11 +965,31 @@ with main_tabs[2]:
             except Exception as e:
                 st.error(f"❌ GitHub 同步失敗：{e}")
 
-        # 更新完畢後清空查詢狀態，自動鎖定並重置為全新介面
-        st.session_state["m3_search_data"] = None
-        st.toast("🧹 更新成功！已自動重置表單，可繼續查詢下一首。")
+        # 更新狀態：顯示寫入結果並鎖定表單
+        st.session_state["m3_vid"] = final_vid
+        st.session_state["m3_lang"] = new_language.strip()
+        st.session_state["m3_last_msg"] = f"✅ 已成功將《{song_title} - {singer_title}》的 Video ID 更新為：`{final_vid or '（無）'}`，語言標籤更新為：`{new_language.strip()}`"
+        st.session_state["m3_stage"] = "submitted"
         st.rerun()
 
+    # 5. 提交完成後的快捷控制按鈕：重新編輯 / 清除重置
+    if st.session_state["m3_stage"] == "submitted":
+        st.markdown("---")
+        btn_col1, btn_col2, _ = st.columns([1.5, 1.5, 3])
+        with btn_col1:
+            if st.button("✏️ 重新編輯這首歌", key="m3_reedit_btn", use_container_width=True):
+                st.session_state["m3_stage"] = "editing"
+                st.rerun()
+        with btn_col2:
+            if st.button("🧹 清除重置（下一首）", key="m3_clear_all_btn", use_container_width=True):
+                st.session_state["m3_stage"] = "init"
+                st.session_state["m3_song"] = ""
+                st.session_state["m3_singer"] = ""
+                st.session_state["m3_vid"] = ""
+                st.session_state["m3_lang"] = "華語"
+                st.session_state["m3_match_idx"] = None
+                st.session_state["m3_last_msg"] = ""
+                st.rerun()
 # ==========================================
 # 📊 原始榜單瀏覽
 # ==========================================
