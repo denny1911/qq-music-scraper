@@ -854,7 +854,7 @@ with main_tabs[2]:
     lang_col_name = "語言" if "語言" in map_df.columns else "語言"
 
     # 3. 第一階段：查詢表單
-    st.subheader("1️⃣ 第一步：查詢歌曲紀錄 (輸入與原資料相同的文字與格式)")
+    st.subheader("1️⃣ 第一步：查詢歌曲紀錄（輸入與原資料相同的文字與格式）")
     with st.form("m3_search_form"):
         col1, col2 = st.columns(2)
         with col1:
