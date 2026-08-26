@@ -205,20 +205,21 @@ with main_tabs[0]:
             "⚡ 近 30 天",
             "📅 自訂月曆區間",
         ],
+        index=1,
         horizontal=True,
         key="m1_preset_radio",
     )
 
     # 決定時間區間
-    if m1_preset == "⚡ 近 30 天":
+    if m1_preset == "⚡ 近 7 天":
+        start_date_obj = max(
+            earliest_date_obj, latest_date_obj - timedelta(days=6)
+        )
+        end_date_obj = latest_date_obj
+    elif m1_preset == "⚡ 近 30 天":
         start_date_obj = max(
             earliest_date_obj,
             latest_date_obj - timedelta(days=29),
-        )
-        end_date_obj = latest_date_obj
-    elif m1_preset == "⚡ 近 7 天":
-        start_date_obj = max(
-            earliest_date_obj, latest_date_obj - timedelta(days=6)
         )
         end_date_obj = latest_date_obj
     else:
@@ -532,15 +533,16 @@ with main_tabs[1]:
     m2_preset = st.radio(
         "🗓️ 選擇統計時間範圍",
         ["⚡ 近 7 天", "⚡ 近 30 天", "🌐 全部歷史區間", "📅 自訂月曆區間"],
+        index=1,
         horizontal=True,
         key="m2_preset_radio",
     )
 
-    if m2_preset == "⚡ 近 30 天":
-        start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=29))
-        end_date_obj = latest_date_obj
-    elif m2_preset == "⚡ 近 7 天":
+    if m2_preset == "⚡ 近 7 天":
         start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=6))
+        end_date_obj = latest_date_obj
+    elif m2_preset == "⚡ 近 30 天":
+        start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=29))
         end_date_obj = latest_date_obj
     elif m2_preset == "🌐 全部歷史區間":
         start_date_obj = earliest_date_obj
