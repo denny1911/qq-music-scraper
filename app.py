@@ -1949,10 +1949,10 @@ with main_tabs[5]:
 
     c1, c2 = st.columns(2)
     with c1:
-        input_song = st.text_input("歌名", value="crossfire", key="single_song_in")
+        input_song = st.text_input("歌名", placeholder="例如：crossfire", key="single_song_in")
     with c2:
-        input_singer = st.text_input("歌手 / 團體", value="张艺兴", key="single_singer_in")
-
+        input_singer = st.text_input("歌手 / 團體", placeholder="例如：张艺兴", key="single_singer_in")
+        
     if st.button(
         "🚀 開始檢測 (Gemini + 對照表)",
         type="primary",
