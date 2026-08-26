@@ -871,7 +871,6 @@ with main_tabs[2]:
             st.session_state["m3_vid"] = found_vid
             st.session_state["m3_lang"] = found_lang if found_lang else "華語"
             st.session_state["m3_stage"] = "editing"  # 切換為可編輯解鎖狀態
-            st.rerun()
 
     st.markdown("---")
 
@@ -974,7 +973,6 @@ with main_tabs[2]:
         st.session_state["m3_last_msg"] = f"✅ 已將 Video ID 更新為：`{final_vid or '（無）'}` ｜ 語言標籤更新為：`{new_language.strip()}`"
         st.session_state["m3_github_msg"] = github_status
         st.session_state["m3_stage"] = "submitted"
-        st.rerun()
 
     # 下方結果顯示：提交成功後，在表單正下方顯示更新結果與 GitHub 訊息
     if is_submitted:
@@ -987,7 +985,7 @@ with main_tabs[2]:
         with btn_col1:
             if st.button("✏️ 重新編輯這首歌", key="m3_reedit_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "editing"
-                st.rerun()
+                
         with btn_col2:
             if st.button("🧹 清除重置（下一首）", key="m3_clear_all_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "init"
@@ -998,7 +996,6 @@ with main_tabs[2]:
                 st.session_state["m3_match_idx"] = None
                 st.session_state["m3_last_msg"] = ""
                 st.session_state["m3_github_msg"] = ""
-                st.rerun()
 
 # ==========================================
 # 📊 原始榜單瀏覽
