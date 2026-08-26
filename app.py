@@ -799,11 +799,17 @@ with main_tabs[1]:
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
-    st.markdown("輸入歌名與歌手後，系統將自動比對資料庫紀錄並預設帶入。更新後會同步寫入 `data/yt_mapping.csv` 並上傳至 GitHub。")
+    st.markdown("輸入歌名與歌手後，點擊比對按鈕載入舊資料。更新後會同步寫入 `data/yt_mapping.csv` 並上傳至 GitHub。")
 
     mapping_file = "data/yt_mapping.csv"
 
-    # 1. 讀取現有對照表
+    # 1. 初始化 Session State (紀錄搜尋狀態與目標 Key)
+    if "m3_searched" not in st.session_state:
+        st.session_state["m3_searched"] = False
+    if "m3_search_key" not in st.session_state:
+        st.session_state["m3_search_key"] = ("", "")
+
+    # 2. 讀取現有對照表
     map_df = pd.DataFrame(columns=["歌名", "歌手", "Video ID", "語言"])
     if os.path.exists(mapping_file):
         try:
@@ -817,28 +823,49 @@ with main_tabs[2]:
     vid_col_name = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID"] if c in map_df.columns), "Video ID")
     lang_col_name = "語言" if "語言" in map_df.columns else "語言"
 
-    # 2. 第一階段：輸入歌名與歌手（即時比對）
+    # 3. 第一階段：輸入歌名與歌手
     col1, col2 = st.columns(2)
     with col1:
         target_song = st.text_input("🎵 輸入歌名", placeholder="例如：晴天", key="m3_song_input")
     with col2:
         target_singer = st.text_input("🎤 輸入歌手", placeholder="例如：周杰倫", key="m3_singer_input")
 
-    clean_s = target_song.strip().lower()
-    clean_a = target_singer.strip().lower()
+    clean_s = target_song.strip()
+    clean_a = target_singer.strip()
+    current_key = (clean_s.lower(), clean_a.lower())
+    has_input = bool(clean_s and clean_a)
 
-    # 💡 判斷歌名與歌手是否皆已輸入
-    has_target = bool(clean_s and clean_a)
+    # 💡 防呆機制：若輸入內容與上一次比對的內容不同，自動將搜尋狀態歸零（下方上鎖）
+    if current_key != st.session_state["m3_search_key"]:
+        st.session_state["m3_searched"] = False
 
+    # 4. 中間階段：比對按鈕
+    btn_col, _ = st.columns([1, 2])
+    with btn_col:
+        search_clicked = st.button(
+            "🔍 比對與載入資料",
+            key="m3_search_btn",
+            disabled=not has_input,
+            type="secondary"
+        )
+
+    if search_clicked and has_input:
+        st.session_state["m3_searched"] = True
+        st.session_state["m3_search_key"] = current_key
+
+    # 判斷下方表單是否解鎖
+    is_unlocked = st.session_state["m3_searched"] and has_input
+
+    # 5. 抓取舊紀錄資料 (僅在解鎖狀態下執行)
     existing_vid = ""
     existing_lang = "華語"
     match_idx = None
 
-    if has_target:
+    if is_unlocked:
         for idx, row in map_df.iterrows():
             r_song = str(row.get(song_col_name, "")).strip().lower()
             r_singer = str(row.get(singer_col_name, "")).strip().lower()
-            if r_song == clean_s and r_singer == clean_a:
+            if r_song == current_key[0] and r_singer == current_key[1]:
                 match_idx = idx
                 existing_vid = str(row.get(vid_col_name, "")).strip()
                 existing_lang = str(row.get(lang_col_name, "")).strip()
@@ -848,68 +875,68 @@ with main_tabs[2]:
             st.info(f"💡 **已找到現有紀錄** ｜ 目前 Video ID：`{existing_vid or '無'}` ｜ 目前語言：`{existing_lang or '未設定'}`")
         else:
             st.caption("ℹ️ **查無舊紀錄**：提交後將自動新增此歌曲至對照表。")
+    elif has_input and not st.session_state["m3_searched"]:
+        st.warning("👉 歌曲輸入已變更，請點擊『🔍 比對與載入資料』按鈕以確認與解鎖下方修改區。")
     else:
-        st.warning("👈 請先在上方的輸入框完整填寫「歌名」與「歌手」，下方修改區將自動解鎖。")
+        st.warning("👈 請先在上方的輸入框完整填寫「歌名」與「歌手」，並點擊比對按鈕。")
 
     lang_options = ["華語", "西洋", "韓語", "日語", "其它"]
     default_lang_idx = lang_options.index(existing_lang) if existing_lang in lang_options else 0
 
     st.markdown("---")
 
-    # 3. 第二階段：修改表單（未填寫歌名歌手時自動鎖定 disabled）
+    # 6. 第二階段：修改表單（只有通過比對驗證後才解鎖）
     with st.form("update_song_form"):
         col3, col4 = st.columns(2)
         with col3:
             new_video_id = st.text_input(
                 "📺 Video ID（若留空將保留原紀錄）",
-                value=existing_vid if has_target else "",
+                value=existing_vid if is_unlocked else "",
                 placeholder="例如：dQw4w9WgXcQ",
-                disabled=not has_target  # 未輸入目標時鎖定
+                disabled=not is_unlocked
             )
         with col4:
             new_language = st.selectbox(
                 "🌐 語言標籤",
                 options=lang_options,
-                index=default_lang_idx,
-                disabled=not has_target  # 未輸入目標時鎖定
+                index=default_lang_idx if is_unlocked else 0,
+                disabled=not is_unlocked
             )
 
         submitted = st.form_submit_button(
-            "💾 立即更新寫入對照表", 
+            "💾 立即更新寫入對照表",
             type="primary",
-            disabled=not has_target  # 未輸入目標時鎖定
+            disabled=not is_unlocked
         )
 
-    # 4. 表單提交寫入
-    if submitted and has_target:
+    # 7. 表單提交寫入
+    if submitted and is_unlocked:
         os.makedirs(os.path.dirname(mapping_file), exist_ok=True)
 
-        # 確保必要欄位存在
         for col in [song_col_name, singer_col_name, vid_col_name, lang_col_name]:
             if col not in map_df.columns:
                 map_df[col] = ""
 
-        # ID 防呆邏輯：若沒輸入新值且有舊值，自動保留舊值
+        # 保留舊 ID 的防呆邏輯
         final_vid = new_video_id.strip() if new_video_id.strip() else existing_vid
 
         if match_idx is not None:
             map_df.at[match_idx, vid_col_name] = final_vid
             map_df.at[match_idx, lang_col_name] = new_language.strip()
-            st.success(f"✅ 成功更新現有紀錄：《{target_song} - {target_singer}》")
+            st.success(f"✅ 成功更新現有紀錄：《{clean_s} - {clean_a}》")
         else:
             new_row = {
-                song_col_name: target_song.strip(),
-                singer_col_name: target_singer.strip(),
+                song_col_name: clean_s,
+                singer_col_name: clean_a,
                 vid_col_name: final_vid,
                 lang_col_name: new_language.strip()
             }
             map_df = pd.concat([map_df, pd.DataFrame([new_row])], ignore_index=True)
-            st.success(f"➕ 已新增一筆新紀錄：《{target_song} - {target_singer}》")
+            st.success(f"➕ 已新增一筆新紀錄：《{clean_s} - {clean_a}》")
 
-        # 本地寫入 CSV
+        # 本地與 GitHub 同步
         map_df.to_csv(mapping_file, index=False, encoding="utf-8-sig")
 
-        # GitHub 自動同步
         if "github" in st.secrets:
             try:
                 from github import Github
@@ -921,7 +948,7 @@ with main_tabs[2]:
                 
                 repo.update_file(
                     path="data/yt_mapping.csv",
-                    message=f"Update yt_mapping.csv: {target_song} - {target_singer}",
+                    message=f"Update yt_mapping.csv: {clean_s} - {clean_a}",
                     content=updated_csv_content,
                     sha=contents.sha,
                     branch="main"
