@@ -352,7 +352,7 @@ with main_tabs[0]:
                     clean_s = clean_key(song)
                     clean_a = clean_key(singer)
                     
-                    # 💡 【修改點】：直接從「中央優先 ➔ 每日補缺」字典取得語言標籤
+                    # 從「中央優先 ➔ 每日補缺」字典取得語言標籤
                     song_lang = lang_pair_map.get((clean_s, clean_a), "未知")
 
                     # 若語言不是「華語」，直接跳過該歌曲！
@@ -375,19 +375,18 @@ with main_tabs[0]:
                         continuous_charts = "-"
 
                     if max_single_streak == X_max_days:
-                        # 💡 【修改點】：YouTube ID 同樣直接從「中央優先 ➔ 每日補缺」字典取得
                         yt_id = yt_id_pair_map.get((clean_s, clean_a), None)
 
                         records.append(
                             {
-                                song_col: song,
-                                singer_col: singer,
+                                "歌名": song,
+                                "歌手": singer,
                                 "語言": song_lang,
                                 "即時點閱率": None,
                                 "連續在榜天數": max_single_streak,
-                                "連續出現榜單": continuous_charts,
+                                "最大連續出現榜單": continuous_charts,
                                 "歷史出現榜單": history_charts,
-                                "YouTube ID": yt_id,
+                                "Youtube Id": yt_id,
                             }
                         )
 
@@ -402,7 +401,7 @@ with main_tabs[0]:
                         if not api_keys:
                             st.warning("⚠️ 未在 Secrets 中設定 `YOUTUBE_API_KEY` 或 `YOUTUBE_API_KEYS`，無法抓取即時點閱。")
                         else:
-                            valid_ids = multi_chart["YouTube ID"].dropna().unique().tolist()
+                            valid_ids = multi_chart["Youtube Id"].dropna().unique().tolist()
                             valid_ids = [v for v in valid_ids if str(v).strip() not in ["-", "nan", "None", ""]]
 
                             realtime_views_map = {}
@@ -434,7 +433,7 @@ with main_tabs[0]:
                                     current_key_idx += 1
 
                             if fetch_success:
-                                multi_chart["即時點閱率"] = multi_chart["YouTube ID"].map(realtime_views_map)
+                                multi_chart["即時點閱率"] = multi_chart["Youtube Id"].map(realtime_views_map)
                                 st.toast("✅ 已成功載入此刻最新即時點閱！")
                             else:
                                 st.error("❌ 所有 API Key 今日配額皆已耗盡或連線失敗。")
@@ -446,7 +445,7 @@ with main_tabs[0]:
                             return f"https://www.youtube.com/watch?v={v}"
                         return None
 
-                    multi_chart["影片連結"] = multi_chart["YouTube ID"].apply(build_yt_url)
+                    multi_chart["影片連結"] = multi_chart["Youtube Id"].apply(build_yt_url)
 
                     # 依「即時點閱率」由高到低排序
                     if "即時點閱率" in multi_chart.columns:
@@ -454,21 +453,21 @@ with main_tabs[0]:
                             by=["即時點閱率"], ascending=[False], na_position="last"
                         )
 
-                    cols_order = [
-                        song_col,
-                        singer_col,
+                    display_cols = [
+                        "歌名",
+                        "歌手",
                         "即時點閱率",
-                        "連續出現榜單",
+                        "最大連續出現榜單",
                         "歷史出現榜單",
                         "影片連結",
                     ]
-                    multi_chart = multi_chart[cols_order]
+                    display_chart = multi_chart[display_cols]
 
                     st.success(
-                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(multi_chart)} 首華語單榜全程連續霸榜神曲！"
+                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(display_chart)} 首華語單榜全程連續霸榜神曲！"
                     )
                     st.dataframe(
-                        multi_chart,
+                        display_chart,
                         column_config={
                             "即時點閱率": st.column_config.NumberColumn(
                                 "即時點閱率", format="%,d", width="small", help="點擊上方按鈕後即時更新數據"
@@ -484,7 +483,17 @@ with main_tabs[0]:
                         use_container_width=True,
                     )
 
-                    export_df = get_clean_export_df(df_range, multi_chart)
+                    # 💡 【修改點】：明確指定 CSV 匯出的 6 個欄位
+                    export_cols = [
+                        "歌名",
+                        "歌手",
+                        "即時點閱率",
+                        "最大連續出現榜單",
+                        "歷史出現榜單",
+                        "Youtube Id",
+                    ]
+                    export_df = multi_chart[export_cols]
+
                     csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         label="📥 匯出連續霸榜池清單 (CSV)",
@@ -768,8 +777,22 @@ with main_tabs[1]:
                     use_container_width=True,
                 )
 
-                export_df = get_clean_export_df(target_df, evergreen)
-                csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+                # 💡 【修改點】：明確映射並指定 CSV 匯出的 5 個欄位
+                export_m2_df = evergreen.copy()
+                export_m2_df["歌名"] = export_m2_df[song_col]
+                export_m2_df["歌手"] = export_m2_df[singer_col]
+                export_m2_df["Youtube Id"] = export_m2_df["YouTube ID"]
+
+                export_cols = [
+                    "歌名",
+                    "歌手",
+                    "即時點閱率",
+                    "累積上榜天數",
+                    "Youtube Id",
+                ]
+                export_m2_df = export_m2_df[export_cols]
+
+                csv_data = export_m2_df.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
                     label=f"📥 匯出【{chart_option_m2}】華語常勝軍清單 (CSV)",
                     data=csv_data,
