@@ -795,7 +795,7 @@ with main_tabs[1]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# ✏️ 模組三：指定歌曲手動修正 (鎖定時保留填寫資料)
+# ✏️ 模組三：指定歌曲手動修正 (優化流暢度無二次刷新)
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
@@ -869,7 +869,6 @@ with main_tabs[2]:
             st.session_state["m3_vid"] = found_vid
             st.session_state["m3_lang"] = found_lang if found_lang else "華語"
             st.session_state["m3_stage"] = "editing"  # 切換為可編輯解鎖狀態
-            st.rerun()
 
     st.markdown("---")
 
@@ -878,7 +877,7 @@ with main_tabs[2]:
 
     lang_options = ["華語", "西洋", "韓語", "日語", "其它"]
     is_editing = (st.session_state["m3_stage"] == "editing")
-    has_data = (st.session_state["m3_stage"] in ["editing", "submitted"])  # 編輯中與已提交皆保留資料顯示
+    has_data = (st.session_state["m3_stage"] in ["editing", "submitted"])
 
     # 狀態顯示提示
     if st.session_state["m3_stage"] == "editing":
@@ -971,7 +970,6 @@ with main_tabs[2]:
         st.session_state["m3_lang"] = new_language.strip()
         st.session_state["m3_last_msg"] = f"✅ 已成功將《{song_title} - {singer_title}》的 Video ID 更新為：`{final_vid or '（無）'}`，語言標籤更新為：`{new_language.strip()}`"
         st.session_state["m3_stage"] = "submitted"
-        st.rerun()
 
     # 5. 提交完成後的快捷控制按鈕：重新編輯 / 清除重置
     if st.session_state["m3_stage"] == "submitted":
@@ -980,7 +978,6 @@ with main_tabs[2]:
         with btn_col1:
             if st.button("✏️ 重新編輯這首歌", key="m3_reedit_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "editing"
-                st.rerun()
         with btn_col2:
             if st.button("🧹 清除重置（下一首）", key="m3_clear_all_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "init"
@@ -990,7 +987,7 @@ with main_tabs[2]:
                 st.session_state["m3_lang"] = "華語"
                 st.session_state["m3_match_idx"] = None
                 st.session_state["m3_last_msg"] = ""
-                st.rerun()
+
 # ==========================================
 # 📊 原始榜單瀏覽
 # ==========================================
