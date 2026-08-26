@@ -210,15 +210,15 @@ with main_tabs[0]:
     )
 
     # 決定時間區間
-    if m1_preset == "⚡ 近 7 天":
-        start_date_obj = max(
-            earliest_date_obj, latest_date_obj - timedelta(days=6)
-        )
-        end_date_obj = latest_date_obj
-    elif m1_preset == "⚡ 近 30 天":
+    if m1_preset == "⚡ 近 30 天":
         start_date_obj = max(
             earliest_date_obj,
             latest_date_obj - timedelta(days=29),
+        )
+        end_date_obj = latest_date_obj
+    elif m1_preset == "⚡ 近 7 天":
+        start_date_obj = max(
+            earliest_date_obj, latest_date_obj - timedelta(days=6)
         )
         end_date_obj = latest_date_obj
     else:
@@ -536,11 +536,11 @@ with main_tabs[1]:
         key="m2_preset_radio",
     )
 
-    if m2_preset == "⚡ 近 7 天":
-        start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=6))
-        end_date_obj = latest_date_obj
-    elif m2_preset == "⚡ 近 30 天":
+    if m2_preset == "⚡ 近 30 天":
         start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=29))
+        end_date_obj = latest_date_obj
+    elif m2_preset == "⚡ 近 7 天":
+        start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=6))
         end_date_obj = latest_date_obj
     elif m2_preset == "🌐 全部歷史區間":
         start_date_obj = earliest_date_obj
