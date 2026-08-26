@@ -854,13 +854,13 @@ with main_tabs[2]:
     lang_col_name = "語言" if "語言" in map_df.columns else "語言"
 
     # 3. 第一階段：查詢表單
-    st.subheader("1️⃣ 第一步：查詢歌曲紀錄 (歌名歌手請輸入與原資料相同)")
+    st.subheader("1️⃣ 第一步：查詢歌曲紀錄 (輸入與原資料相同的文字與格式)")
     with st.form("m3_search_form"):
         col1, col2 = st.columns(2)
         with col1:
-            search_song = st.text_input("🎵 輸入歌名", value=st.session_state["m3_song"], placeholder="例如：晴天")
+            search_song = st.text_input("🎵 輸入歌名", value=st.session_state["m3_song"], placeholder="例如：时间漫步")
         with col2:
-            search_singer = st.text_input("🎤 輸入歌手", value=st.session_state["m3_singer"], placeholder="例如：周杰倫")
+            search_singer = st.text_input("🎤 輸入歌手", value=st.session_state["m3_singer"], placeholder="例如：梓渝")
         
         search_submitted = st.form_submit_button("🔍 查詢舊紀錄", type="primary")
 
