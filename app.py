@@ -795,7 +795,7 @@ with main_tabs[1]:
         st.info("選定日期區間內無數據。")
 
 # ==========================================
-# ✏️ 模組三：指定歌曲手動修正 (更新後上方隱藏、下方顯示結果)
+# ✏️ 模組三：指定歌曲手動修正 (正確狀態切換與訊息顯示)
 # ==========================================
 with main_tabs[2]:
     st.header("✏️ 指定歌曲欄位手動修正")
@@ -870,7 +870,8 @@ with main_tabs[2]:
             st.session_state["m3_match_idx"] = match_idx
             st.session_state["m3_vid"] = found_vid
             st.session_state["m3_lang"] = found_lang if found_lang else "華語"
-            st.session_state["m3_stage"] = "editing"  # 切換為可編輯解鎖狀態
+            st.session_state["m3_stage"] = "editing"
+            st.rerun()  # 必要：狀態變更，即刻重新繪製 UI 解鎖下方輸入框
 
     st.markdown("---")
 
@@ -967,15 +968,16 @@ with main_tabs[2]:
             except Exception as e:
                 github_status = f"❌ GitHub 同步失敗：{e}"
 
-        # 切換狀態至 submitted 並更新訊息內容
+        # 狀態更新並寫入顯示訊息
         st.session_state["m3_vid"] = final_vid
         st.session_state["m3_lang"] = new_language.strip()
         st.session_state["m3_last_msg"] = f"✅ 已將 Video ID 更新為：`{final_vid or '（無）'}` ｜ 語言標籤更新為：`{new_language.strip()}`"
         st.session_state["m3_github_msg"] = github_status
         st.session_state["m3_stage"] = "submitted"
+        st.rerun()  # 必要：狀態變更，即刻重跑以繪製上方的鎖定框與下方的成功訊息
 
-    # 下方結果顯示：提交成功後，在表單正下方顯示更新結果與 GitHub 訊息
-    if is_submitted:
+    # 5. 下方結果顯示與控制按鈕
+    if st.session_state["m3_stage"] == "submitted":
         st.success(st.session_state["m3_last_msg"])
         if st.session_state["m3_github_msg"]:
             st.info(st.session_state["m3_github_msg"])
@@ -985,7 +987,7 @@ with main_tabs[2]:
         with btn_col1:
             if st.button("✏️ 重新編輯這首歌", key="m3_reedit_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "editing"
-                
+                st.rerun()
         with btn_col2:
             if st.button("🧹 清除重置（下一首）", key="m3_clear_all_btn", use_container_width=True):
                 st.session_state["m3_stage"] = "init"
@@ -996,6 +998,7 @@ with main_tabs[2]:
                 st.session_state["m3_match_idx"] = None
                 st.session_state["m3_last_msg"] = ""
                 st.session_state["m3_github_msg"] = ""
+                st.rerun()
 
 # ==========================================
 # 📊 原始榜單瀏覽
