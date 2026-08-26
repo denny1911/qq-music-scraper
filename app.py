@@ -1796,7 +1796,7 @@ with main_tabs[4]:
 # ==========================================
 # 🌐 測試2：語言標籤 (僅留單筆歌曲測試)
 # ==========================================
-with main_tabs[3]:
+with main_tabs[5]:
     st.header("🌐 Gemini AI 歌曲語言智慧檢測 & 本地對照表快搜")
     st.markdown(
         "整合 **Gemini 3.1 Flash Lite Preview** 語意模型與 **Key 輪詢池**，支援單筆歌曲語言智慧檢測與中央對照表 (`yt_mapping.csv`) 快搜。"
