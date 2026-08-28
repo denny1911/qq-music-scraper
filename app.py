@@ -59,7 +59,7 @@ st.markdown("""
     }, 200);
 })();
 </script>
-""", unsafe_allow_html=True
+""", unsafe_allow_html=True)
 
 # 1. 頁面基本設定
 st.set_page_config(
