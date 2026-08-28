@@ -506,8 +506,19 @@ with main_tabs[0]:
                         "歷史出現榜單",
                         "Youtube Id",
                     ]
+                    # 1. 複製欲匯出的資料表
                     export_df = multi_chart[export_cols]
 
+                    # 2. 將即時點閱率轉換為千分位格式 (非空值才轉)
+                    export_df["即時點閱率"] = export_df["即時點閱率"].apply(
+                        lambda x: (
+                            f"{int(x):,}"
+                            if pd.notna(x) and str(x).replace(".", "").isdigit()
+                            else ""
+                        )
+                    )
+
+                    # 3. 轉成 CSV 供使用者下載
                     csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
                         label="📥 匯出連續霸榜池清單 (CSV)",
@@ -812,8 +823,19 @@ with main_tabs[1]:
                     "累積上榜天數",
                     "Youtube Id",
                 ]
+                # 1. 複製欲匯出的資料表
                 export_m2_df = export_m2_df[export_cols]
 
+                # 2. 將即時點閱率轉換為千分位格式 (非空值才轉)
+                export_m2_df["即時點閱率"] = export_m2_df["即時點閱率"].apply(
+                    lambda x: (
+                        f"{int(x):,}"
+                        if pd.notna(x) and str(x).replace(".", "").isdigit()
+                        else ""
+                    )
+                )
+
+                # 3. 轉成 CSV 供使用者下載
                 csv_data = export_m2_df.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
                     label=f"📥 匯出【{chart_option_m2}】常勝軍清單 (CSV)",
