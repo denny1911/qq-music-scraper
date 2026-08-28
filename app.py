@@ -13,6 +13,59 @@ import google.generativeai as genai
 import requests
 import random
 
+st.markdown("""
+<style>
+    /* 讓分頁容器支援橫向滾動並改為抓取手勢 */
+    div[data-testid="stTabs"] [role="tablist"] {
+        overflow-x: auto !important;
+        scroll-behavior: smooth;
+        cursor: grab;
+    }
+    div[data-testid="stTabs"] [role="tablist"]:active {
+        cursor: grabbing;
+    }
+    /* 自訂美化橫向卷軸 */
+    div[data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar {
+        height: 6px;
+    }
+    div[data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar-thumb {
+        background: rgba(150, 150, 150, 0.4);
+        border-radius: 4px;
+    }
+    div[data-testid="stTabs"] [role="tablist"]::-webkit-scrollbar-thumb:hover {
+        background: rgba(150, 150, 150, 0.7);
+    }
+</style>
+
+<script>
+// 監聽並實現滑鼠點擊拖曳橫向移動
+setTimeout(() => {
+    const doc = window.parent.document;
+    const tabList = doc.querySelector('div[data-testid="stTabs"] [role="tablist"]');
+    if (tabList && !tabList.dataset.dragInitialized) {
+        tabList.dataset.dragInitialized = "true";
+        let isDown = false;
+        let startX, scrollLeft;
+
+        tabList.addEventListener('mousedown', (e) => {
+            isDown = true;
+            startX = e.pageX - tabList.offsetLeft;
+            scrollLeft = tabList.scrollLeft;
+        });
+        tabList.addEventListener('mouseleave', () => { isDown = false; });
+        tabList.addEventListener('mouseup', () => { isDown = false; });
+        tabList.addEventListener('mousemove', (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - tabList.offsetLeft;
+            const walk = (x - startX) * 1.5; // 拖曳靈敏度
+            tabList.scrollLeft = scrollLeft - walk;
+        });
+    }
+}, 500);
+</script>
+""", unsafe_allow_html=True)
+
 # 1. 頁面基本設定
 st.set_page_config(
     page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide"
