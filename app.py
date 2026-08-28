@@ -390,6 +390,19 @@ with main_tabs[0]:
                 if records:
                     multi_chart = pd.DataFrame(records)
 
+                    # ---------------------------------------------------------
+                    # 💡 【建議加在這裡】：將歌名與歌手轉為繁體中文
+                    # ---------------------------------------------------------
+                    import zhconv  # 若檔案最上方沒引用，可直接加在這裡或檔頭
+
+                    multi_chart["繁體歌名"] = multi_chart["歌名"].apply(
+                        lambda x: zhconv.convert(str(x), "zh-hant") if pd.notna(x) else ""
+                    )
+                    multi_chart["繁體歌手"] = multi_chart["歌手"].apply(
+                        lambda x: zhconv.convert(str(x), "zh-hant") if pd.notna(x) else ""
+                    )
+                    # ---------------------------------------------------------
+                    
                     # 按鈕觸發：連線 API 抓取此刻即時點閱
                     btn_fetch_realtime = st.button("🔄 抓取此刻即時點閱 (YouTube API)")
 
@@ -485,6 +498,8 @@ with main_tabs[0]:
                     export_cols = [
                         "歌名",
                         "歌手",
+                        "繁體歌名",
+                        "繁體歌手",
                         "即時點閱率",
                         "語言",
                         "最大連續出現榜單",
