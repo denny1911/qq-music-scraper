@@ -179,12 +179,12 @@ main_tabs = st.tabs(
 )
 
 # ==========================================
-# 🏆 模組一：全網霸榜池（單榜連續神曲 - 僅限華語）
+# 🏆 模組一：全網霸榜池（單榜連續神曲）
 # ==========================================
 with main_tabs[0]:
-    st.header("🔥 模組一：全網跨榜霸榜池 (華語專屬)")
+    st.header("🔥 模組一：全網跨榜霸榜池")
     st.markdown(
-        "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的**華語神曲**，指標最硬不踩雷！"
+        "自動比對榜單數據，篩選出在指定區間內**單一榜單連續 $X$ 天不間斷在榜**的**神曲**，指標最硬不踩雷！"
     )
 
     # 1. 自動從 Secrets 提取 API Key 清單
@@ -346,7 +346,7 @@ with main_tabs[0]:
                     return max_s
 
                 # -------------------------------------------------------------
-                # 步驟 3：依歌曲分組計算 streak 並進行華語過濾
+                # 步驟 3：依歌曲分組計算 streak
                 # -------------------------------------------------------------
                 records = []
                 for (song, singer), sub_df in df_range.groupby([song_col, singer_col]):
@@ -355,10 +355,6 @@ with main_tabs[0]:
                     
                     # 從「中央優先 ➔ 每日補缺」字典取得語言標籤
                     song_lang = lang_pair_map.get((clean_s, clean_a), "未知")
-
-                    # 若語言不是「華語」，直接跳過該歌曲！
-                    if str(song_lang).strip() != "華語":
-                        continue
 
                     history_charts = "、".join(sorted(sub_df["榜單類型"].unique()))
 
@@ -458,6 +454,7 @@ with main_tabs[0]:
                         "歌名",
                         "歌手",
                         "即時點閱率",
+                        "語言",
                         "最大連續出現榜單",
                         "歷史出現榜單",
                         "影片連結",
@@ -489,6 +486,7 @@ with main_tabs[0]:
                         "歌名",
                         "歌手",
                         "即時點閱率",
+                        "語言",
                         "最大連續出現榜單",
                         "歷史出現榜單",
                         "Youtube Id",
@@ -499,13 +497,13 @@ with main_tabs[0]:
                     st.download_button(
                         label="📥 匯出連續霸榜池清單 (CSV)",
                         data=csv_data,
-                        file_name=f"QQ音樂_華語連續霸榜池_{start_date}_至_{end_date}.csv",
+                        file_name=f"QQ音樂_連續霸榜池_{start_date}_至_{end_date}.csv",
                         mime="text/csv",
                         key="m1_download_range",
                     )
                 else:
                     st.info(
-                        f"在 {start_date} ～ {end_date} 區間內（$X = {X_max_days}$ 天），暫無華語歌曲達到連續 $X$ 天皆在榜。"
+                        f"在 {start_date} ～ {end_date} 區間內（$X = {X_max_days}$ 天），暫無歌曲達到連續 $X$ 天皆在榜。"
                     )
             else:
                 st.warning(
