@@ -531,9 +531,9 @@ with main_tabs[0]:
 # 👑 模組二：榜單常勝軍（長青熱歌 - 僅限華語）
 # ==========================================
 with main_tabs[1]:
-    st.header("👑 模組二：榜單常勝軍（長青熱歌 - 華語專屬）")
+    st.header("👑 模組二：榜單常勝軍（長青熱歌）")
     st.markdown(
-        "統計**指定日期區間**內，在個別榜單的累積天數表現（僅顯示**華語歌曲**）。"
+        "統計**指定日期區間**內，在個別榜單的累積天數表現（僅顯示**歌曲**）。"
     )
 
     chart_option_m2 = st.radio(
@@ -545,7 +545,7 @@ with main_tabs[1]:
 
     m2_preset = st.radio(
         "🗓️ 選擇統計時間範圍",
-        ["⚡ 近 7 天", "⚡ 近 30 天", "🌐 全部歷史區間", "📅 自訂月曆區間"],
+        ["⚡ 近 7 天", "⚡ 近 30 天", "📅 自訂月曆區間"],
         index=1,
         horizontal=True,
         key="m2_preset_radio",
@@ -556,9 +556,6 @@ with main_tabs[1]:
         end_date_obj = latest_date_obj
     elif m2_preset == "⚡ 近 30 天":
         start_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=29))
-        end_date_obj = latest_date_obj
-    elif m2_preset == "🌐 全部歷史區間":
-        start_date_obj = earliest_date_obj
         end_date_obj = latest_date_obj
     else:
         date_range = st.date_input(
@@ -668,14 +665,13 @@ with main_tabs[1]:
             evergreen["即時點閱率"] = None
 
             if not evergreen.empty:
-                # 3. 語言判定與過濾（僅保留「華語」）
+                # 3. 語言判定與過濾
                 def get_song_lang(row):
                     s = clean_key(row[song_col])
                     a = clean_key(row[singer_col])
                     return lang_pair_map.get((s, a), "未知")
 
                 evergreen["語言"] = evergreen.apply(get_song_lang, axis=1)
-                evergreen = evergreen[evergreen["語言"] == "華語"].copy()
 
             if not evergreen.empty:
                 # 4. 反查 YouTube ID 與 建立播放連結
@@ -694,6 +690,13 @@ with main_tabs[1]:
 
                 evergreen["影片連結"] = evergreen["YouTube ID"].apply(build_yt_url)
 
+                evergreen["繁體歌名"] = evergreen[song_col].apply(
+                    lambda x: zhconv.convert(str(x), "zh-hant") if pd.notna(x) else ""
+                )
+                evergreen["繁體歌手"] = evergreen[singer_col].apply(
+                    lambda x: zhconv.convert(str(x), "zh-hant") if pd.notna(x) else ""
+                )
+                
                 # 5. 直連 YouTube API 抓取按鈕 (與模組一完全一致)
                 if "m2_live_views" not in st.session_state:
                     st.session_state["m2_live_views"] = {}
@@ -760,6 +763,7 @@ with main_tabs[1]:
                     song_col,
                     singer_col,
                     "即時點閱率",
+                    "語言",
                     "累積上榜天數",
                     "影片連結",
                 ]
@@ -769,7 +773,7 @@ with main_tabs[1]:
 
             if not evergreen.empty:
                 st.success(
-                    f"📈【{chart_option_m2}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首華語歌曲）："
+                    f"📈【{chart_option_m2}】統計區間：{start_date} ～ {end_date}（涵蓋 {total_days} 天，共 {len(evergreen)} 首歌曲）："
                 )
 
                 st.dataframe(
@@ -801,7 +805,10 @@ with main_tabs[1]:
                 export_cols = [
                     "歌名",
                     "歌手",
+                    "繁體歌名",
+                    "繁體歌手",
                     "即時點閱率",
+                    "語言",
                     "累積上榜天數",
                     "Youtube Id",
                 ]
@@ -809,15 +816,15 @@ with main_tabs[1]:
 
                 csv_data = export_m2_df.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
-                    label=f"📥 匯出【{chart_option_m2}】華語常勝軍清單 (CSV)",
+                    label=f"📥 匯出【{chart_option_m2}】常勝軍清單 (CSV)",
                     data=csv_data,
-                    file_name=f"QQ音樂_華語榜單常勝軍_{chart_option_m2}_{start_date}_至_{end_date}.csv",
+                    file_name=f"QQ音樂_榜單常勝軍_{chart_option_m2}_{start_date}_至_{end_date}.csv",
                     mime="text/csv",
                     key="m2_download",
                 )
             else:
                 st.info(
-                    f"在 {start_date} ～ {end_date} 區間內，【{chart_option_m2}】尚無華語歌曲上榜。"
+                    f"在 {start_date} ～ {end_date} 區間內，【{chart_option_m2}】尚無歌曲上榜。"
                 )
         else:
             st.info(
