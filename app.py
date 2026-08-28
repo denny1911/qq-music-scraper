@@ -13,54 +13,6 @@ import google.generativeai as genai
 import requests
 import random
 
-st.markdown("""
-<style>
-    /* 強制分頁容器支援橫向滾動與拖曳手勢 */
-    div[data-testid="stTabs"] [role="tablist"] {
-        overflow-x: auto !important;
-        flex-wrap: nowrap !important;
-        cursor: grab !important;
-        user-select: none;
-    }
-    div[data-testid="stTabs"] [role="tablist"]:active {
-        cursor: grabbing !important;
-    }
-</style>
-
-<script>
-(function() {
-    // 定期檢查直到抓取到分頁列元素並綁定拖曳事件
-    const interval = setInterval(() => {
-        const tabList = document.querySelector('div[data-testid="stTabs"] [role="tablist"]');
-        if (tabList && !tabList.dataset.dragBound) {
-            tabList.dataset.dragBound = "true";
-            clearInterval(interval);
-
-            let isDown = false;
-            let startX, scrollLeft;
-
-            tabList.addEventListener('mousedown', (e) => {
-                isDown = true;
-                startX = e.pageX - tabList.offsetLeft;
-                scrollLeft = tabList.scrollLeft;
-            });
-
-            tabList.addEventListener('mouseleave', () => { isDown = false; });
-            tabList.addEventListener('mouseup', () => { isDown = false; });
-
-            tabList.addEventListener('mousemove', (e) => {
-                if (!isDown) return;
-                e.preventDefault();
-                const x = e.pageX - tabList.offsetLeft;
-                const walk = (x - startX) * 2; // 拖曳速度倍率
-                tabList.scrollLeft = scrollLeft - walk;
-            });
-        }
-    }, 200);
-})();
-</script>
-""", unsafe_allow_html=True)
-
 # 1. 頁面基本設定
 st.set_page_config(
     page_title="QQ音樂熱門歌曲挑選系統", page_icon="🎵", layout="wide"
