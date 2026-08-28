@@ -567,6 +567,40 @@ def main():
 
     print("✅ 排程執行完畢，所有資料與對照表皆已同步更新！")
 
+# ==========================================
+# 新增：排程更新日誌紀錄函式
+# ==========================================
+import json
+from datetime import datetime
+
+def update_schedule_log(workflow_name="每日排程更新", status="成功"):
+    log_path = "data/schedule_logs.json"
+    
+    new_entry = {
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "name": workflow_name,
+        "status": status
+    }
+    
+    if os.path.exists(log_path):
+        with open(log_path, "r", encoding="utf-8") as f:
+            try:
+                logs = json.load(f)
+            except json.JSONDecodeError:
+                logs = []
+    else:
+        logs = []
+        
+    logs.insert(0, new_entry)
+    
+    if len(logs) > 10:
+        logs = logs[:10]
+        
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(logs, f, ensure_ascii=False, indent=4)
+
 
 if __name__ == "__main__":
     main()
+    # 在這裡呼叫它，讓每次程式跑完時自動記錄
+    update_schedule_log()
