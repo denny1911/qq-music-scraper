@@ -173,6 +173,7 @@ main_tabs = st.tabs(
         "👑 模組二：榜單常勝軍",
         "✏️ 模組三：ID、語言修正",
         "📊 原始榜單瀏覽",
+        "📌 排程更新紀錄",
         "📺 測試1：YT點閱率",
         "🌐 測試2：語言標籤",
     ]
@@ -1200,9 +1201,53 @@ with main_tabs[3]:
         st.info("💡 **請先選擇『基準日期』**，即可開始瀏覽原始榜單資料。")
 
 # ==========================================
+# 📌 排程更新紀錄（新功能）
+# ==========================================
+with main_tabs[6]:
+    st.header("📌 後端排程更新紀錄")
+    st.markdown("這裡會自動讀取並顯示後端自動排程執行的最新紀錄與 10 筆詳細資訊。")
+
+    # 假設你的後端排程紀錄存在 data/schedule_log.json（如果檔名不同可自由修改）
+    log_file_path = "data/schedule_log.json"
+
+    if os.path.exists(log_file_path):
+        try:
+            with open(log_file_path, "r", encoding="utf-8") as f:
+                logs_data = json.load(f)
+
+            if logs_data:
+                st.success(f"✅ 成功載入排程紀錄，共找到 {len(logs_data)} 筆資料：")
+                
+                # 取出最近的 10 筆紀錄（若不足 10 筆則全取），並反轉讓最新的在最上面
+                recent_logs = logs_data[-10:] if len(logs_data) >= 10 else logs_data
+                recent_logs.reverse()
+
+                # 用 st.expander 渲染 10 筆收合選單
+                for i, log_item in enumerate(recent_logs, 1):
+                    time_str = log_item.get("time", f"紀錄 #{i}")
+                    status = log_item.get("status", "執行成功")
+                    
+                    with st.expander(f"🕒 [{time_str}] 排程狀態：{status}"):
+                        # 顯示該筆紀錄的詳細細節
+                        st.json(log_item)
+            else:
+                st.info("目前排程紀錄檔案中尚無內容。")
+        except Exception as e:
+            st.error(f"❌ 讀取排程紀錄檔案發生錯誤：{e}")
+    else:
+        st.info(f"💡 目前尚未在 `data/` 資料夾下偵測到紀錄檔（預設尋找：`{log_file_path}`）。")
+        st.markdown("---")
+        st.markdown("### 📋 畫面預覽（當後端有寫入紀錄時，將自動以 10 筆收合選單呈現）")
+        
+        # 模擬 10 筆收合選單的畫面展示
+        for i in range(1, 11):
+            with st.expander(f"第 {i} 筆排程紀錄範例：自動抓取與同步成功 (2026-08-28 12:0{i})"):
+                st.write(f"這是一筆模擬的排程詳細數據，後端寫入實際 `json` 檔案後就會替換成真實資料。")
+
+# ==========================================
 # 📺 測試1：YT點閱率（完整固定策略版）
 # ==========================================
-with main_tabs[4]:
+with main_tabs[5]:
     st.header("📺 模組四：YouTube 點閱測繪")
     st.markdown(
         "自動向 Git 數據源讀取最新榜單資料，並進行 YouTube 影片搜尋與點閱數據測繪。"
@@ -1809,7 +1854,7 @@ with main_tabs[4]:
 # ==========================================
 # 🌐 測試2：語言標籤 (僅留單筆歌曲測試)
 # ==========================================
-with main_tabs[5]:
+with main_tabs[6]:
     st.header("🌐 Gemini AI 歌曲語言智慧檢測 & 本地對照表快搜")
     st.markdown(
         "整合 **Gemini 3.1 Flash Lite Preview** 語意模型與 **Key 輪詢池**，支援單筆歌曲語言智慧檢測與中央對照表 (`yt_mapping.csv`) 快搜。"
