@@ -462,7 +462,7 @@ with main_tabs[0]:
                     display_chart = multi_chart[display_cols]
 
                     st.success(
-                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(display_chart)} 首華語單榜全程連續霸榜神曲！"
+                        f"🎯 涵蓋區間：{start_date} ～ {end_date}（涵蓋 {X_max_days} 天數據，目標連續天數 $X = {X_max_days}$），共找到 {len(display_chart)} 首單榜全程連續霸榜神曲！"
                     )
                     st.dataframe(
                         display_chart,
