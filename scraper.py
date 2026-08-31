@@ -579,6 +579,10 @@ from datetime import datetime
 
 def update_schedule_log(workflow_name="每日排程更新", status="成功"):
     log_path = "data/schedule_logs.json"
+
+    # 💡 強制指定台灣時區 (UTC+8)
+    tz_taiwan = timezone(timedelta(hours=8))
+    now_tw = datetime.now(tz_taiwan)
     
     new_entry = {
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
