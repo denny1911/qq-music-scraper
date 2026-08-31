@@ -213,10 +213,10 @@ with main_tabs[0]:
 
     # 決定時間區間
     if m1_preset == "⚡ 近 7 天":
-        end_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=1))
+        end_date_obj = latest_date_obj
         start_date_obj = max(earliest_date_obj, end_date_obj - timedelta(days=6))
     elif m1_preset == "⚡ 近 30 天":
-        end_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=1))
+        end_date_obj = latest_date_obj
         start_date_obj = max(earliest_date_obj, end_date_obj - timedelta(days=29))
     else:
         date_range = st.date_input(
@@ -544,10 +544,10 @@ with main_tabs[1]:
     )
 
     if m2_preset == "⚡ 近 7 天":
-        end_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=1))
+        end_date_obj = latest_date_obj
         start_date_obj = max(earliest_date_obj, end_date_obj - timedelta(days=6))
     elif m2_preset == "⚡ 近 30 天":
-        end_date_obj = max(earliest_date_obj, latest_date_obj - timedelta(days=1))
+        end_date_obj = latest_date_obj
         start_date_obj = max(earliest_date_obj, end_date_obj - timedelta(days=29))
     else:
         date_range = st.date_input(
