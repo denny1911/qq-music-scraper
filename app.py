@@ -1041,7 +1041,7 @@ with main_tabs[3]:
 
     selected_date_obj = st.date_input(
         "📅 選擇基準日期 (預設為最新數據)",
-        value=max(earliest_date_obj, latest_date_obj - timedelta(days=1)), # 👈 改為 N-1 天
+        value=max(earliest_date_obj, latest_date_obj), # 👈 改為 N-1 天
         min_value=earliest_date_obj,
         max_value=latest_date_obj,
         key="m5_date_picker",
