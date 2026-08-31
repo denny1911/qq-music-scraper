@@ -1207,8 +1207,8 @@ with main_tabs[4]:
     st.header("📌 後端排程更新紀錄")
     st.markdown("這裡會自動讀取並顯示後端自動排程執行的最新紀錄與 10 筆詳細資訊。")
 
-    # 假設你的後端排程紀錄存在 data/schedule_log.json（如果檔名不同可自由修改）
-    log_file_path = "data/schedule_log.json"
+    # 假設你的後端排程紀錄存在 data/schedule_logs.json（如果檔名不同可自由修改）
+    log_file_path = "data/schedule_logs.json"
 
     if os.path.exists(log_file_path):
         try:
