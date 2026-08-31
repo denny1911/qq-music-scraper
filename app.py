@@ -1218,9 +1218,8 @@ with main_tabs[4]:
             if logs_data:
                 st.success(f"✅ 成功載入排程紀錄，共找到 {len(logs_data)} 筆資料：")
                 
-                # 取出最近的 10 筆紀錄（若不足 10 筆則全取），並反轉讓最新的在最上面
-                recent_logs = logs_data[-10:] if len(logs_data) >= 10 else logs_data
-                recent_logs.reverse()
+                # 取出最近的 10 筆紀錄（若不足 10 筆則全取）
+                recent_logs = logs_data[:10]
 
                 # 用 st.expander 渲染 10 筆收合選單
                 for i, log_item in enumerate(recent_logs, 1):
