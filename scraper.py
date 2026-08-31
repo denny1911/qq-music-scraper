@@ -387,9 +387,13 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
 def main():
     tz_taiwan = timezone(timedelta(hours=8))
     now = datetime.now(tz_taiwan)
-    year_str = now.strftime("%Y")
-    month_str = now.strftime("%Y-%m")
-    date_str = now.strftime("%Y-%m-%d")
+
+    # 💡 因為半夜執行排程抓取的是前一天榜單，故減去 1 天作為資料日期
+    target_date = now - timedelta(days=1)
+    
+    year_str = target_date.strftime("%Y")
+    month_str = target_date.strftime("%Y-%m")
+    date_str = target_date.strftime("%Y-%m-%d")
 
     target_dir = os.path.join(DATA_DIR, year_str, month_str, date_str)
     os.makedirs(target_dir, exist_ok=True)
