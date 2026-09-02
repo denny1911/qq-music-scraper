@@ -585,7 +585,7 @@ def update_schedule_log(workflow_name="每日排程更新", status="成功"):
     now_tw = datetime.now(tz_taiwan)
     
     new_entry = {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time": now_tw.strftime("%Y-%m-%d %H:%M:%S"),
         "name": workflow_name,
         "status": status
     }
