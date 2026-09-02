@@ -1246,7 +1246,7 @@ with main_tabs[4]:
 # ==========================================
 # 📺 測試1：YT點閱率（完整固定策略版）
 # ==========================================
-with main_tabs[5]:
+with main_tabs[4]:
     st.header("📺 模組四：YouTube 點閱測繪")
     st.markdown(
         "自動向 Git 數據源讀取最新榜單資料，並進行 YouTube 影片搜尋與點閱數據測繪。"
@@ -1517,29 +1517,9 @@ with main_tabs[5]:
                                 if not is_topic and has_noise:
                                     continue
 
-                                # 1. 基礎包含判斷
                                 song_matched = (
                                     main_sim_norm in v_title_norm
                                 ) or (main_tra_norm in v_title_norm)
-                                
-                                # 2. 🤖 完全自動化防誤抓（自動檢查歌名後方是否還有接續的中文字）
-                                if song_matched:
-                                    sim_title = zhconv.convert(v_title, "zh-hans")
-                                    tra_title = zhconv.convert(v_title, "zh-hant")
-                                
-                                    # 檢查原始標題中，歌名「下一個字」是否為中文字 (\u4e00-\u9fa5)
-                                    pattern_sim = rf"{re.escape(main_sim_norm)}([\u4e00-\u9fa5])"
-                                    pattern_tra = rf"{re.escape(main_tra_norm)}([\u4e00-\u9fa5])"
-                                
-                                    has_extra_chinese = (
-                                        re.search(pattern_sim, sim_title) is not None or
-                                        re.search(pattern_tra, tra_title) is not None
-                                    )
-                                
-                                    # 如果下一個字是中文字，代表是《烟火里的尘埃》這種衍生長歌名，自動剔除
-                                    if has_extra_chinese:
-                                        song_matched = False
-                                
                                 if not song_matched:
                                     continue
 
@@ -1869,7 +1849,7 @@ with main_tabs[5]:
                             "❌ 未找到符合過濾條件的 YouTube"
                             " 影片，請嘗試微調歌名或歌手關鍵字。"
                         )
-
+                        
 # ==========================================
 # 🌐 測試2：語言標籤 (僅留單筆歌曲測試)
 # ==========================================
