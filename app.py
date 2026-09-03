@@ -1360,36 +1360,36 @@ with main_tabs[5]:
         return artist_groups
 
     def build_search_queries(song, singer):
-    clean_s, main_s = parse_song_title(song)
-    clean_p = str(singer).strip()
-
-    # 🎯 只有當搜尋單一歌手時，才在語句末尾加上排除詞
-    is_single_artist = len(extract_artist_tokens(singer)) == 1
-    neg = " -合唱 -對唱 -对唱" if is_single_artist else ""
-
-    # 1. 主要搜尋詞（簡/繁）
-    primary_query = f"{main_s} {clean_p}{neg}".strip()
-    queries = [primary_query]
-
-    primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}{neg}".strip()
-    if primary_query_tra not in queries:
-        queries.append(primary_query_tra)
-
-    # 2. 完整歌名搜尋（帶括號的副標題，如：猜不透 (Live)）
-    if clean_s != main_s:
-        full_query = f"{clean_s} {clean_p}{neg}".strip()
-        if full_query not in queries:
-            queries.append(full_query)
-
-    # 3. 歌手別名搜尋（帶括號的藝名，如：丽兹 (LIZ)）
-    extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
-    if extracted_bracket:
-        fallback_singer = " ".join(extracted_bracket).strip()
-        fallback_query = f"{main_s} {fallback_singer}{neg}".strip()
-        if fallback_query not in queries:
-            queries.append(fallback_query)
-
-    return queries
+        clean_s, main_s = parse_song_title(song)
+        clean_p = str(singer).strip()
+    
+        # 🎯 只有當搜尋單一歌手時，才在語句末尾加上排除詞
+        is_single_artist = len(extract_artist_tokens(singer)) == 1
+        neg = " -合唱 -對唱 -对唱" if is_single_artist else ""
+    
+        # 1. 主要搜尋詞（簡/繁）
+        primary_query = f"{main_s} {clean_p}{neg}".strip()
+        queries = [primary_query]
+    
+        primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}{neg}".strip()
+        if primary_query_tra not in queries:
+            queries.append(primary_query_tra)
+    
+        # 2. 完整歌名搜尋（帶括號的副標題，如：猜不透 (Live)）
+        if clean_s != main_s:
+            full_query = f"{clean_s} {clean_p}{neg}".strip()
+            if full_query not in queries:
+                queries.append(full_query)
+    
+        # 3. 歌手別名搜尋（帶括號的藝名，如：丽兹 (LIZ)）
+        extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
+        if extracted_bracket:
+            fallback_singer = " ".join(extracted_bracket).strip()
+            fallback_query = f"{main_s} {fallback_singer}{neg}".strip()
+            if fallback_query not in queries:
+                queries.append(fallback_query)
+    
+        return queries
 
     COMBINED_NOISE_KEYWORDS = [
         "花絮",
