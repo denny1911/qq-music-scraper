@@ -1561,7 +1561,7 @@ with main_tabs[5]:
                                     candidates.append(cand)
 
                             if candidates:
-                                DUET_PATTERN = DUET_PATTERN = r"[\&\+]|\b(?:feat\.?|ft\.?|X|x)\b|合唱|合唱版"
+                                DUET_PATTERN = r"[\&\+]|\b(?:feat\.?|ft\.?|X|x)\b|合唱|合唱版"
                                 
                                 clean_cands = []
                                 modified_cands = []
@@ -1574,23 +1574,24 @@ with main_tabs[5]:
                                     # 1. 檢查是否為合唱 (針對單人搜尋)
                                     is_duet = (len(artist_tokens) == 1) and bool(re.search(DUET_PATTERN, v_t, re.IGNORECASE))
                                     
-                                    # 2. 檢查是否為「他人翻唱」 (標題出現 Cover/翻唱，但頻道或標題開頭不是該歌手)
-                                    is_other_cover = False
-                                    if "cover" in v_t_lower or "翻唱" in v_t_lower:
+                                    # 2. 檢查是否為「非官方試聽 / 他人 Cover」
+                                    is_demo_or_cover = False
+                                    if "試聽" in v_t or "试听" in v_t:
+                                        is_demo_or_cover = True
+                                    elif "cover" in v_t_lower or "翻唱" in v_t_lower:
                                         singer_is_main = any(
                                             any(tkn in v_channel or v_t_lower.startswith(tkn) for tkn in group)
                                             for group in artist_tokens
                                         )
                                         if not singer_is_main:
-                                            is_other_cover = True
+                                            is_demo_or_cover = True
 
-                                    # 只有「合唱」或「他人翻唱」會被歸為備援組
-                                    if is_duet or is_other_cover:
+                                    if is_duet or is_demo_or_cover:
                                         modified_cands.append(cand)
                                     else:
                                         clean_cands.append(cand)
 
-                                # 優先選取最高點閱影片
+                                # 🎯 選取邏輯：純淨原版優先選取最高點閱
                                 if clean_cands:
                                     best = max(clean_cands, key=lambda x: x["views"])
                                 else:
