@@ -1537,10 +1537,26 @@ with main_tabs[5]:
                                 is_ascii_song = bool(re.search(r'[a-zA-Z]', main_song))
                                 
                                 if is_ascii_song:
-                                    # 英文歌：允許後面緊接中文括號或翻譯
-                                    song_matched = (
-                                        (main_song_norm in v_title_norm_sim or main_song_norm in v_title_norm_tra) or
-                                        (clean_song_norm in v_title_norm_sim or clean_song_norm in v_title_norm_tra)
+                                    # 1. 去除影片標題中的括號雜訊 (如 (Visualizer), [Official Video])
+                                    title_no_brackets = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", v_title)
+                                
+                                    # 2. 扣除歌手名稱，避免歌手名字干擾歌名判定
+                                    for grp in artist_tokens:
+                                        for tkn in grp:
+                                            if tkn and len(tkn) >= 2:
+                                                title_no_brackets = re.sub(re.escape(tkn), "", title_no_brackets, flags=re.IGNORECASE)
+                                
+                                    # 3. 過濾常見英文影片尾綴雜訊
+                                    core_title = re.sub(r"\b(official|music|video|audio|visualizer|lyric|lyrics|live|mv|hd|4k)\b", "", title_no_brackets, flags=re.IGNORECASE)
+                                
+                                    # 4. 提取純英文單字列表進行核心比對
+                                    core_words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9']+\b", core_title)]
+                                    target_words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9']+\b", main_song)]
+                                
+                                    # 5. 精確判定：核心單字必須與目標歌名完全一致 (避免 "Without You" 被誤判為 "You")
+                                    song_matched = (core_words == target_words) or (
+                                        re.search(rf"\b{re.escape(main_song)}\b", v_title, re.IGNORECASE) is not None
+                                        and not re.search(rf"\b\w+\s+{re.escape(main_song)}\b", core_title, re.IGNORECASE)
                                     )
                                 else:
                                     # 中文歌：嚴格執行「前後不可緊接其他中文字」，避免像「洞房」被「花为媒·洞房赞」這種雜訊命中
