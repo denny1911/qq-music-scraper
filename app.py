@@ -1437,7 +1437,7 @@ with main_tabs[5]:
             if matched_info:
                 break
 
-            max_results_val = 30 if order_mode == "viewCount" else 5
+            max_results_val = 30 if order_mode == "viewCount" else 10
 
             for query_str in search_queries:
                 if matched_info:
