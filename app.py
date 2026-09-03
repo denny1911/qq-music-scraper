@@ -1421,7 +1421,8 @@ with main_tabs[5]:
         artist_tokens = extract_artist_tokens(singer)
 
         matched_info = None
-
+        fallback_duet = None  # 🎯 新增：合唱版暫存備用（不立刻妥協）
+        
         def build_yt_service(idx):
             return (
                 build("youtube", "v3", developerKey=api_keys[idx])
@@ -1514,13 +1515,16 @@ with main_tabs[5]:
                                     or "主題" in channel_lower
                                 )
 
-                                # 🛡️ 核心修復：搜尋單人時，直接「硬性剔除」其他中文歌手的 Topic 頻道！
+                                # 🛡️ 搜尋單人時，硬性過濾其他中文歌手的 Topic 頻道
                                 if len(artist_tokens) == 1 and is_topic:
-                                    has_target_in_channel = any(any(tkn in channel_norm for tkn in group) for group in artist_tokens)
-                                    is_generic_topic = any(gt in channel_lower for gt in ["release", "various", "soundtrack", "合輯", "合集", "va"])
-                                    has_chinese_in_channel = re.search(r'[\u4e00-\u9fa5]', channel_norm) is not None
-                                
-                                    # 如果頻道帶中文（如：趙磊 - Topic），既不是張予曦，也不是 Release 公用頻道 -> 直接扔掉，連備用組都不進！
+                                    has_target_in_channel = any(
+                                        any(tkn in channel_norm for tkn in group) for group in artist_tokens
+                                    )
+                                    is_generic_topic = any(
+                                        gt in channel_lower for gt in ["release", "various", "soundtrack", "合輯", "合集", "va"]
+                                    )
+                                    has_chinese_in_channel = re.search(r"[\u4e00-\u9fa5]", channel_norm) is not None
+
                                     if has_chinese_in_channel and not has_target_in_channel and not is_generic_topic:
                                         continue
                                 
@@ -1648,6 +1652,10 @@ with main_tabs[5]:
                     except Exception:
                         break
 
+        # 🎯 只有當所有模式都找遍了、完全沒有純獨唱時，最後才拿合唱版補救
+        if not matched_info and fallback_duet:
+            matched_info = fallback_duet
+            
         return matched_info, current_key_idx, youtube_service
 
     # --- 3. UI 介面與頁籤 ---
