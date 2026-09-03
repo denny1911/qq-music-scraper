@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import html  # 修正：補上 html import
 import json
 import os
 import re
@@ -64,7 +65,8 @@ def get_gemini_api_keys():
 GEMINI_API_KEYS = get_gemini_api_keys()
 CURRENT_GEMINI_KEY_IDX = 0
 
-def call_gemini_classify_song(song_title, singer_name, yt_id=None):
+# 修正：補上 lyrics="" 參數
+def call_gemini_classify_song(song_title, singer_name, yt_id=None, lyrics=""):
     """呼叫 Gemini 判斷歌曲語言，並強制輸出繁體中文類別"""
     global CURRENT_GEMINI_KEY_IDX
 
@@ -73,9 +75,10 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
         return {"success": False, "category": "未知"}
 
     yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id and str(yt_id) not in ["-", "", "nan", "None"] else "無"
+    lyrics_info = lyrics if lyrics else "無（未提供或純音樂）"
 
     prompt = f"""
-你是一個專業音樂榜單數據分析專家。請結合歌名、歌手背景知識以及 YouTube 影片資訊，將這首歌曲精準歸類為以下【5 種語言類別】之一（請務必使用繁體中文）：
+你是一個專業音樂榜單數據分析專家。請結合歌名、歌手背景知識以及 YouTube 影片資訊以及歌詞片段，將這首歌曲精準歸類為以下【5 種語言類別】之一（請務必使用繁體中文）：
 1. "華語" (歌詞以國語/粵語/台語為主)
 2. "西洋" (歌詞以英文/歐美語系為主)
 3. "韓語" (歌詞以韓文為主，K-Pop)
@@ -86,18 +89,27 @@ def call_gemini_classify_song(song_title, singer_name, yt_id=None):
 - 歌名："{song_title}"
 - 歌手："{singer_name}"
 - YouTube 連結：{yt_link_info}
+- 歌詞片段：
+{lyrics_info}
 
 【關鍵判斷標準】：
-1. 實際演唱語言絕對優先：必須嚴格根據「實際演唱歌詞的主要語言」判定，【絕對禁止】僅憑「歌手國籍、所屬團體或發行地區」直接歸類！
-2. 華語/亞洲歌手的英文歌：若華語或亞洲歌手發行的是「全英文」或「英文為主」的歌曲（如：嚴浩翔《No More Tomorrow》、張藝興《Crossfire》、王嘉爾全英文單曲、BTS 英文單曲），不論歌手是誰，【必須歸類為 "西洋"】。
-3. 英文歌名的華語歌：歌名雖包含英文單字，但實際演唱歌詞絕大部分為華語（如：周深《Rubia》若歌詞包含華語，或一般華語 pop 帶英文歌名），才可歸類為 "華語"。
-4. 混血/跨國合作曲：若為多國語言混合，請以演唱比例超過 50% 的語言為主；若為無歌詞的純音樂（Instrumental），一律歸類為 "其它"。
-5. 參考 YouTube 資訊：若提供了 YouTube 連結，請結合該影片與知識庫進行精準判定。
+1. 實際演唱語言絕對優先（歌詞文字 > 既有印象）：
+   - 若有提供「歌詞片段」，【必須嚴格以歌詞實際出現的文字語言（中/英/韓/日）作為最高優先判定依據】！
+   - 【絕對禁止】僅憑歌手國籍、所屬團體、發行地區或歌名語言直接歸類。
+2. 華語/亞洲歌手的英文歌：
+   - 若華語或亞洲歌手發行的是「全英文」或「英文佔比超過 70%」的歌曲（如：嚴浩翔《No More Tomorrow》、張藝興《Crossfire》、王嘉爾全英文單曲、BTS 英文單曲），無論歌手是誰，【必須歸類為 "西洋"】。
+3. 英文歌名 / 外文標題的華語歌：
+   - 歌名雖然是英文或外文，但檢視歌詞片段後發現演唱內容絕大部分為華語（如：周深《Rubia》若歌詞包含華語，或一般華語 Pop 帶英文歌名），【必須歸類為 "華語"】。
+4. 混血/多語言混合曲與純音樂：
+   - 多語言混合曲：請以歌詞片段中演唱比例超過 50% 的語言進行歸類。
+   - 無歌詞/純音樂：若歌詞片段顯示為「無/純音樂」，或經判斷為純音樂伴奏（Instrumental），一律歸類為 "其它"。
+5. 綜合輔助驗證：
+   - 若未提供歌詞片段，請結合 YouTube 資訊與你內建的音樂知識庫進行精準判定。
 
 請嚴格只輸出 JSON 格式，結構如下：
 {{
   "category": "西洋",
-  "reason": "結合 YouTube 影片與背景知識，該歌曲為全英文單曲，演唱語言為英文，故歸類為西洋。"
+  "reason": "根據歌詞片段主要為英文，演唱語言為英文，故歸類為西洋。"
 }}
 """
 
@@ -168,7 +180,6 @@ def extract_artist_tokens(singer):
 
     singer_str = str(singer).strip()
 
-    # 只用「真正的合唱分隔符」拆分（移除 \s，避免把空格當成換人）
     raw_artists = re.split(
         r"\s*[/&,\+\·\*\-\|]+\s*|\s+\b(?:feat\.?|ft\.?|X|x)\b\s*",
         singer_str,
@@ -184,28 +195,23 @@ def extract_artist_tokens(singer):
 
         group_tokens = set()
 
-        # A. 提取整體
         group_tokens.add(zhconv.convert(raw, "zh-hans"))
         group_tokens.add(zhconv.convert(raw, "zh-hant"))
 
-        # B. 提取去除括號後的主名稱
         clean_raw = re.sub(r"[\(\（][^\)\）]*[\)\）]", "", raw).strip()
         if clean_raw:
             group_tokens.add(zhconv.convert(clean_raw, "zh-hans"))
             group_tokens.add(zhconv.convert(clean_raw, "zh-hant"))
 
-            # C. 提取主名稱中的純中文部分（如 "万妮达Vinida Weng" -> "万妮达"）
             zh_only = "".join(re.findall(r"[\u4e00-\u9fa5]+", clean_raw)).strip()
             if len(zh_only) >= 2:
                 group_tokens.add(zhconv.convert(zh_only, "zh-hans"))
                 group_tokens.add(zhconv.convert(zh_only, "zh-hant"))
 
-            # D. 提取主名稱中的純英文部分（如 "万妮达Vinida Weng" -> "Vinida Weng"）
             en_only = "".join(re.findall(r"[a-zA-Z0-9\s]+", clean_raw)).strip()
             if len(en_only) >= 2:
                 group_tokens.add(en_only)
 
-        # E. 提取括號內的別名/綽號（如 "(LIZ)" -> "LIZ"）
         bracket_content = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", raw)
         for b in bracket_content:
             b = b.strip()
@@ -213,7 +219,6 @@ def extract_artist_tokens(singer):
                 group_tokens.add(zhconv.convert(b, "zh-hans"))
                 group_tokens.add(zhconv.convert(b, "zh-hant"))
 
-        # 規格化，保留長度 >= 2 的有效關鍵字
         norm_group = [
             normalize_text(t)
             for t in group_tokens
@@ -229,7 +234,6 @@ def build_search_queries(song, singer):
     clean_s, main_s = parse_song_title(song)
     clean_p = str(singer).strip()
 
-    # 將斜線等分隔符轉為空格，避免 YouTube API 搜尋失效
     clean_p_spaced = re.sub(r"[/&,\+\·\*\-\|]+", " ", clean_p).strip()
 
     primary_query = f"{main_s} {clean_p_spaced}".strip()
@@ -239,7 +243,6 @@ def build_search_queries(song, singer):
     if primary_query_tra not in queries:
         queries.append(primary_query_tra)
 
-    # 若為多歌手/單位 (如 "周深/北京環球度假區")，加入「主要歌手」獨立搜尋詞
     first_artist = re.split(r"[/&,\+\·\*\-\|]|\s+\b(?:feat\.?|ft\.?|X|x)\b", clean_p, flags=re.IGNORECASE)[0].strip()
     if first_artist and first_artist != clean_p:
         first_artist_query = f"{main_s} {first_artist}".strip()
@@ -255,7 +258,7 @@ def build_search_queries(song, singer):
 
 
 # ==========================================
-# 2. YouTube 雙階段搜尋函式 (與測試1完全同步)
+# 2. YouTube 雙階段搜尋函式
 # ==========================================
 def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_service):
     clean_song, main_song = parse_song_title(song)
@@ -270,14 +273,12 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
     def build_yt_service(idx):
         return build("youtube", "v3", developerKey=api_keys[idx]) if idx < len(api_keys) else None
 
-    # 固定策略順序：先 viewCount，再 relevance
     order_strategies = ["viewCount", "relevance"]
 
     for order_mode in order_strategies:
         if matched_info:
             break
 
-        # 根據搜尋模式動態設定筆數：viewCount 抓 30 筆，relevance 抓 5 筆
         max_results_val = 30 if order_mode == "viewCount" else 5
 
         for query_str in search_queries:
@@ -329,7 +330,6 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
                             duration_sec = parse_duration(duration_str)
 
-                            # 過濾短影音與過長影片 (1分5秒 ~ 8分鐘)
                             if duration_sec <= 65 or duration_sec > 480:
                                 continue
 
@@ -345,23 +345,19 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             if not is_topic and has_noise:
                                 continue
 
-                            # 🎯 智慧歌名比對
                             v_title_sans = zhconv.convert(v_title, "zh-hans")
                             v_title_hant = zhconv.convert(v_title, "zh-hant")
 
                             is_ascii_song = bool(re.search(r'[a-zA-Z]', main_song))
 
                             if is_ascii_song:
-                                # 去除影片標題中的括號雜訊
                                 title_no_brackets = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", v_title)
 
-                                # 扣除歌手名稱，避免歌手名字干擾歌名判定
                                 for grp in artist_tokens:
                                     for tkn in grp:
                                         if tkn and len(tkn) >= 2:
                                             title_no_brackets = re.sub(re.escape(tkn), "", title_no_brackets, flags=re.IGNORECASE)
 
-                                # 過濾常見英文影片尾綴雜訊
                                 core_title = re.sub(r"\b(official|music|video|audio|visualizer|lyric|lyrics|live|mv|hd|4k)\b", "", title_no_brackets, flags=re.IGNORECASE)
 
                                 core_words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9']+\b", core_title)]
@@ -372,7 +368,6 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                                     and not re.search(rf"\b\w+\s+{re.escape(main_song)}\b", core_title, re.IGNORECASE)
                                 )
                             else:
-                                # 中文歌：嚴格限制前後不能亂接其他中文字
                                 pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
                                 pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
 
@@ -384,7 +379,6 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             if not song_matched:
                                 continue
 
-                            # 🎯 歌手比對：擴大官方頻道認定與資訊欄比對
                             is_official = (
                                 "topic" in channel_lower
                                 or "official" in channel_lower
@@ -398,7 +392,6 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             else:
                                 v_check_text = f"{v_title_norm} {channel_norm}"
 
-                            # 擴充歌手 Token：自動加入拼音
                             extended_artist_tokens = []
                             for group in artist_tokens:
                                 new_group = list(group)
@@ -410,7 +403,6 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                                             new_group.append(" ".join(py_list).lower())
                                 extended_artist_tokens.append(list(set(new_group)))
 
-                            # 🎯 智慧分級過濾
                             if not extended_artist_tokens:
                                 singer_matched = True
                             else:
@@ -466,7 +458,6 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                                 else:
                                     clean_cands.append(cand)
 
-                            # 純淨原版優先選取最高點閱
                             if clean_cands:
                                 best = max(clean_cands, key=lambda x: x["views"])
                             else:
@@ -492,8 +483,98 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
 
 
 # ==========================================
-# 3. QQ 音樂抓取函式
+# 3. QQ 音樂與歌詞抓取函式
 # ==========================================
+def safe_str(val):
+    """安全字串轉換器：防止 None / NaN 導致崩潰"""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    return "" if s.lower() in ["nan", "none", "null"] else s
+
+
+def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
+    """🧹 零死角歌詞淨化器"""
+    raw_lyrics = safe_str(raw_lyrics).replace('\xa0', ' ')
+    song_name = safe_str(song_name)
+    artist_name = safe_str(artist_name)
+
+    if not raw_lyrics:
+        return ""
+
+    INSTRUMENTAL_TAGS = ["instrumental", "純音樂", "請欣賞純音樂", "無歌詞"]
+    if raw_lyrics.lower() in INSTRUMENTAL_TAGS:
+        return ""
+
+    raw_lyrics = re.sub(r'\[[a-zA-Z\s_-]+:.*?\]', '', raw_lyrics)
+
+    lines = [line.strip() for line in raw_lyrics.split('\n') if line.strip()]
+    valid_lines = []
+    
+    STAFF_PATTERN = re.compile(
+        r'^(作詞|作曲|詞曲|填詞|譜曲|詞|曲|編曲|製作人|錄音|混音|吉他|貝斯|鼓手|鍵盤|和聲|母帶|OP|SP|出品|發行|版權|演唱|Lyricist|Composer|Producer|Arranger)\s*[:：\s]', 
+        re.IGNORECASE
+    )
+
+    is_head_section = True  
+    clean_song = normalize_text(song_name)
+
+    for line_str in lines:
+        if re.match(r'^\[\d{2}:\d{2}', line_str) or line_str in ["[]", ""]:
+            continue
+
+        if len(valid_lines) > 5:
+            is_head_section = False
+
+        if is_head_section:
+            line_clean = normalize_text(line_str)
+            
+            if clean_song and (clean_song in line_clean or line_clean in clean_song):
+                continue
+                
+            if STAFF_PATTERN.search(line_str) and len(line_str) < 30:
+                continue
+
+        valid_lines.append(line_str)
+
+    if not valid_lines and lines:
+        return "\n".join([l for l in lines if not l.startswith('[')])
+
+    return "\n".join(valid_lines)
+
+
+# 修正：移除重複的 def，保留完整邏輯
+def get_qq_lyrics(songmid, song_name="", artist_name=""):
+    """根據 songmid 抓取 QQ 音樂歌詞，並透過 clean_lyrics_for_gemini 進行清洗"""
+    if not songmid:
+        return ""
+    
+    url = f"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={songmid}&format=json&nobase64=1"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://y.qq.com/",
+    }
+    
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            raw_lyric = data.get("lyric", "")
+            if not raw_lyric:
+                return ""
+            
+            clean_lyric = html.unescape(raw_lyric)
+            cleaned_text = clean_lyrics_for_gemini(clean_lyric, song_name=song_name, artist_name=artist_name)
+            trad_text = zhconv.convert(cleaned_text, 'zh-tw')
+            lines = [l for l in trad_text.split('\n') if l.strip()]
+            
+            return "\n".join(lines[:30])
+    except Exception as e:
+        print(f"  ⚠️ 抓取 QQ 歌詞失敗 ({songmid}): {e}")
+    
+    return ""
+
+
 def fetch_qq_music_chart(top_id, chart_name, date_str):
     url = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     payload = {
@@ -523,6 +604,7 @@ def fetch_qq_music_chart(top_id, chart_name, date_str):
                 "歌手": "/".join([s.get("name", "") for s in song.get("singer", [])]),
                 "專輯": song.get("album", {}).get("name", "未知專輯"),
                 "發行日期": song.get("time_public") or song.get("album", {}).get("time_public", "未知日期"),
+                "songmid": song.get("mid", ""),
             })
         return pd.DataFrame(song_data)
     except Exception as e:
@@ -537,7 +619,6 @@ def main():
     tz_taiwan = timezone(timedelta(hours=8))
     now = datetime.now(tz_taiwan)
 
-    # 因半夜執行排程抓取的是前一天榜單，故減去 1 天作為資料日期
     target_date = now - timedelta(days=1)
     
     year_str = target_date.strftime("%Y")
@@ -571,9 +652,10 @@ def main():
         return
 
     df_today_all = pd.concat(all_charts_df_list, ignore_index=True)
-    df_unique_songs = df_today_all[["歌名", "歌手"]].drop_duplicates().reset_index(drop=True)
+    
+    # 修正：去重時保留 songmid
+    df_unique_songs = df_today_all[["歌名", "歌手", "songmid"]].drop_duplicates(subset=["歌名", "歌手"]).reset_index(drop=True)
 
-    # 1. 讀取現有對照表
     expected_cols = ["歌名", "歌手", "Video ID", "語言"]
     if os.path.exists(MAPPING_FILE):
         try:
@@ -593,7 +675,6 @@ def main():
     youtube_service = build("youtube", "v3", developerKey=yt_api_keys[0]) if yt_api_keys else None
     mapping_updated = False
 
-    # 2. 逐一檢查今日歌曲的 Video ID 與 語言
     print("🔍 開始比對與處理今日歌曲之 YouTube ID 與 語言類別...")
 
     for idx, row in df_unique_songs.iterrows():
@@ -628,13 +709,22 @@ def main():
         # Step B: 檢查/判定 語言
         has_valid_lang = current_lang not in ["-", "", "nan", "None", "未知"]
         if not has_valid_lang:
-            print(f"🤖 [分析語言類別]：{song} - {singer} (YouTube ID: {current_vid}) ...")
-            lang_res = call_gemini_classify_song(song_title=song, singer_name=singer, yt_id=current_vid)
+            songmid = row.get("songmid", "")
+            
+            lyrics_text = get_qq_lyrics(songmid, song_name=song, artist_name=singer) if songmid else ""
+            
+            print(f"🤖 [分析語言類別]：{song} - {singer} (淨化後歌詞: {len(lyrics_text)} 字) ...")
+            lang_res = call_gemini_classify_song(
+                song_title=song, 
+                singer_name=singer, 
+                yt_id=current_vid, 
+                lyrics=lyrics_text
+            )
             current_lang = lang_res["category"]
             print(f"  └─ 🎯 語言判定結果：【{current_lang}】")
             mapping_updated = True
 
-        # Step C: 即時寫回或新增至對照表記憶體中
+        # Step C: 即時寫回記憶體
         if mask.any():
             df_mapping.loc[mask, "Video ID"] = current_vid
             df_mapping.loc[mask, "語言"] = current_lang
@@ -648,7 +738,6 @@ def main():
             df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
             mapping_updated = True
 
-    # 存回 CSV 檔
     if mapping_updated:
         df_mapping = df_mapping[expected_cols].drop_duplicates(subset=["歌名", "歌手"], keep="first")
         df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
@@ -720,9 +809,6 @@ def main():
     print("✅ 排程執行完畢，所有資料與對照表皆已同步更新！")
 
 
-# ==========================================
-# 新增：排程更新日誌紀錄函式
-# ==========================================
 def update_schedule_log(workflow_name="每日排程更新", status="成功"):
     log_path = "data/schedule_logs.json"
 
