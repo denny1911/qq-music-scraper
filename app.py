@@ -1551,9 +1551,7 @@ with main_tabs[5]:
 
                             if candidates:
                                 # 判斷標題是否含合唱/多位歌手特徵
-                                DUET_PATTERN = (
-                                    r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|雙人|合作|攜手|携手|同台"
-                                )
+                                DUET_PATTERN = r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|合唱版"
                                 # 若搜單人，拆成獨唱與多位；優先選獨唱最高點閱
                                 if len(artist_tokens) == 1:
                                     solo_cands = [c for c in candidates if not re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
