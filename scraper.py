@@ -306,7 +306,15 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             if not is_topic and any(nk in v_title_lower for nk in COMBINED_NOISE_KEYWORDS):
                                 continue
 
-                            song_matched = (main_sim_norm in v_title_norm) or (main_tra_norm in v_title_norm)
+                            # 🎯 精確比對：歌名前後都不允許緊連著其他中文字
+                            pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
+                            pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
+                            
+                            song_matched = (
+                                re.search(pattern_sim, zhconv.convert(v_title, "zh-hans")) is not None or
+                                re.search(pattern_tra, zhconv.convert(v_title, "zh-hant")) is not None
+                            )
+                            
                             if not song_matched:
                                 continue
 
