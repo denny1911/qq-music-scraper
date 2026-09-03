@@ -1529,11 +1529,11 @@ with main_tabs[5]:
                                 if not song_matched:
                                     continue
 
-                                v_full_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
+                                v_visible_text = f"{v_title_norm} {channel_norm}"
 
                                 # 歌手比對：同歌手內部任意名稱命中 (any)，跨歌手必須全部滿足 (all)
                                 singer_matched = not artist_tokens or all(
-                                    any(tkn in v_full_text for tkn in group)
+                                    any(tkn in v_visible_text for tkn in group)
                                     for group in artist_tokens
                                 )
 
