@@ -1556,28 +1556,45 @@ with main_tabs[5]:
                                 candidates.append(cand)
 
                             if candidates:
-                                # 判斷標題是否含合唱/多位歌手特徵
                                 DUET_PATTERN = (
                                     r"#[^\s#]+\s*#[^\s#]+|"
                                     r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|"
                                     r"合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|双人|合作|攜手|携手|"
                                     r"搭配|男女|同台|合體|合体|合演|聯手|联手"
                                 )
+                                # 常見公用/發行 Topic 關鍵字
+                                GENERIC_TOPICS = ["release", "various", "soundtrack", "合輯", "合集", "va"]
+
                                 # 單人搜尋時：優先挑選獨唱，完全找不到獨唱才退回選合唱
                                 if len(artist_tokens) == 1:
                                     solo_candidates = []
                                     duet_candidates = []
 
                                     for cand in candidates:
-                                        is_duet = (
-                                            re.search(
-                                                DUET_PATTERN,
-                                                cand["title"],
-                                                re.IGNORECASE,
-                                            )
-                                            is not None
+                                        c_name = cand["channel"].lower()
+
+                                        # 1. 判斷是否為 Topic 頻道
+                                        is_topic_channel = "topic" in c_name or "- topic" in c_name
+                                        
+                                        # 2. 檢查頻道名是否包含目標歌手、或是公用頻道
+                                        has_target_in_channel = any(any(tkn in c_name for tkn in group) for group in artist_tokens)
+                                        is_generic_topic = any(gt in c_name for gt in GENERIC_TOPICS)
+
+                                        # 3. 檢查頻道名稱是否含有中文（如：趙磊 - Topic）
+                                        has_chinese_in_channel = re.search(r'[\u4e00-\u9fa5]', c_name) is not None
+
+                                        # 🛡️ 精準防護：頻道帶中文、不是目標歌手、非公用頻道 -> 判定為「別人的 Topic 頻道」
+                                        is_other_artist_topic = (
+                                            is_topic_channel 
+                                            and has_chinese_in_channel 
+                                            and not has_target_in_channel 
+                                            and not is_generic_topic
                                         )
-                                        if is_duet:
+
+                                        title_has_duet = re.search(DUET_PATTERN, cand["title"], re.IGNORECASE) is not None
+
+                                        # 只要命中標題合唱特徵 OR 是別人的中文 Topic 頻道，就歸類為合唱組
+                                        if is_other_artist_topic or title_has_duet:
                                             duet_candidates.append(cand)
                                         else:
                                             solo_candidates.append(cand)
