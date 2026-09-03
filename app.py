@@ -1517,22 +1517,37 @@ with main_tabs[5]:
                                 if not is_topic and has_noise:
                                     continue
 
-                                # 🎯 歌名比對：同時驗證「去除括號的主歌名」與「完整歌名」
+                               # 🎯 智慧歌名比對：
+                                # 如果歌名主要是英文 (或較長)，允許後面帶中文括號；
+                                # 如果歌名是純中文且字數很少 (如「洞房」), 則嚴格限制前後不能亂接其他中文字。
                                 v_title_sans = zhconv.convert(v_title, "zh-hans")
                                 v_title_hant = zhconv.convert(v_title, "zh-hant")
                                 
-                                # 1. 完整標準化字串包含 (如 roundwego)
                                 clean_song_norm = normalize_text(clean_song)
                                 main_song_norm = normalize_text(main_song)
                                 
                                 v_title_norm_sim = normalize_text(v_title_sans)
                                 v_title_norm_tra = normalize_text(v_title_hant)
                                 
-                                song_matched = (
-                                    (main_song_norm in v_title_norm_sim or main_song_norm in v_title_norm_tra) or
-                                    (clean_song_norm in v_title_norm_sim or clean_song_norm in v_title_norm_tra)
-                                )
+                                # 判斷歌名是否主要是英文/數字 (包含英文字母)
+                                is_ascii_song = bool(re.search(r'[a-zA-Z]', main_song))
                                 
+                                if is_ascii_song:
+                                    # 英文歌：允許後面緊接中文括號或翻譯
+                                    song_matched = (
+                                        (main_song_norm in v_title_norm_sim or main_song_norm in v_title_norm_tra) or
+                                        (clean_song_norm in v_title_norm_sim or clean_song_norm in v_title_norm_tra)
+                                    )
+                                else:
+                                    # 中文歌：嚴格執行「前後不可緊接其他中文字」，避免像「洞房」被「花为媒·洞房赞」這種雜訊命中
+                                    pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
+                                    pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
+                                    
+                                    song_matched = (
+                                        re.search(pattern_sim, v_title_sans) is not None or
+                                        re.search(pattern_tra, v_title_hant) is not None
+                                    )
+
                                 if not song_matched:
                                     continue
 
