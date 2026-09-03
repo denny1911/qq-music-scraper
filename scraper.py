@@ -10,6 +10,11 @@ import pandas as pd
 import requests
 import zhconv
 
+try:
+    from pypinyin import lazy_pinyin
+except ImportError:
+    lazy_pinyin = None
+
 # ==========================================
 # 1. 基礎設定與輔助函式
 # ==========================================
@@ -34,11 +39,9 @@ COMBINED_NOISE_KEYWORDS = [
 def get_gemini_api_keys():
     """從環境變數或 .streamlit/secrets.toml 取得 Gemini API Keys"""
     keys = []
-    # 相容 GitHub Actions 傳入的 GEMINI_API_KEYS 或舊的 API_KEYS
     env_keys = os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY", "")
 
     if env_keys:
-        # 同時支援「多行換行」與「逗號分隔」的 Key 格式
         raw_list = env_keys.replace(",", "\n").splitlines()
         keys = [k.strip() for k in raw_list if k.strip()]
         if keys:
@@ -163,7 +166,15 @@ def extract_artist_tokens(singer):
     if not singer or str(singer).lower() in ["-", "nan", "none"]:
         return []
 
-    raw_artists = re.split(r"[/&,\+\·\*\-\|\s]+|feat\.?|ft\.?|X|x", str(singer).strip(), flags=re.IGNORECASE)
+    singer_str = str(singer).strip()
+
+    # 只用「真正的合唱分隔符」拆分（移除 \s，避免把空格當成換人）
+    raw_artists = re.split(
+        r"\s*[/&,\+\·\*\-\|]+\s*|\s+\b(?:feat\.?|ft\.?|X|x)\b\s*",
+        singer_str,
+        flags=re.IGNORECASE,
+    )
+
     artist_groups = []
 
     for raw in raw_artists:
@@ -172,29 +183,42 @@ def extract_artist_tokens(singer):
             continue
 
         group_tokens = set()
+
+        # A. 提取整體
         group_tokens.add(zhconv.convert(raw, "zh-hans"))
         group_tokens.add(zhconv.convert(raw, "zh-hant"))
 
+        # B. 提取去除括號後的主名稱
         clean_raw = re.sub(r"[\(\（][^\)\）]*[\)\）]", "", raw).strip()
         if clean_raw:
             group_tokens.add(zhconv.convert(clean_raw, "zh-hans"))
             group_tokens.add(zhconv.convert(clean_raw, "zh-hant"))
 
-        for b in re.findall(r"[\(\（]([^\)\）]+)[\)\）]", raw):
-            if b.strip():
-                group_tokens.add(zhconv.convert(b.strip(), "zh-hans"))
-                group_tokens.add(zhconv.convert(b.strip(), "zh-hant"))
+            # C. 提取主名稱中的純中文部分（如 "万妮达Vinida Weng" -> "万妮达"）
+            zh_only = "".join(re.findall(r"[\u4e00-\u9fa5]+", clean_raw)).strip()
+            if len(zh_only) >= 2:
+                group_tokens.add(zhconv.convert(zh_only, "zh-hans"))
+                group_tokens.add(zhconv.convert(zh_only, "zh-hant"))
 
-        zh_only = "".join(re.findall(r"[\u4e00-\u9fa5]+", clean_raw)).strip()
-        if len(zh_only) >= 2:
-            group_tokens.add(zhconv.convert(zh_only, "zh-hans"))
-            group_tokens.add(zhconv.convert(zh_only, "zh-hant"))
+            # D. 提取主名稱中的純英文部分（如 "万妮达Vinida Weng" -> "Vinida Weng"）
+            en_only = "".join(re.findall(r"[a-zA-Z0-9\s]+", clean_raw)).strip()
+            if len(en_only) >= 2:
+                group_tokens.add(en_only)
 
-        en_only = "".join(re.findall(r"[a-zA-Z0-9\s]+", clean_raw)).strip()
-        if len(en_only) >= 2:
-            group_tokens.add(en_only)
+        # E. 提取括號內的別名/綽號（如 "(LIZ)" -> "LIZ"）
+        bracket_content = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", raw)
+        for b in bracket_content:
+            b = b.strip()
+            if len(b) >= 2:
+                group_tokens.add(zhconv.convert(b, "zh-hans"))
+                group_tokens.add(zhconv.convert(b, "zh-hant"))
 
-        norm_group = [normalize_text(t) for t in group_tokens if normalize_text(t)]
+        # 規格化，保留長度 >= 2 的有效關鍵字
+        norm_group = [
+            normalize_text(t)
+            for t in group_tokens
+            if len(normalize_text(t)) >= 2
+        ]
         if norm_group:
             artist_groups.append(list(set(norm_group)))
 
@@ -205,27 +229,33 @@ def build_search_queries(song, singer):
     clean_s, main_s = parse_song_title(song)
     clean_p = str(singer).strip()
 
-    queries = [f"{main_s} {clean_p}".strip()]
-    tra_q = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}".strip()
-    if tra_q not in queries:
-        queries.append(tra_q)
+    # 將斜線等分隔符轉為空格，避免 YouTube API 搜尋失效
+    clean_p_spaced = re.sub(r"[/&,\+\·\*\-\|]+", " ", clean_p).strip()
+
+    primary_query = f"{main_s} {clean_p_spaced}".strip()
+    queries = [primary_query]
+
+    primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p_spaced, 'zh-hant')}".strip()
+    if primary_query_tra not in queries:
+        queries.append(primary_query_tra)
+
+    # 若為多歌手/單位 (如 "周深/北京環球度假區")，加入「主要歌手」獨立搜尋詞
+    first_artist = re.split(r"[/&,\+\·\*\-\|]|\s+\b(?:feat\.?|ft\.?|X|x)\b", clean_p, flags=re.IGNORECASE)[0].strip()
+    if first_artist and first_artist != clean_p:
+        first_artist_query = f"{main_s} {first_artist}".strip()
+        if first_artist_query not in queries:
+            queries.append(first_artist_query)
 
     if clean_s != main_s:
-        full_q = f"{clean_s} {clean_p}".strip()
-        if full_q not in queries:
-            queries.append(full_q)
-
-    bracket_singers = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
-    if bracket_singers:
-        fb_q = f"{main_s} {' '.join(bracket_singers)}".strip()
-        if fb_q not in queries:
-            queries.append(fb_q)
+        full_query = f"{clean_s} {clean_p_spaced}".strip()
+        if full_query not in queries:
+            queries.append(full_query)
 
     return queries
 
 
 # ==========================================
-# 2. YouTube 雙階段搜尋函式
+# 2. YouTube 雙階段搜尋函式 (與測試1完全同步)
 # ==========================================
 def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_service):
     clean_song, main_song = parse_song_title(song)
@@ -240,10 +270,14 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
     def build_yt_service(idx):
         return build("youtube", "v3", developerKey=api_keys[idx]) if idx < len(api_keys) else None
 
-    for order_mode in ["viewCount", "relevance"]:
+    # 固定策略順序：先 viewCount，再 relevance
+    order_strategies = ["viewCount", "relevance"]
+
+    for order_mode in order_strategies:
         if matched_info:
             break
 
+        # 根據搜尋模式動態設定筆數：viewCount 抓 30 筆，relevance 抓 5 筆
         max_results_val = 30 if order_mode == "viewCount" else 5
 
         for query_str in search_queries:
@@ -292,7 +326,10 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             v_desc = item["snippet"].get("description", "")
                             v_views = int(item["statistics"].get("viewCount", 0))
 
-                            duration_sec = parse_duration(item.get("contentDetails", {}).get("duration", "PT0S"))
+                            duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
+                            duration_sec = parse_duration(duration_str)
+
+                            # 過濾短影音與過長影片 (1分5秒 ~ 8分鐘)
                             if duration_sec <= 65 or duration_sec > 480:
                                 continue
 
@@ -303,48 +340,138 @@ def search_youtube_video(song, singer, api_keys, current_key_idx, youtube_servic
                             v_desc_norm = normalize_text(v_desc)
 
                             is_topic = "topic" in channel_lower or "主題" in channel_lower
-                            if not is_topic and any(nk in v_title_lower for nk in COMBINED_NOISE_KEYWORDS):
+                            has_noise = any(nk in v_title_lower for nk in COMBINED_NOISE_KEYWORDS)
+                            
+                            if not is_topic and has_noise:
                                 continue
 
-                            # 🎯 精確比對：歌名前後都不允許緊連著其他中文字
-                            pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
-                            pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
-                            
-                            song_matched = (
-                                re.search(pattern_sim, zhconv.convert(v_title, "zh-hans")) is not None or
-                                re.search(pattern_tra, zhconv.convert(v_title, "zh-hant")) is not None
-                            )
-                            
+                            # 🎯 智慧歌名比對
+                            v_title_sans = zhconv.convert(v_title, "zh-hans")
+                            v_title_hant = zhconv.convert(v_title, "zh-hant")
+
+                            is_ascii_song = bool(re.search(r'[a-zA-Z]', main_song))
+
+                            if is_ascii_song:
+                                # 去除影片標題中的括號雜訊
+                                title_no_brackets = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", v_title)
+
+                                # 扣除歌手名稱，避免歌手名字干擾歌名判定
+                                for grp in artist_tokens:
+                                    for tkn in grp:
+                                        if tkn and len(tkn) >= 2:
+                                            title_no_brackets = re.sub(re.escape(tkn), "", title_no_brackets, flags=re.IGNORECASE)
+
+                                # 過濾常見英文影片尾綴雜訊
+                                core_title = re.sub(r"\b(official|music|video|audio|visualizer|lyric|lyrics|live|mv|hd|4k)\b", "", title_no_brackets, flags=re.IGNORECASE)
+
+                                core_words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9']+\b", core_title)]
+                                target_words = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9']+\b", main_song)]
+
+                                song_matched = (core_words == target_words) or (
+                                    re.search(rf"\b{re.escape(main_song)}\b", v_title, re.IGNORECASE) is not None
+                                    and not re.search(rf"\b\w+\s+{re.escape(main_song)}\b", core_title, re.IGNORECASE)
+                                )
+                            else:
+                                # 中文歌：嚴格限制前後不能亂接其他中文字
+                                pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
+                                pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
+
+                                song_matched = (
+                                    re.search(pattern_sim, v_title_sans) is not None or
+                                    re.search(pattern_tra, v_title_hant) is not None
+                                )
+
                             if not song_matched:
                                 continue
 
-                            v_full_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
-                            singer_matched = not artist_tokens or all(
-                                any(tkn in v_full_text for tkn in group) for group in artist_tokens
+                            # 🎯 歌手比對：擴大官方頻道認定與資訊欄比對
+                            is_official = (
+                                "topic" in channel_lower
+                                or "official" in channel_lower
+                                or "官方" in channel_lower
+                                or "主題" in channel_lower
+                                or "universal" in channel_lower
                             )
+
+                            if is_official:
+                                v_check_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
+                            else:
+                                v_check_text = f"{v_title_norm} {channel_norm}"
+
+                            # 擴充歌手 Token：自動加入拼音
+                            extended_artist_tokens = []
+                            for group in artist_tokens:
+                                new_group = list(group)
+                                for tkn in group:
+                                    if lazy_pinyin is not None:
+                                        py_list = lazy_pinyin(tkn)
+                                        if py_list:
+                                            new_group.append("".join(py_list).lower())
+                                            new_group.append(" ".join(py_list).lower())
+                                extended_artist_tokens.append(list(set(new_group)))
+
+                            # 🎯 智慧分級過濾
+                            if not extended_artist_tokens:
+                                singer_matched = True
+                            else:
+                                primary_matched = any(tkn in v_check_text for tkn in extended_artist_tokens[0])
+                                if not primary_matched:
+                                    singer_matched = False
+                                else:
+                                    other_groups = extended_artist_tokens[1:]
+                                    all_others_matched = True
+                                    for grp in other_groups:
+                                        grp_matched = any(tkn in v_check_text for tkn in grp)
+                                        is_brand_or_org = any(len(tkn) >= 5 for tkn in grp)
+                                        if not grp_matched and not (is_official or is_brand_or_org):
+                                            all_others_matched = False
+                                            break
+                                    singer_matched = all_others_matched
 
                             if singer_matched:
                                 candidates.append({
                                     "id": v_id,
+                                    "title": v_title,
+                                    "channel": channel_title,
                                     "views": v_views,
                                     "search_mode": order_mode,
                                 })
 
                         if candidates:
-                            # 判斷標題是否含合唱/多位歌手特徵
-                            DUET_PATTERN = (
-                                r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|雙人|合作|攜手|携手|同台"
-                            )
-                        
-                            # 若搜單人，拆成獨唱與多位；優先選獨唱最高點閱
-                            if len(artist_tokens) == 1:
-                                solo_cands = [c for c in candidates if not re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
-                                duet_cands = [c for c in candidates if re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
-                                
-                                best = max(solo_cands, key=lambda x: x["views"]) if solo_cands else max(duet_cands, key=lambda x: x["views"])
+                            DUET_PATTERN = r"[\&\+]|\b(?:feat\.?|ft\.?|X|x)\b|合唱|合唱版"
+
+                            clean_cands = []
+                            modified_cands = []
+
+                            for cand in candidates:
+                                v_t = cand["title"]
+                                v_t_lower = v_t.lower()
+                                v_channel = cand["channel"].lower()
+
+                                is_duet = (len(artist_tokens) == 1) and bool(re.search(DUET_PATTERN, v_t, re.IGNORECASE))
+
+                                is_demo_or_cover = False
+                                if "試聽" in v_t or "试听" in v_t:
+                                    is_demo_or_cover = True
+                                elif "cover" in v_t_lower or "翻唱" in v_t_lower:
+                                    singer_is_main = any(
+                                        any(tkn in v_channel or v_t_lower.startswith(tkn) for tkn in group)
+                                        for group in artist_tokens
+                                    )
+                                    if not singer_is_main:
+                                        is_demo_or_cover = True
+
+                                if is_duet or is_demo_or_cover:
+                                    modified_cands.append(cand)
+                                else:
+                                    clean_cands.append(cand)
+
+                            # 純淨原版優先選取最高點閱
+                            if clean_cands:
+                                best = max(clean_cands, key=lambda x: x["views"])
                             else:
-                                best = max(candidates, key=lambda x: x["views"])
-                        
+                                best = max(modified_cands, key=lambda x: x["views"])
+
                             matched_info = best
 
                     success = True
@@ -410,7 +537,7 @@ def main():
     tz_taiwan = timezone(timedelta(hours=8))
     now = datetime.now(tz_taiwan)
 
-    # 💡 因為半夜執行排程抓取的是前一天榜單，故減去 1 天作為資料日期
+    # 因半夜執行排程抓取的是前一天榜單，故減去 1 天作為資料日期
     target_date = now - timedelta(days=1)
     
     year_str = target_date.strftime("%Y")
@@ -456,7 +583,6 @@ def main():
     else:
         df_mapping = pd.DataFrame(columns=expected_cols)
 
-    # 確保欄位齊全
     for col in expected_cols:
         if col not in df_mapping.columns:
             df_mapping[col] = "-"
@@ -499,7 +625,7 @@ def main():
                 print(f"  └─ ❌ 匹配失敗，標記為 '-'")
             mapping_updated = True
 
-        # Step B: 檢查/判定 語言 (若對照表已有有效語言則跳過，實現 Gemini API 省用)
+        # Step B: 檢查/判定 語言
         has_valid_lang = current_lang not in ["-", "", "nan", "None", "未知"]
         if not has_valid_lang:
             print(f"🤖 [分析語言類別]：{song} - {singer} (YouTube ID: {current_vid}) ...")
@@ -522,7 +648,7 @@ def main():
             df_mapping = pd.concat([df_mapping, new_m_row], ignore_index=True)
             mapping_updated = True
 
-    # 對照表如果有新增或更新，存回 CSV 檔
+    # 存回 CSV 檔
     if mapping_updated:
         df_mapping = df_mapping[expected_cols].drop_duplicates(subset=["歌名", "歌手"], keep="first")
         df_mapping.to_csv(MAPPING_FILE, index=False, encoding="utf-8-sig")
@@ -593,16 +719,13 @@ def main():
 
     print("✅ 排程執行完畢，所有資料與對照表皆已同步更新！")
 
+
 # ==========================================
 # 新增：排程更新日誌紀錄函式
 # ==========================================
-import json
-from datetime import datetime
-
 def update_schedule_log(workflow_name="每日排程更新", status="成功"):
     log_path = "data/schedule_logs.json"
 
-    # 💡 強制指定台灣時區 (UTC+8)
     tz_taiwan = timezone(timedelta(hours=8))
     now_tw = datetime.now(tz_taiwan)
     
@@ -632,5 +755,4 @@ def update_schedule_log(workflow_name="每日排程更新", status="成功"):
 
 if __name__ == "__main__":
     main()
-    # 在這裡呼叫它，讓每次程式跑完時自動記錄
     update_schedule_log()
