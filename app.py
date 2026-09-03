@@ -1362,30 +1362,26 @@ with main_tabs[5]:
     def build_search_queries(song, singer):
         clean_s, main_s = parse_song_title(song)
         clean_p = str(singer).strip()
-    
-        # 🎯 只有單人搜尋時才加入負向關鍵字，防止原創合唱被漏抓
-        is_single_artist = len(extract_artist_tokens(singer)) == 1
-        neg = " -合唱 -對唱 -对唱" if is_single_artist else ""
-    
-        primary_query = f"{main_s} {clean_p}{neg}".strip()
+
+        primary_query = f"{main_s} {clean_p}".strip()
         queries = [primary_query]
-    
-        primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}{neg}".strip()
+
+        primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}".strip()
         if primary_query_tra not in queries:
             queries.append(primary_query_tra)
-    
+
         if clean_s != main_s:
-            full_query = f"{clean_s} {clean_p}{neg}".strip()
+            full_query = f"{clean_s} {clean_p}".strip()
             if full_query not in queries:
                 queries.append(full_query)
-    
+
         extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
         if extracted_bracket:
             fallback_singer = " ".join(extracted_bracket).strip()
-            fallback_query = f"{main_s} {fallback_singer}{neg}".strip()
+            fallback_query = f"{main_s} {fallback_singer}".strip()
             if fallback_query not in queries:
                 queries.append(fallback_query)
-    
+
         return queries
 
     COMBINED_NOISE_KEYWORDS = [
@@ -1421,7 +1417,6 @@ with main_tabs[5]:
         artist_tokens = extract_artist_tokens(singer)
 
         matched_info = None
-        fallback_duet = None  # 🎯 新增：合唱版暫存備用（不立刻妥協）
 
         def build_yt_service(idx):
             return (
@@ -1437,7 +1432,8 @@ with main_tabs[5]:
             if matched_info:
                 break
 
-            max_results_val = 30 if order_mode == "viewCount" else 10
+            # 根據搜尋模式動態設定筆數：viewCount 抓 30 筆，relevance 抓 5 筆
+            max_results_val = 30 if order_mode == "viewCount" else 5
 
             for query_str in search_queries:
                 if matched_info:
@@ -1484,13 +1480,22 @@ with main_tabs[5]:
                             for item in video_res.get("items", []):
                                 v_id = item["id"]
                                 v_title = item["snippet"]["title"]
-                                channel_title = item["snippet"].get("channelTitle", "")
-                                v_desc = item["snippet"].get("description", "")
-                                v_views = int(item["statistics"].get("viewCount", 0))
+                                channel_title = item["snippet"].get(
+                                    "channelTitle", ""
+                                )
+                                v_desc = item["snippet"].get(
+                                    "description", ""
+                                )
+                                v_views = int(
+                                    item["statistics"].get("viewCount", 0)
+                                )
 
-                                duration_str = item.get("contentDetails", {}).get("duration", "PT0S")
+                                duration_str = item.get(
+                                    "contentDetails", {}
+                                ).get("duration", "PT0S")
                                 duration_sec = parse_duration(duration_str)
 
+                                # 過濾短影音與過長影片 (1分5秒 ~ 8分鐘)
                                 if duration_sec <= 65 or duration_sec > 480:
                                     continue
 
@@ -1500,43 +1505,37 @@ with main_tabs[5]:
                                 channel_norm = normalize_text(channel_title)
                                 v_desc_norm = normalize_text(v_desc)
 
-                                is_topic = "topic" in channel_lower or "主題" in channel_lower
+                                is_topic = (
+                                    "topic" in channel_lower
+                                    or "主題" in channel_lower
+                                )
 
-                                # 🛡️ 搜尋單人時，硬性過濾其他中文歌手的 Topic 頻道
-                                if len(artist_tokens) == 1 and is_topic:
-                                    has_target_in_channel = any(
-                                        any(tkn in channel_norm for tkn in group) for group in artist_tokens
-                                    )
-                                    is_generic_topic = any(
-                                        gt in channel_lower for gt in ["release", "various", "soundtrack", "合輯", "合集", "va"]
-                                    )
-                                    has_chinese_in_channel = re.search(r"[\u4e00-\u9fa5]", channel_norm) is not None
-
-                                    if has_chinese_in_channel and not has_target_in_channel and not is_generic_topic:
-                                        continue
-
-                                has_noise = any(nk in v_title_lower for nk in COMBINED_NOISE_KEYWORDS)
+                                has_noise = any(
+                                    nk in v_title_lower
+                                    for nk in COMBINED_NOISE_KEYWORDS
+                                )
                                 if not is_topic and has_noise:
                                     continue
 
+                                # 🎯 精確比對：歌名前後都不允許緊連著其他中文字
                                 pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
                                 pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
-
+                                
                                 song_matched = (
-                                    re.search(pattern_sim, zhconv.convert(v_title, "zh-hans")) is not None
-                                    or re.search(pattern_tra, zhconv.convert(v_title, "zh-hant")) is not None
+                                    re.search(pattern_sim, zhconv.convert(v_title, "zh-hans")) is not None or
+                                    re.search(pattern_tra, zhconv.convert(v_title, "zh-hant")) is not None
                                 )
-
+                                
                                 if not song_matched:
                                     continue
 
                                 v_full_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
-                                singer_matched = not artist_tokens or all(
-                                    any(tkn in v_full_text for tkn in group) for group in artist_tokens
-                                )
 
-                                if not singer_matched:
-                                    continue
+                                # 歌手比對：同歌手內部任意名稱命中 (any)，跨歌手必須全部滿足 (all)
+                                singer_matched = not artist_tokens or all(
+                                    any(tkn in v_full_text for tkn in group)
+                                    for group in artist_tokens
+                                )
 
                                 cand = {
                                     "id": v_id,
@@ -1546,85 +1545,35 @@ with main_tabs[5]:
                                     "url": f"https://www.youtube.com/watch?v={v_id}",
                                     "search_mode": order_mode,
                                 }
-                                candidates.append(cand)
+
+                                if singer_matched:
+                                    candidates.append(cand)
 
                             if candidates:
+                                # 判斷標題是否含合唱/多位歌手特徵
                                 DUET_PATTERN = (
-                                    r"#[^\s#]+\s*#[^\s#]+|"
-                                    r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|"
-                                    r"合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|双人|合作|攜手|携手|"
-                                    r"搭配|男女|同台|合體|合体|合演|聯手|联手"
+                                    r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|雙人|合作|攜手|携手|同台"
                                 )
-                                GENERIC_TOPICS = ["release", "various", "soundtrack", "合輯", "合集", "va"]
-
+                                # 若搜單人，拆成獨唱與多位；優先選獨唱最高點閱
                                 if len(artist_tokens) == 1:
-                                    solo_candidates = []
-                                    duet_candidates = []
-
-                                    for cand in candidates:
-                                        c_name = cand["channel"].lower()
-                                        v_title = cand["title"]
-
-                                        # 1. 判斷是否為其他歌手的中文 Topic 頻道
-                                        is_topic_channel = "topic" in c_name or "- topic" in c_name
-                                        has_target_in_channel = any(
-                                            any(tkn in c_name for tkn in group) for group in artist_tokens
-                                        )
-                                        is_generic_topic = any(gt in c_name for gt in GENERIC_TOPICS)
-                                        has_chinese_in_channel = re.search(r"[\u4e00-\u9fa5]", c_name) is not None
-
-                                        is_other_artist_topic = (
-                                            is_topic_channel
-                                            and has_chinese_in_channel
-                                            and not has_target_in_channel
-                                            and not is_generic_topic
-                                        )
-
-                                        # 2. 基礎合唱關鍵字比對（移除粗暴的雙 Hashtag 規則）
-                                        BASE_DUET_PATTERN = (
-                                            r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|"
-                                            r"合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|双人|合作|攜手|携手|"
-                                            r"搭配|男女|同台|合體|合体|合演|聯手|联手"
-                                        )
-                                        has_base_duet_kw = re.search(BASE_DUET_PATTERN, v_title, re.IGNORECASE) is not None
-
-                                        # 3. 🎯 智慧型 Hashtag 分析：精準識別 `#張予曦 #ZhangYuxi` (獨唱) 與 `#張予曦 #趙磊` (合唱)
-                                        has_other_artist_tag = False
-                                        hashtags = re.findall(r"#([^\s#]+)", v_title)
-                                        for tag in hashtags:
-                                            tag_zh = "".join(re.findall(r"[\u4e00-\u9fa5]+", tag)).strip()
-                                            if len(tag_zh) >= 2:
-                                                tag_norm = normalize_text(tag_zh)
-                                                # 檢查該 Hashtag 是否為目標歌手或歌名
-                                                is_target_artist = any(any(tkn in tag_norm for tkn in group) for group in artist_tokens)
-                                                is_song_name = (tag_norm in main_sim_norm) or (tag_norm in main_tra_norm) or (main_sim_norm in tag_norm)
-                                                
-                                                # 既不是歌手本人也不是歌名，代表是其他歌手的 Hashtag
-                                                if not is_target_artist and not is_song_name:
-                                                    has_other_artist_tag = True
-                                                    break
-
-                                        is_duet = is_other_artist_topic or has_base_duet_kw or has_other_artist_tag
-
-                                        if is_duet:
-                                            duet_candidates.append(cand)
-                                        else:
-                                            solo_candidates.append(cand)
-
-                                    if solo_candidates:
-                                        matched_info = max(solo_candidates, key=lambda x: x["views"])
-                                    elif duet_candidates:
-                                        best_duet = max(duet_candidates, key=lambda x: x["views"])
-                                        if fallback_duet is None or best_duet["views"] > fallback_duet["views"]:
-                                            fallback_duet = best_duet
+                                    solo_cands = [c for c in candidates if not re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
+                                    duet_cands = [c for c in candidates if re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
+                                    
+                                    best = max(solo_cands, key=lambda x: x["views"]) if solo_cands else max(duet_cands, key=lambda x: x["views"])
                                 else:
-                                    matched_info = max(candidates, key=lambda x: x["views"])
-
+                                    best = max(candidates, key=lambda x: x["views"])
+                            
+                                matched_info = best
                         success = True
 
                     except HttpError as e:
                         is_quota_error = e.resp.status in [403, 429] or any(
-                            k in str(e) for k in ["quotaExceeded", "rateLimitExceeded", "Quota exceeded"]
+                            k in str(e)
+                            for k in [
+                                "quotaExceeded",
+                                "rateLimitExceeded",
+                                "Quota exceeded",
+                            ]
                         )
                         if is_quota_error:
                             current_key_idx += 1
@@ -1636,10 +1585,6 @@ with main_tabs[5]:
                             break
                     except Exception:
                         break
-
-        # 🎯 只有當所有模式都找遍了、完全沒有純獨唱時，最後才拿合唱版補救
-        if not matched_info and fallback_duet:
-            matched_info = fallback_duet
 
         return matched_info, current_key_idx, youtube_service
 
