@@ -1439,10 +1439,10 @@ with main_tabs[5]:
             # 根據搜尋模式動態設定筆數：viewCount 抓 30 筆，relevance 抓 5 筆
             max_results_val = 30 if order_mode == "viewCount" else 5
 
+            # 收集該搜尋模式下，所有關鍵字查到的候選影片
+            mode_candidates = []
+            
             for query_str in search_queries:
-                if matched_info:
-                    break
-
                 success = False
                 while current_key_idx < len(api_keys) and not success:
                     if youtube_service is None:
