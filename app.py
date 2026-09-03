@@ -1550,9 +1550,19 @@ with main_tabs[5]:
                                     candidates.append(cand)
 
                             if candidates:
-                                best = max(candidates, key=lambda x: x["views"])
+                                # 判斷標題是否含合唱/多位歌手特徵
+                                DUET_PATTERN = r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|合唱版"
+                            
+                                # 若搜單人，拆成獨唱與多位；優先選獨唱最高點閱
+                                if len(artist_tokens) == 1:
+                                    solo_cands = [c for c in candidates if not re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
+                                    duet_cands = [c for c in candidates if re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
+                                    
+                                    best = max(solo_cands, key=lambda x: x["views"]) if solo_cands else max(duet_cands, key=lambda x: x["views"])
+                                else:
+                                    best = max(candidates, key=lambda x: x["views"])
+                            
                                 matched_info = best
-
                         success = True
 
                     except HttpError as e:
