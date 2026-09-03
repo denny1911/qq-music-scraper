@@ -1517,13 +1517,20 @@ with main_tabs[5]:
                                 if not is_topic and has_noise:
                                     continue
 
-                                # 🎯 精確比對：歌名前後都不允許緊連著其他中文字
-                                pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
-                                pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
+                                # 🎯 歌名比對：同時驗證「去除括號的主歌名」與「完整歌名」
+                                v_title_sans = zhconv.convert(v_title, "zh-hans")
+                                v_title_hant = zhconv.convert(v_title, "zh-hant")
+                                
+                                # 1. 完整標準化字串包含 (如 roundwego)
+                                clean_song_norm = normalize_text(clean_song)
+                                main_song_norm = normalize_text(main_song)
+                                
+                                v_title_norm_sim = normalize_text(v_title_sans)
+                                v_title_norm_tra = normalize_text(v_title_hant)
                                 
                                 song_matched = (
-                                    re.search(pattern_sim, zhconv.convert(v_title, "zh-hans")) is not None or
-                                    re.search(pattern_tra, zhconv.convert(v_title, "zh-hant")) is not None
+                                    (main_song_norm in v_title_norm_sim or main_song_norm in v_title_norm_tra) or
+                                    (clean_song_norm in v_title_norm_sim or clean_song_norm in v_title_norm_tra)
                                 )
                                 
                                 if not song_matched:
