@@ -1514,6 +1514,16 @@ with main_tabs[5]:
                                     or "主題" in channel_lower
                                 )
 
+                                # 🛡️ 核心修復：搜尋單人時，直接「硬性剔除」其他中文歌手的 Topic 頻道！
+                                if len(artist_tokens) == 1 and is_topic:
+                                    has_target_in_channel = any(any(tkn in channel_norm for tkn in group) for group in artist_tokens)
+                                    is_generic_topic = any(gt in channel_lower for gt in ["release", "various", "soundtrack", "合輯", "合集", "va"])
+                                    has_chinese_in_channel = re.search(r'[\u4e00-\u9fa5]', channel_norm) is not None
+                                
+                                    # 如果頻道帶中文（如：趙磊 - Topic），既不是張予曦，也不是 Release 公用頻道 -> 直接扔掉，連備用組都不進！
+                                    if has_chinese_in_channel and not has_target_in_channel and not is_generic_topic:
+                                        continue
+                                
                                 has_noise = any(
                                     nk in v_title_lower
                                     for nk in COMBINED_NOISE_KEYWORDS
