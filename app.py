@@ -1551,17 +1551,20 @@ with main_tabs[5]:
                                 if not song_matched:
                                     continue
 
-                                # 🎯 歌手比對：針對 Topic 官方頻道直接信任 API 搜尋結果（避免中文對不上拼音頻道名被誤殺）
-                                is_topic = "topic" in channel_lower or "主題" in channel_lower
+                                # 🎯 歌手比對：擴大官方頻道認定，並允許官方頻道檢查資訊欄 (v_desc_norm)
+                                is_official = "topic" in channel_lower or "official" in channel_lower or "官方" in channel_lower or "主題" in channel_lower
                                 
-                                if is_topic:
-                                    singer_matched = True
+                                # 只要是官方頻道，就將影片簡介 (v_desc_norm) 一併納入關鍵字比對範圍
+                                if is_official:
+                                    v_check_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
                                 else:
                                     v_check_text = f"{v_title_norm} {channel_norm}"
-                                    singer_matched = not artist_tokens or all(
-                                        any(tkn in v_check_text for tkn in group)
-                                        for group in artist_tokens
-                                    )
+
+                                # 保持原本的 all()，不會誤抓單人歌的雙人合唱版
+                                singer_matched = not artist_tokens or all(
+                                    any(tkn in v_check_text for tkn in group)
+                                    for group in artist_tokens
+                                )
 
                                 if singer_matched:
                                     cand = {
