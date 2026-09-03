@@ -1363,11 +1363,10 @@ with main_tabs[5]:
         clean_s, main_s = parse_song_title(song)
         clean_p = str(singer).strip()
     
-        # 🎯 只有當搜尋單一歌手時，才在語句末尾加上排除詞
+        # 🎯 只有單人搜尋時才加入負向關鍵字，防止原創合唱被漏抓
         is_single_artist = len(extract_artist_tokens(singer)) == 1
         neg = " -合唱 -對唱 -对唱" if is_single_artist else ""
     
-        # 1. 主要搜尋詞（簡/繁）
         primary_query = f"{main_s} {clean_p}{neg}".strip()
         queries = [primary_query]
     
@@ -1375,13 +1374,11 @@ with main_tabs[5]:
         if primary_query_tra not in queries:
             queries.append(primary_query_tra)
     
-        # 2. 完整歌名搜尋（帶括號的副標題，如：猜不透 (Live)）
         if clean_s != main_s:
             full_query = f"{clean_s} {clean_p}{neg}".strip()
             if full_query not in queries:
                 queries.append(full_query)
     
-        # 3. 歌手別名搜尋（帶括號的藝名，如：丽兹 (LIZ)）
         extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
         if extracted_bracket:
             fallback_singer = " ".join(extracted_bracket).strip()
@@ -1544,6 +1541,9 @@ with main_tabs[5]:
                                     for group in artist_tokens
                                 )
 
+                                if not singer_matched:
+                                    continue
+
                                 cand = {
                                     "id": v_id,
                                     "title": v_title,
@@ -1553,26 +1553,51 @@ with main_tabs[5]:
                                     "search_mode": order_mode,
                                 }
 
-                                if singer_matched:
-                                    candidates.append(cand)
+                                candidates.append(cand)
 
                             if candidates:
                                 # 判斷標題是否含合唱/多位歌手特徵
                                 DUET_PATTERN = (
-                                    r"#[^\s#]+\s*#[^\s#]+|"  # 🎯 專門抓 #赵磊 #张予曦 這類雙Hashtag標題
+                                    r"#[^\s#]+\s*#[^\s#]+|"
                                     r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|"
                                     r"合唱|對唱|对唱|倆人|俩人|兩人|两人|雙人|双人|合作|攜手|携手|"
                                     r"搭配|男女|同台|合體|合体|合演|聯手|联手"
                                 )
-                                # 若搜單人，拆成獨唱與多位；優先選獨唱最高點閱
+                                # 單人搜尋時：優先挑選獨唱，完全找不到獨唱才退回選合唱
                                 if len(artist_tokens) == 1:
-                                    solo_cands = [c for c in candidates if not re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
-                                    duet_cands = [c for c in candidates if re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
-                                    
-                                    best = max(solo_cands, key=lambda x: x["views"]) if solo_cands else max(duet_cands, key=lambda x: x["views"])
+                                    solo_candidates = []
+                                    duet_candidates = []
+
+                                    for cand in candidates:
+                                        is_duet = (
+                                            re.search(
+                                                DUET_PATTERN,
+                                                cand["title"],
+                                                re.IGNORECASE,
+                                            )
+                                            is not None
+                                        )
+                                        if is_duet:
+                                            duet_candidates.append(cand)
+                                        else:
+                                            solo_candidates.append(cand)
+
+                                    if solo_candidates:
+                                        best = max(
+                                            solo_candidates,
+                                            key=lambda x: x["views"],
+                                        )
+                                    else:
+                                        best = max(
+                                            duet_candidates,
+                                            key=lambda x: x["views"],
+                                        )
                                 else:
-                                    best = max(candidates, key=lambda x: x["views"])
-                            
+                                    # 多人搜尋時：直接取最高觀看數
+                                    best = max(
+                                        candidates, key=lambda x: x["views"]
+                                    )
+
                                 matched_info = best
                         success = True
 
