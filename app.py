@@ -1550,17 +1550,49 @@ with main_tabs[5]:
                                     candidates.append(cand)
 
                             if candidates:
-                                # 判斷標題是否含合唱/多位歌手特徵
+                                # 🎯 自動化比對：檢查使用者輸入的歌名是否有指定括號/版本
+                                user_has_bracket = bool(re.search(r"[\(\（\[【][^\)\）\]】]+[\)\）\]】]", song))
+                                
                                 DUET_PATTERN = r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|合唱版"
-                                # 若搜單人，拆成獨唱與多位；優先選獨唱最高點閱
-                                if len(artist_tokens) == 1:
-                                    solo_cands = [c for c in candidates if not re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
-                                    duet_cands = [c for c in candidates if re.search(DUET_PATTERN, c["title"], re.IGNORECASE)]
+                                
+                                clean_cands = []
+                                modified_cands = []
+
+                                for cand in candidates:
+                                    v_t = cand["title"]
                                     
-                                    best = max(solo_cands, key=lambda x: x["views"]) if solo_cands else max(duet_cands, key=lambda x: x["views"])
+                                    # 1. 檢查是否為合唱 (針對單人搜尋)
+                                    is_duet = (len(artist_tokens) == 1) and bool(re.search(DUET_PATTERN, v_t, re.IGNORECASE))
+                                    
+                                    # 2. 自動檢測：影片是否帶有「使用者未要求的版本/改編副標題」
+                                    has_extra_version_tag = False
+                                    if not user_has_bracket:
+                                        # 抓出影片標題中的所有括號內容
+                                        bracket_contents = re.findall(r"[\(\（\[【]([^\)\）\]】]+)[\)\）\]】]", v_t)
+                                        for content in bracket_contents:
+                                            c_lower = content.lower()
+                                            c_norm = normalize_text(content)
+                                            
+                                            # 排除官方標準標籤與歌手名字
+                                            is_official_tag = any(tag in c_lower for tag in ["official", "mv", "4k", "hd", "高清", "官方", "audio", "video", "音源", "完整版", "高音質"])
+                                            is_artist_name = any(any(tkn in c_norm for tkn in group) for group in artist_tokens)
+                                            
+                                            # 既不是官方標籤也不是歌手名，自動判定為改編/衍生版 (如 R&B氛圍版, remix, dj, live 等)
+                                            if not is_official_tag and not is_artist_name:
+                                                has_extra_version_tag = True
+                                                break
+
+                                    if is_duet or has_extra_version_tag:
+                                        modified_cands.append(cand)
+                                    else:
+                                        clean_cands.append(cand)
+
+                                # 🎯 優先選取「純淨原版組」最高點閱；沒有純淨版才降級選取改編版
+                                if clean_cands:
+                                    best = max(clean_cands, key=lambda x: x["views"])
                                 else:
-                                    best = max(candidates, key=lambda x: x["views"])
-                            
+                                    best = max(modified_cands, key=lambda x: x["views"])
+
                                 matched_info = best
                         success = True
 
