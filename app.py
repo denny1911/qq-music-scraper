@@ -1550,7 +1550,7 @@ with main_tabs[5]:
                                     candidates.append(cand)
 
                             if candidates:
-                                DUET_PATTERN = r"[\&\+\·\*\-\|]|feat\.?|ft\.?|\bX\b|\bx\b|合唱|合唱版"
+                                DUET_PATTERN = DUET_PATTERN = r"[\&\+]|\b(?:feat\.?|ft\.?|X|x)\b|合唱|合唱版"
                                 
                                 clean_cands = []
                                 modified_cands = []
