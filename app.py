@@ -1536,24 +1536,28 @@ with main_tabs[5]:
                                 if not song_matched:
                                     continue
 
-                                v_visible_text = f"{v_title_norm} {channel_norm}"
+                                # 🎯 歌手比對加強：針對 Topic 頻道特別允許比對簡介，一般頻道只比對標題與頻道名
+                                is_topic = "topic" in channel_lower or "主題" in channel_lower
+                                if is_topic:
+                                    v_check_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
+                                else:
+                                    v_check_text = f"{v_title_norm} {channel_norm}"
 
-                                # 歌手比對：同歌手內部任意名稱命中 (any)，跨歌手必須全部滿足 (all)
                                 singer_matched = not artist_tokens or all(
-                                    any(tkn in v_visible_text for tkn in group)
+                                    any(tkn in v_check_text for tkn in group)
                                     for group in artist_tokens
                                 )
 
-                                cand = {
-                                    "id": v_id,
-                                    "title": v_title,
-                                    "channel": channel_title,
-                                    "views": v_views,
-                                    "url": f"https://www.youtube.com/watch?v={v_id}",
-                                    "search_mode": order_mode,
-                                }
-
                                 if singer_matched:
+                                    cand = {
+                                        "id": v_id,
+                                        "title": v_title,
+                                        "channel": channel_title,
+                                        "views": v_views,
+                                        "url": f"https://www.youtube.com/watch?v={v_id}",
+                                        "search_mode": order_mode,
+                                        "is_topic": is_topic,
+                                    }
                                     candidates.append(cand)
 
                             if candidates:
