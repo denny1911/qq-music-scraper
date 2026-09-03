@@ -1517,32 +1517,52 @@ with main_tabs[5]:
                                 if not is_topic and has_noise:
                                     continue
 
-                               # 🎯 智慧歌名比對：
-                                # 如果歌名主要是英文 (或較長)，允許後面帶中文括號；
-                                # 如果歌名是純中文且字數很少 (如「洞房」), 則嚴格限制前後不能亂接其他中文字。
+                                # 🎯 1. 官方頻道判定與歌手比對（自動清理「白允y -> 白允」並比對 Topic 簡介）
+                                is_official_channel = "topic" in channel_lower or "official" in channel_lower or "官方" in channel_lower or "主題" in channel_lower
+
+                                if is_official_channel:
+                                    v_check_text = f"{v_title_norm} {channel_norm} {v_desc_norm}".lower()
+                                else:
+                                    v_check_text = f"{v_title_norm} {channel_norm}".lower()
+
+                                # 提取核心歌手名（例如將「白允y」剝離出「白允」來比對）
+                                base_artist_tokens = []
+                                for group in artist_tokens:
+                                    new_group = []
+                                    for tkn in group:
+                                        new_group.append(tkn)
+                                        clean_tkn = re.sub(r'[a-zA-Z]+$', '', tkn)
+                                        if clean_tkn and clean_tkn != tkn:
+                                            new_group.append(clean_tkn)
+                                    base_artist_tokens.append(new_group)
+
+                                singer_matched = not artist_tokens or all(
+                                    any(tkn in v_check_text for tkn in group)
+                                    for group in base_artist_tokens
+                                )
+
+                                if not singer_matched:
+                                    continue
+
+                                # 🎯 2. 智慧歌名比對（官方頻道與英文歌寬鬆比對，民間中文短歌嚴格比對）
                                 v_title_sans = zhconv.convert(v_title, "zh-hans")
                                 v_title_hant = zhconv.convert(v_title, "zh-hant")
                                 
                                 clean_song_norm = normalize_text(clean_song)
                                 main_song_norm = normalize_text(main_song)
-                                
                                 v_title_norm_sim = normalize_text(v_title_sans)
                                 v_title_norm_tra = normalize_text(v_title_hant)
                                 
-                                # 判斷歌名是否主要是英文/數字 (包含英文字母)
                                 is_ascii_song = bool(re.search(r'[a-zA-Z]', main_song))
                                 
-                                if is_ascii_song:
-                                    # 英文歌：允許後面緊接中文括號或翻譯
+                                if is_official_channel or is_ascii_song:
                                     song_matched = (
                                         (main_song_norm in v_title_norm_sim or main_song_norm in v_title_norm_tra) or
                                         (clean_song_norm in v_title_norm_sim or clean_song_norm in v_title_norm_tra)
                                     )
                                 else:
-                                    # 中文歌：嚴格執行「前後不可緊接其他中文字」，避免像「洞房」被「花为媒·洞房赞」這種雜訊命中
                                     pattern_sim = rf"(?<![\u4e00-\u9fa5]){re.escape(main_sim_norm)}(?![\u4e00-\u9fa5])"
                                     pattern_tra = rf"(?<![\u4e00-\u9fa5]){re.escape(main_tra_norm)}(?![\u4e00-\u9fa5])"
-                                    
                                     song_matched = (
                                         re.search(pattern_sim, v_title_sans) is not None or
                                         re.search(pattern_tra, v_title_hant) is not None
@@ -1551,29 +1571,16 @@ with main_tabs[5]:
                                 if not song_matched:
                                     continue
 
-                                # 🎯 歌手比對加強：針對 Topic 頻道特別允許比對簡介，一般頻道只比對標題與頻道名
-                                is_topic = "topic" in channel_lower or "主題" in channel_lower
-                                if is_topic:
-                                    v_check_text = f"{v_title_norm} {channel_norm} {v_desc_norm}"
-                                else:
-                                    v_check_text = f"{v_title_norm} {channel_norm}"
-
-                                singer_matched = not artist_tokens or all(
-                                    any(tkn in v_check_text for tkn in group)
-                                    for group in artist_tokens
-                                )
-
-                                if singer_matched:
-                                    cand = {
-                                        "id": v_id,
-                                        "title": v_title,
-                                        "channel": channel_title,
-                                        "views": v_views,
-                                        "url": f"https://www.youtube.com/watch?v={v_id}",
-                                        "search_mode": order_mode,
-                                        "is_topic": is_topic,
-                                    }
-                                    candidates.append(cand)
+                                cand = {
+                                    "id": v_id,
+                                    "title": v_title,
+                                    "channel": channel_title,
+                                    "views": v_views,
+                                    "url": f"https://www.youtube.com/watch?v={v_id}",
+                                    "search_mode": order_mode,
+                                    "is_official": is_official_channel,
+                                }
+                                candidates.append(cand)
 
                             if candidates:
                                 DUET_PATTERN = r"[\&\+]|\b(?:feat\.?|ft\.?|X|x)\b|合唱|合唱版"
