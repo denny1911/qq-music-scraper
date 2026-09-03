@@ -12,6 +12,7 @@ import json
 import google.generativeai as genai
 import requests
 import random
+from pypinyin import lazy_pinyin
 
 # 1. 頁面基本設定
 st.set_page_config(
@@ -1363,24 +1364,27 @@ with main_tabs[5]:
         clean_s, main_s = parse_song_title(song)
         clean_p = str(singer).strip()
 
-        primary_query = f"{main_s} {clean_p}".strip()
+        # 將斜線等分隔符轉為空格，避免 YouTube API 搜尋失效
+        clean_p_spaced = re.sub(r"[/&,\+\·\*\-\|]+", " ", clean_p).strip()
+
+        primary_query = f"{main_s} {clean_p_spaced}".strip()
         queries = [primary_query]
 
-        primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p, 'zh-hant')}".strip()
+        primary_query_tra = f"{zhconv.convert(main_s, 'zh-hant')} {zhconv.convert(clean_p_spaced, 'zh-hant')}".strip()
         if primary_query_tra not in queries:
             queries.append(primary_query_tra)
 
+        # 🎯 關鍵補強：若為多歌手/單位 (如 "周深/北京環球度假區")，加入「主要歌手」獨立搜尋詞
+        first_artist = re.split(r"[/&,\+\·\*\-\|]|\s+\b(?:feat\.?|ft\.?|X|x)\b", clean_p, flags=re.IGNORECASE)[0].strip()
+        if first_artist and first_artist != clean_p:
+            first_artist_query = f"{main_s} {first_artist}".strip()
+            if first_artist_query not in queries:
+                queries.append(first_artist_query)
+
         if clean_s != main_s:
-            full_query = f"{clean_s} {clean_p}".strip()
+            full_query = f"{clean_s} {clean_p_spaced}".strip()
             if full_query not in queries:
                 queries.append(full_query)
-
-        extracted_bracket = re.findall(r"[\(\（]([^\)\）]+)[\)\）]", clean_p)
-        if extracted_bracket:
-            fallback_singer = " ".join(extracted_bracket).strip()
-            fallback_query = f"{main_s} {fallback_singer}".strip()
-            if fallback_query not in queries:
-                queries.append(fallback_query)
 
         return queries
 
@@ -1552,7 +1556,13 @@ with main_tabs[5]:
                                     continue
 
                                 # 🎯 歌手比對：擴大官方頻道認定，並允許官方頻道檢查資訊欄 (v_desc_norm)
-                                is_official = "topic" in channel_lower or "official" in channel_lower or "官方" in channel_lower or "主題" in channel_lower
+                                is_official = (
+                                    "topic" in channel_lower
+                                    or "official" in channel_lower
+                                    or "官方" in channel_lower
+                                    or "主題" in channel_lower
+                                    or "universal" in channel_lower
+                                )
                                 
                                 # 只要是官方頻道，就將影片簡介 (v_desc_norm) 一併納入關鍵字比對範圍
                                 if is_official:
@@ -1560,11 +1570,37 @@ with main_tabs[5]:
                                 else:
                                     v_check_text = f"{v_title_norm} {channel_norm}"
 
-                                # 保持原本的 all()，不會誤抓單人歌的雙人合唱版
-                                singer_matched = not artist_tokens or all(
-                                    any(tkn in v_check_text for tkn in group)
-                                    for group in artist_tokens
-                                )
+                                # 擴充歌手 Token：自動加入拼音（解決 周深 vs Zhou Shen 斷層）
+                                extended_artist_tokens = []
+                                for group in artist_tokens:
+                                    new_group = list(group)
+                                    for tkn in group:
+                                        if 'lazy_pinyin' in globals():
+                                            py_list = lazy_pinyin(tkn)
+                                            if py_list:
+                                                new_group.append("".join(py_list).lower())
+                                                new_group.append(" ".join(py_list).lower())
+                                    extended_artist_tokens.append(list(set(new_group)))
+
+                                # 🎯 智慧分級過濾：
+                                # 1. 第一位「主要歌手」必須命中
+                                # 2. 第二位以上單位：如果是官方頻道或長品牌名 (>=5字，如 北京環球度假區)，允許豁免；如果是短人名 (如 溫嵐)，維持 strict all() 比對
+                                if not extended_artist_tokens:
+                                    singer_matched = True
+                                else:
+                                    primary_matched = any(tkn in v_check_text for tkn in extended_artist_tokens[0])
+                                    if not primary_matched:
+                                        singer_matched = False
+                                    else:
+                                        other_groups = extended_artist_tokens[1:]
+                                        all_others_matched = True
+                                        for grp in other_groups:
+                                            grp_matched = any(tkn in v_check_text for tkn in grp)
+                                            is_brand_or_org = any(len(tkn) >= 5 for tkn in grp)
+                                            if not grp_matched and not (is_official or is_brand_or_org):
+                                                all_others_matched = False
+                                                break
+                                        singer_matched = all_others_matched
 
                                 if singer_matched:
                                     cand = {
