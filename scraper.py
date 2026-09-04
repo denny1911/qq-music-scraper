@@ -514,7 +514,7 @@ def is_same_title(line_text, song_name):
 
 
 def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
-    """🧹 零死角歌詞淨化器（整合簡繁體人員過濾與歌名比對）"""
+    """🧹 零死角歌詞淨化器（整合人員、歌名、版權與 AI 禁令聲明過濾）"""
     raw_lyrics = safe_str(raw_lyrics).replace('\xa0', ' ')
     song_name = safe_str(song_name)
     artist_name = safe_str(artist_name)
@@ -532,9 +532,15 @@ def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
     lines = [line.strip() for line in raw_lyrics.split('\n') if line.strip()]
     valid_lines = []
     
-    # 包含繁體與簡體的工作人員標籤正則
+    # 1. 包含繁體與簡體的工作人員標籤正則
     STAFF_PATTERN = re.compile(
         r'^(作詞|作词|作曲|詞曲|词曲|填詞|填词|譜曲|谱曲|詞|词|曲|編曲|编曲|製作人|制作人|錄音|录音|混音|吉他|貝斯|贝斯|鼓手|鍵盤|键盘|和聲|和声|母帶|母带|OP|SP|出品|發行|发行|版權|版权|演唱|Lyricist|Composer|Producer|Arranger)\s*[:：\s]', 
+        re.IGNORECASE
+    )
+
+    # 2. 版權聲明與 AI 禁令正則（不限開頭，只要包含關鍵字即過濾）
+    DISCLAIMER_PATTERN = re.compile(
+        r'(未经.*?(許可|授权|许可|授權)|嚴禁|严禁|違者必究|违者必究|禁止用於|禁止用于|著作權|著作权|版權所有|版权所有|獨家首發|独家首发|人工智能|AI.*?(訓練|训练|模仿|學習|学习))',
         re.IGNORECASE
     )
 
@@ -545,16 +551,20 @@ def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
         if re.match(r'^\[\d{2}:\d{2}', line_str) or line_str in ["[]", ""]:
             continue
 
-        # 累積有效歌詞超過 5 行後關閉開頭過濾區段
+        # 🚨 全域過濾：只要包含版權警告或 AI 禁令文字，直接跳過
+        if DISCLAIMER_PATTERN.search(line_str):
+            continue
+
+        # 累積有效歌詞超過 5 行後關閉開頭人員過濾區段
         if len(valid_lines) > 5:
             is_head_section = False
 
         if is_head_section:
-            # 1. 重複歌名過濾
+            # 重複歌名過濾
             if is_same_title(line_str, song_name):
                 continue
                 
-            # 2. 工作人員資訊過濾（需小於 30 字）
+            # 工作人員資訊過濾（需小於 30 字）
             if STAFF_PATTERN.search(line_str) and len(line_str) < 30:
                 continue
 
