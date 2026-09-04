@@ -493,8 +493,27 @@ def safe_str(val):
     return "" if s.lower() in ["nan", "none", "null"] else s
 
 
+def is_same_title(line_text, song_name):
+    """判斷該行是否為歌名（忽略括號內容與簡繁體差異）"""
+    if not song_name or not line_text:
+        return False
+    
+    # 剔除括號內容
+    clean_s = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", song_name).strip()
+    clean_l = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", line_text).strip()
+
+    # 統一轉簡體與正規化
+    s_norm = normalize_text(zhconv.convert(clean_s, "zh-hans"))
+    l_norm = normalize_text(zhconv.convert(clean_l, "zh-hans"))
+
+    if not s_norm or not l_norm:
+        return False
+
+    return s_norm in l_norm or l_norm in s_norm
+
+
 def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
-    """🧹 零死角歌詞淨化器"""
+    """🧹 零死角歌詞淨化器（整合簡繁體人員過濾與歌名比對）"""
     raw_lyrics = safe_str(raw_lyrics).replace('\xa0', ' ')
     song_name = safe_str(song_name)
     artist_name = safe_str(artist_name)
@@ -506,32 +525,35 @@ def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
     if raw_lyrics.lower() in INSTRUMENTAL_TAGS:
         return ""
 
+    # 清除 LRC 標頭中非時間軸的元資料 [ti:...], [ar:...] 等
     raw_lyrics = re.sub(r'\[[a-zA-Z\s_-]+:.*?\]', '', raw_lyrics)
 
     lines = [line.strip() for line in raw_lyrics.split('\n') if line.strip()]
     valid_lines = []
     
+    # 包含繁體與簡體的工作人員標籤正則
     STAFF_PATTERN = re.compile(
-        r'^(作詞|作曲|詞曲|填詞|譜曲|詞|曲|編曲|製作人|錄音|混音|吉他|貝斯|鼓手|鍵盤|和聲|母帶|OP|SP|出品|發行|版權|演唱|Lyricist|Composer|Producer|Arranger)\s*[:：\s]', 
+        r'^(作詞|作词|作曲|詞曲|词曲|填詞|填词|譜曲|谱曲|詞|词|曲|編曲|编曲|製作人|制作人|錄音|录音|混音|吉他|貝斯|贝斯|鼓手|鍵盤|键盘|和聲|和声|母帶|母带|OP|SP|出品|發行|发行|版權|版权|演唱|Lyricist|Composer|Producer|Arranger)\s*[:：\s]', 
         re.IGNORECASE
     )
 
     is_head_section = True  
-    clean_song = normalize_text(song_name)
 
     for line_str in lines:
+        # 排除時間軸與空括號
         if re.match(r'^\[\d{2}:\d{2}', line_str) or line_str in ["[]", ""]:
             continue
 
+        # 累積有效歌詞超過 5 行後關閉開頭過濾區段
         if len(valid_lines) > 5:
             is_head_section = False
 
         if is_head_section:
-            line_clean = normalize_text(line_str)
-            
-            if clean_song and (clean_song in line_clean or line_clean in clean_song):
+            # 1. 重複歌名過濾
+            if is_same_title(line_str, song_name):
                 continue
                 
+            # 2. 工作人員資訊過濾（需小於 30 字）
             if STAFF_PATTERN.search(line_str) and len(line_str) < 30:
                 continue
 
