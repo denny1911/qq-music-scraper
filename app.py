@@ -1974,10 +1974,10 @@ with main_tabs[5]:
 # ==========================================
 # 🌐 測試2：語言標籤 (僅留單筆歌曲測試)
 # ==========================================
-with main_tabs[6]:
+with main_tabs[5]:
     st.header("🌐 Gemini AI 歌曲語言智慧檢測 & 本地對照表快搜")
     st.markdown(
-        "整合 **Gemini 3.1 Flash Lite Preview** 語意模型與 **Key 輪詢池**，支援單筆歌曲語言智慧檢測與中央對照表 (`yt_mapping.csv`) 快搜。"
+        "整合 **Gemini 3.1 Flash Lite Preview** 語意模型與 **Key 輪詢池**，支援單筆歌曲語言智慧檢測（含歌詞淨化）與中央對照表 (`yt_mapping.csv`) 快搜。"
     )
 
     # ----------------------------------------------------
@@ -1995,19 +1995,133 @@ with main_tabs[6]:
         st.warning("⚠️ 請先在 Streamlit Secrets 中設定 GEMINI_API_KEYS 金鑰池。")
 
     # ----------------------------------------------------
-    # 🤖 2. Gemini 3.1 Flash Lite API 呼叫函式 (單筆)
+    # 🧹 歌詞過濾與 QQ 音樂抓取輔助函式
     # ----------------------------------------------------
-    def call_gemini_single_song(song_title, singer_name, yt_id=None):
+    def safe_str(val):
+        if val is None:
+            return ""
+        s = str(val).strip()
+        return "" if s.lower() in ["nan", "none", "null"] else s
+
+    def normalize_str(text):
+        if not text:
+            return ""
+        t = str(text).lower()
+        t = (
+            t.replace("ⅱ", "ii")
+            .replace("ⅰ", "i")
+            .replace("ⅲ", "iii")
+            .replace("ⅳ", "iv")
+        )
+        return re.sub(r"[\s\.\-\_\(\)（）「」《》【】『』""'']", "", t)
+
+    def is_same_title(line_text, song_name):
+        """判斷該行是否為歌名（忽略括號內容與簡繁體差異）"""
+        if not song_name or not line_text:
+            return False
+        clean_s = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", song_name).strip()
+        clean_l = re.sub(r"[\(\（\[【][^\)\）\]】]*[\)\）\]】]", "", line_text).strip()
+
+        s_norm = normalize_str(zhconv.convert(clean_s, "zh-hans"))
+        l_norm = normalize_str(zhconv.convert(clean_l, "zh-hans"))
+
+        if not s_norm or not l_norm:
+            return False
+
+        return s_norm in l_norm or l_norm in s_norm
+
+    def clean_lyrics_for_gemini(raw_lyrics, song_name="", artist_name=""):
+        """🧹 零死角歌詞淨化器（整合簡繁體人員過濾與歌名比對）"""
+        raw_lyrics = safe_str(raw_lyrics).replace('\xa0', ' ')
+        song_name = safe_str(song_name)
+        artist_name = safe_str(artist_name)
+
+        if not raw_lyrics:
+            return ""
+
+        INSTRUMENTAL_TAGS = ["instrumental", "純音樂", "請欣賞純音樂", "無歌詞"]
+        if raw_lyrics.lower() in INSTRUMENTAL_TAGS:
+            return ""
+
+        # 清除 LRC 標頭中非時間軸的元資料 [ti:...], [ar:...] 等
+        raw_lyrics = re.sub(r'\[[a-zA-Z\s_-]+:.*?\]', '', raw_lyrics)
+
+        lines = [line.strip() for line in raw_lyrics.split('\n') if line.strip()]
+        valid_lines = []
+        
+        # 包含繁體與簡體的工作人員標籤正則
+        STAFF_PATTERN = re.compile(
+            r'^(作詞|作词|作曲|詞曲|词曲|填詞|填词|譜曲|谱曲|詞|词|曲|編曲|编曲|製作人|制作人|錄音|录音|混音|吉他|貝斯|贝斯|鼓手|鍵盤|键盘|和聲|和声|母帶|母带|OP|SP|出品|發行|发行|版權|版权|演唱|Lyricist|Composer|Producer|Arranger)\s*[:：\s]', 
+            re.IGNORECASE
+        )
+
+        is_head_section = True  
+
+        for line_str in lines:
+            if re.match(r'^\[\d{2}:\d{2}', line_str) or line_str in ["[]", ""]:
+                continue
+
+            if len(valid_lines) > 5:
+                is_head_section = False
+
+            if is_head_section:
+                # 1. 重複歌名過濾
+                if is_same_title(line_str, song_name):
+                    continue
+                    
+                # 2. 工作人員資訊過濾（需小於 30 字）
+                if STAFF_PATTERN.search(line_str) and len(line_str) < 30:
+                    continue
+
+            valid_lines.append(line_str)
+
+        if not valid_lines and lines:
+            return "\n".join([l for l in lines if not l.startswith('[')])
+
+        return "\n".join(valid_lines)
+
+    def search_and_get_qq_lyrics(song_name, artist_name):
+        """線上搜尋 QQ 音樂並取得淨化後歌詞"""
+        try:
+            query = f"{song_name} {artist_name}".strip()
+            search_url = f"https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=1&w={query}&format=json"
+            headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://y.qq.com/"}
+            res = requests.get(search_url, headers=headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                song_list = data.get("data", {}).get("song", {}).get("list", [])
+                if song_list:
+                    songmid = song_list[0].get("songmid", "")
+                    if songmid:
+                        lyric_url = f"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={songmid}&format=json&nobase64=1"
+                        l_res = requests.get(lyric_url, headers=headers, timeout=5)
+                        if l_res.status_code == 200:
+                            raw_lyric = l_res.json().get("lyric", "")
+                            if raw_lyric:
+                                clean_lyric = html.unescape(raw_lyric)
+                                cleaned = clean_lyrics_for_gemini(clean_lyric, song_name=song_name, artist_name=artist_name)
+                                trad_text = zhconv.convert(cleaned, 'zh-tw')
+                                lines = [l for l in trad_text.split('\n') if l.strip()]
+                                return "\n".join(lines[:30])
+        except Exception as e:
+            st.caption(f"⚠️ 線上抓取歌詞時發生錯誤: {e}")
+        return ""
+
+    # ----------------------------------------------------
+    # 🤖 2. Gemini 3.1 Flash Lite API 呼叫函式 (含歌詞)
+    # ----------------------------------------------------
+    def call_gemini_single_song(song_title, singer_name, yt_id=None, lyrics=""):
         if not API_KEYS:
             return {"success": False, "error": "未設定 Gemini API Key", "attempts": 0}
 
         shuffled_keys = API_KEYS.copy()
         random.shuffle(shuffled_keys)
 
-        yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id else "無"
+        yt_link_info = f"https://www.youtube.com/watch?v={yt_id}" if yt_id and str(yt_id) not in ["-", "", "nan", "None"] else "無"
+        lyrics_info = lyrics if lyrics else "無（未提供或純音樂）"
 
         prompt = f"""
-你是一個專業音樂榜單數據分析專家。請結合歌名、歌手背景知識以及 YouTube 影片資訊，將這首歌曲精準歸類為以下【5 種語言類別】之一（請務必使用繁體中文）：
+你是一個專業音樂榜單數據分析專家。請結合歌名、歌手背景知識以及 YouTube 影片資訊以及歌詞片段，將這首歌曲精準歸類為以下【5 種語言類別】之一（請務必使用繁體中文）：
 1. "華語" (歌詞以國語/粵語/台語為主)
 2. "西洋" (歌詞以英文/歐美語系為主)
 3. "韓語" (歌詞以韓文為主，K-Pop)
@@ -2018,18 +2132,27 @@ with main_tabs[6]:
 - 歌名："{song_title}"
 - 歌手："{singer_name}"
 - YouTube 連結：{yt_link_info}
+- 歌詞片段：
+{lyrics_info}
 
 【關鍵判斷標準】：
-1. 實際演唱語言絕對優先：必須嚴格根據「實際演唱歌詞的主要語言」判定，【絕對禁止】僅憑「歌手國籍、所屬團體或發行地區」直接歸類！
-2. 華語/亞洲歌手的英文歌：若華語或亞洲歌手發行的是「全英文」或「英文為主」的歌曲（如：嚴浩翔《No More Tomorrow》、張藝興《Crossfire》、王嘉爾全英文單曲、BTS 英文單曲），不論歌手是誰，【必須歸類為 "西洋"】。
-3. 英文歌名的華語歌：歌名雖包含英文單字，但實際演唱歌詞絕大部分為華語（如：周深《Rubia》若歌詞包含華語，或一般華語 pop 帶英文歌名），才可歸類為 "華語"。
-4. 混血/跨國合作曲：若為多國語言混合，請以演唱比例超過 50% 的語言為主；若為無歌詞的純音樂（Instrumental），一律歸類為 "其它"。
-5. 參考 YouTube 資訊：若提供了 YouTube 連結，請結合該影片與知識庫進行精準判定。
+1. 實際演唱語言絕對優先（歌詞文字 > 既有印象）：
+   - 若有提供「歌詞片段」，【必須嚴格以歌詞實際出現的文字語言（中/英/韓/日）作為最高優先判定依據】！
+   - 【絕對禁止】僅憑歌手國籍、所屬團體、發行地區或歌名語言直接歸類。
+2. 華語/亞洲歌手的英文歌：
+   - 若華語或亞洲歌手發行的是「全英文」或「英文佔比超過 70%」的歌曲（如：嚴浩翔《No More Tomorrow》、張藝興《Crossfire》、王嘉爾全英文單曲、BTS 英文單曲），無論歌手是誰，【必須歸類為 "西洋"】。
+3. 英文歌名 / 外文標題的華語歌：
+   - 歌名雖然是英文或外文，但檢視歌詞片段後發現演唱內容絕大部分為華語（如：周深《Rubia》若歌詞包含華語，或一般華語 Pop 帶英文歌名），【必須歸類為 "華語"】。
+4. 混血/多語言混合曲與純音樂：
+   - 多語言混合曲：請以歌詞片段中演唱比例超過 50% 的語言進行歸類。
+   - 無歌詞/純音樂：若歌詞片段顯示為「無/純音樂」，或經判斷為純音樂伴奏（Instrumental），一律歸類為 "其它"。
+5. 綜合輔助驗證：
+   - 若未提供歌詞片段，請結合 YouTube 資訊與你內建的音樂知識庫進行精準判定。
 
 請嚴格只輸出 JSON 格式，結構如下：
 {{
   "category": "西洋",
-  "reason": "結合 YouTube 影片與背景知識，該歌曲為全英文單曲，演唱語言為英文，故歸類為西洋。"
+  "reason": "根據歌詞片段主要為英文，演唱語言為英文，故歸類為西洋。"
 }}
 """
         last_error = None
@@ -2043,7 +2166,7 @@ with main_tabs[6]:
                 result_json = json.loads(response.text.strip())
                 return {
                     "success": True,
-                    "category": result_json.get("category", "其它"),
+                    "category": zhconv.convert(result_json.get("category", "其它"), "zh-tw"),
                     "reason": result_json.get("reason", "無詳細說明"),
                     "used_key_mask": f"{current_key[:6]}...{current_key[-4:]}",
                     "attempts": idx,
@@ -2060,18 +2183,6 @@ with main_tabs[6]:
     # ----------------------------------------------------
     # 📁 3. 本地中央對照表快搜 logic (yt_mapping.csv)
     # ----------------------------------------------------
-    def normalize_str(text):
-        if not text:
-            return ""
-        t = str(text).lower()
-        t = (
-            t.replace("ⅱ", "ii")
-            .replace("ⅰ", "i")
-            .replace("ⅲ", "iii")
-            .replace("ⅳ", "iv")
-        )
-        return re.sub(r"[\s\.\-\_\(\)（）「」《》【】『』""'']", "", t)
-
     def lookup_local_mapping(song_title, singer_name):
         file_paths = []
         if os.path.exists("yt_mapping.csv"):
@@ -2130,9 +2241,16 @@ with main_tabs[6]:
         input_song = st.text_input("歌名", placeholder="例如：crossfire", key="single_song_in")
     with c2:
         input_singer = st.text_input("歌手 / 團體", placeholder="例如：张艺兴", key="single_singer_in")
-        
+
+    input_lyrics = st.text_area(
+        "歌詞片段 (可留空，點擊檢測時會自動線上抓取並淨化；也可手動貼上測試)", 
+        placeholder="留空時將自動向 QQ 音樂搜尋並淨化歌詞...",
+        height=120,
+        key="single_lyrics_in"
+    )
+
     if st.button(
-        "🚀 開始檢測 (Gemini + 對照表)",
+        "🚀 開始檢測 (Gemini + 歌詞淨化 + 對照表)",
         type="primary",
         key="btn_single_run",
     ):
@@ -2153,13 +2271,26 @@ with main_tabs[6]:
                 )
             else:
                 st.caption(
-                    "ℹ️ 本地對照庫無此歌名紀錄，將僅以歌名與歌手傳給 Gemini 判斷。"
+                    "ℹ️ 本地對照庫無此歌名紀錄，將僅以歌名與歌手進行檢索。"
                 )
 
-            # B. 呼叫 Gemini AI 進行語言判定 (傳入 yt_id)
+            # B. 取得或線上抓取並淨化歌詞
+            final_lyrics = input_lyrics.strip()
+            if not final_lyrics:
+                with st.spinner("正在向 QQ 音樂搜尋並淨化歌詞..."):
+                    fetched_lyric = search_and_get_qq_lyrics(input_song.strip(), input_singer.strip())
+                    if fetched_lyric:
+                        final_lyrics = fetched_lyric
+                        st.success(f"🎵 已成功線上擷取並淨化歌詞 ({len(final_lyrics)} 字)！")
+                        with st.expander("查看擷取並淨化後的歌詞內容"):
+                            st.code(final_lyrics, language="text")
+                    else:
+                        st.caption("ℹ️ 未能線上取得該歌曲歌詞，將不帶歌詞進行判定。")
+
+            # C. 呼叫 Gemini AI 進行語言判定 (傳入 yt_id 與 lyrics)
             with st.spinner("正在使用 gemini-3.1-flash-lite-preview 分析語言..."):
                 res = call_gemini_single_song(
-                    input_song.strip(), input_singer.strip(), yt_id=yt_id
+                    input_song.strip(), input_singer.strip(), yt_id=yt_id, lyrics=final_lyrics
                 )
 
                 if res["success"]:
