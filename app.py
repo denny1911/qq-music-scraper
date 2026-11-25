@@ -2616,5 +2616,6 @@ with main_tabs[7]:
                 st.markdown(f"🔗 [開啟 Google 試算表查看]({sheet_url})")
                 st.dataframe(final_df, hide_index=True, use_container_width=True)
             except Exception as e:
-                st.error(f"❌ 匯出失敗：{e}")
+                import traceback
+                st.error(f"❌ 匯出失敗：{repr(e)}")
                 st.code(traceback.format_exc())
