@@ -9,3 +9,5 @@ zhconv
 google-generativeai
 PyGithub
 pypinyin
+gspread
+google-auth
