@@ -2617,3 +2617,4 @@ with main_tabs[7]:
                 st.dataframe(final_df, hide_index=True, use_container_width=True)
             except Exception as e:
                 st.error(f"❌ 匯出失敗：{e}")
+                st.code(traceback.format_exc())
