@@ -177,6 +177,7 @@ main_tabs = st.tabs(
         "📌 排程更新紀錄",
         "📺 測試1：YT點閱率",
         "🌐 測試2：語言標籤",
+        "🌐 測試3：表單匯入",
     ]
 )
 
@@ -2316,3 +2317,303 @@ with main_tabs[6]:
                     st.write(f"💡 **AI 推理依據**：{res['reason']}")
                 else:
                     st.error(f"❌ API 判定失敗。原因：{res['error']}")
+
+# ==========================================
+# 🌐 測試3：表單匯入測試
+# ==========================================
+with main_tabs[7]:
+    import calendar
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+    TEST3_OUTPUT_COLUMNS = [
+        "歌名",
+        "歌手",
+        "語言",
+        "累積上榜天數",
+        "比對結果",
+        "驊訊ID(同歌名同歌手)",
+        "驊訊ID(同歌名不同歌手)",
+        "即時點閱率",
+        "Youtube Id",
+    ]
+
+    GSHEETS_SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    def _clean_match_key(text) -> str:
+        if pd.isna(text):
+            return ""
+        return str(text).strip().replace(" ", "").lower()
+
+    def _format_comma_str(val) -> str:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return ""
+        s = str(val).strip().replace(",", "")
+        if s in ("", "-", "nan", "None"):
+            return ""
+        try:
+            return f"{int(float(s)):,}"
+        except ValueError:
+            return str(val).strip()
+
+    def _yymm_to_date_range(yymm: str) -> tuple[str, str]:
+        year = 2000 + int(yymm[:2])
+        month = int(yymm[2:4])
+        if not (1 <= month <= 12):
+            raise ValueError("月份必須介於 01 到 12 之間。")
+        last_day = calendar.monthrange(year, month)[1]
+        return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
+
+    def _fetch_yt_views_for_ids(vid_list: list[str]) -> dict[str, int]:
+        raw_keys = st.secrets.get("YOUTUBE_API_KEYS", st.secrets.get("YOUTUBE_API_KEY", []))
+        if isinstance(raw_keys, str):
+            api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+        elif isinstance(raw_keys, list):
+            api_keys = [str(k).strip() for k in raw_keys if str(k).strip()]
+        else:
+            api_keys = []
+
+        if not api_keys:
+            raise RuntimeError("未在 Secrets 中設定 YOUTUBE_API_KEY 或 YOUTUBE_API_KEYS。")
+
+        valid_ids = list(
+            dict.fromkeys(
+                str(v).strip()
+                for v in vid_list
+                if v is not None and str(v).strip() not in ("", "-", "nan", "None")
+            )
+        )
+        if not valid_ids:
+            return {}
+
+        result_map: dict[str, int] = {}
+        key_idx = 0
+        while key_idx < len(api_keys):
+            current_key = api_keys[key_idx]
+            try:
+                batch_size = 50
+                for i in range(0, len(valid_ids), batch_size):
+                    batch_ids = valid_ids[i : i + batch_size]
+                    api_url = (
+                        "https://www.googleapis.com/youtube/v3/videos"
+                        f"?part=statistics&id={','.join(batch_ids)}&key={current_key}"
+                    )
+                    res = requests.get(api_url, timeout=8)
+                    if res.status_code == 200:
+                        data = res.json()
+                        for item in data.get("items", []):
+                            vid = item.get("id")
+                            v_cnt = item.get("statistics", {}).get("viewCount")
+                            if vid and v_cnt is not None:
+                                result_map[vid] = int(v_cnt)
+                    else:
+                        raise RuntimeError(f"HTTP {res.status_code}")
+                return result_map
+            except Exception:
+                key_idx += 1
+
+        raise RuntimeError("所有 YouTube API Key 配額皆已耗盡或連線失敗。")
+
+    def build_new_song_test3_df(yymm: str, live_views_map: dict[str, int] | None = None) -> pd.DataFrame:
+        start_date, end_date = _yymm_to_date_range(yymm)
+        month_dates = [d for d in dates if start_date <= d <= end_date]
+
+        dfs = []
+        for d in month_dates:
+            d_df = load_date_data(d)
+            if not d_df.empty:
+                temp = d_df.copy()
+                temp["抓取日期"] = d
+                dfs.append(temp)
+
+        if not dfs:
+            return pd.DataFrame(columns=TEST3_OUTPUT_COLUMNS)
+
+        full_df = pd.concat(dfs, ignore_index=True)
+        if "榜單類型" not in full_df.columns:
+            return pd.DataFrame(columns=TEST3_OUTPUT_COLUMNS)
+
+        new_song_df = full_df[full_df["榜單類型"] == "新歌榜"].copy()
+        if new_song_df.empty:
+            return pd.DataFrame(columns=TEST3_OUTPUT_COLUMNS)
+
+        song_col = "歌名" if "歌名" in new_song_df.columns else "song"
+        singer_col = "歌手" if "歌手" in new_song_df.columns else "singer"
+
+        yt_id_pair_map: dict[tuple[str, str], str] = {}
+        lang_pair_map: dict[tuple[str, str], str] = {}
+        compare_pair_map: dict[tuple[str, str], str] = {}
+
+        mapping_file = "data/yt_mapping.csv"
+        if os.path.exists(mapping_file):
+            try:
+                map_df = pd.read_csv(mapping_file, dtype=str).fillna("-")
+                m_song = "歌名" if "歌名" in map_df.columns else ("song" if "song" in map_df.columns else None)
+                m_singer = "歌手" if "歌手" in map_df.columns else ("singer" if "singer" in map_df.columns else None)
+                m_vid = next((c for c in ["Video ID", "YouTube ID", "YouTube_ID", "Youtube Id"] if c in map_df.columns), None)
+                m_lang = "語言" if "語言" in map_df.columns else None
+                m_cmp = "比對結果" if "比對結果" in map_df.columns else None
+
+                if m_song and m_singer:
+                    for _, r in map_df.iterrows():
+                        s_key = _clean_match_key(r.get(m_song, ""))
+                        a_key = _clean_match_key(r.get(m_singer, ""))
+                        if not s_key or not a_key:
+                            continue
+                        pair = (s_key, a_key)
+
+                        if m_vid:
+                            v_id = str(r.get(m_vid, "")).strip()
+                            if v_id and v_id not in ("-", "nan", "None", ""):
+                                yt_id_pair_map[pair] = v_id
+                        if m_lang:
+                            v_lang = str(r.get(m_lang, "")).strip()
+                            if v_lang and v_lang not in ("-", "nan", "None", "", "未知"):
+                                lang_pair_map[pair] = v_lang
+                        if m_cmp:
+                            v_cmp = str(r.get(m_cmp, "")).strip()
+                            if v_cmp and v_cmp not in ("-", "nan", "None", ""):
+                                compare_pair_map[pair] = v_cmp
+            except Exception:
+                pass
+
+        yt_id_col = next(
+            (c for c in ["YouTube ID", "YouTube_ID", "Video ID", "Youtube Id"] if c in new_song_df.columns),
+            None,
+        )
+        lang_col = "語言" if "語言" in new_song_df.columns else None
+        cmp_col = "比對結果" if "比對結果" in new_song_df.columns else None
+
+        for _, row in new_song_df.iterrows():
+            pair = (_clean_match_key(row.get(song_col, "")), _clean_match_key(row.get(singer_col, "")))
+            if not pair[0] or not pair[1]:
+                continue
+
+            if yt_id_col and pair not in yt_id_pair_map:
+                v_id = str(row.get(yt_id_col, "")).strip()
+                if v_id and v_id not in ("-", "nan", "None", ""):
+                    yt_id_pair_map[pair] = v_id
+
+            if lang_col and pair not in lang_pair_map:
+                v_lang = str(row.get(lang_col, "")).strip()
+                if v_lang and v_lang not in ("-", "nan", "None", "", "未知"):
+                    lang_pair_map[pair] = v_lang
+
+            if cmp_col and pair not in compare_pair_map:
+                v_cmp = str(row.get(cmp_col, "")).strip()
+                if v_cmp and v_cmp not in ("-", "nan", "None", ""):
+                    compare_pair_map[pair] = v_cmp
+
+        grouped = (
+            new_song_df.sort_values(by="抓取日期", ascending=True)
+            .groupby([song_col, singer_col], as_index=False)
+            .agg(累積上榜天數=("抓取日期", "nunique"))
+            .sort_values(by=["累積上榜天數", song_col], ascending=[False, True])
+            .reset_index(drop=True)
+        )
+
+        views_dict = live_views_map or {}
+        rows_out = []
+
+        for _, r in grouped.iterrows():
+            song_val = "" if pd.isna(r[song_col]) else str(r[song_col]).strip()
+            singer_val = "" if pd.isna(r[singer_col]) else str(r[singer_col]).strip()
+            pair = (_clean_match_key(song_val), _clean_match_key(singer_val))
+
+            lang_val = lang_pair_map.get(pair, "未知")
+            cmp_val = compare_pair_map.get(pair, "")
+            vid_val = yt_id_pair_map.get(pair, "")
+
+            raw_views = views_dict.get(vid_val, "") if vid_val else ""
+            views_str = _format_comma_str(raw_views)
+
+            rows_out.append(
+                {
+                    "歌名": song_val,
+                    "歌手": singer_val,
+                    "語言": lang_val,
+                    "累積上榜天數": int(r["累積上榜天數"]),
+                    "比對結果": cmp_val,
+                    "驊訊ID(同歌名同歌手)": "",
+                    "驊訊ID(同歌名不同歌手)": "",
+                    "即時點閱率": views_str,
+                    "Youtube Id": vid_val,
+                }
+            )
+
+        return pd.DataFrame(rows_out, columns=TEST3_OUTPUT_COLUMNS)
+
+    def export_test3_to_gsheet(df: pd.DataFrame, yymm: str) -> str:
+        sa_info = dict(st.secrets["gcp_service_account"])
+        spreadsheet_id = st.secrets["gsheets"]["spreadsheet_id"]
+
+        creds = Credentials.from_service_account_info(sa_info, scopes=GSHEETS_SCOPES)
+        client = gspread.authorize(creds)
+        sh = client.open_by_key(spreadsheet_id)
+
+        try:
+            ws = sh.worksheet(yymm)
+            ws.clear()
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(
+                title=yymm,
+                rows=max(len(df) + 10, 100),
+                cols=max(len(TEST3_OUTPUT_COLUMNS) + 2, 12),
+            )
+
+        safe_df = df.copy()
+        safe_df["即時點閱率"] = safe_df["即時點閱率"].apply(_format_comma_str)
+        values = [TEST3_OUTPUT_COLUMNS] + safe_df[TEST3_OUTPUT_COLUMNS].fillna("").astype(str).values.tolist()
+        ws.update(range_name="A1", values=values, value_input_option="USER_ENTERED")
+        return sh.url
+
+    # 接著放你的標題與 UI 操作區
+    st.header("🌐 模組二結果表單之匯出測試")
+    st.markdown("測試匯入模組二中每月的新歌榜至google試算表")
+
+    if "test3_live_views" not in st.session_state:
+        st.session_state["test3_live_views"] = {}
+
+    yymm = st.text_input("輸入月份代號（YYMM，例如 2608）", value="2608", max_chars=4).strip()
+
+    if len(yymm) != 4 or not yymm.isdigit():
+        st.warning("⚠️ 請輸入 4 位數字的 `YYMM` 格式，例如 `2608`。")
+    else:
+        preview_df = build_new_song_test3_df(yymm, st.session_state["test3_live_views"])
+
+        col1, col2, col3 = st.columns([1.3, 1.2, 1.3])
+        with col1:
+            fetch_views_clicked = st.button("🔄 抓取即時點閱 (YouTube API)", key="test3_fetch_views_btn")
+        with col2:
+            preview_clicked = st.button("👀 預覽 9 欄資料", key="test3_preview_btn")
+        with col3:
+            export_clicked = st.button("☁️ 匯出至 Google 試算表", type="primary", key="test3_export_btn")
+
+        if fetch_views_clicked:
+            try:
+                with st.spinner("正在透過 YouTube API 抓取即時點閱數..."):
+                    vids = preview_df["Youtube Id"].tolist() if not preview_df.empty else []
+                    fetched = _fetch_yt_views_for_ids(vids)
+                    st.session_state["test3_live_views"].update(fetched)
+                st.toast("✅ 即時點閱數已更新！")
+                preview_df = build_new_song_test3_df(yymm, st.session_state["test3_live_views"])
+            except Exception as e:
+                st.error(f"❌ 抓取即時點閱失敗：{e}")
+
+        if preview_clicked or fetch_views_clicked:
+            st.info(f"📅 月份 `{yymm}` 新歌榜共 **{len(preview_df)}** 筆資料（目標分頁：`{yymm}`）")
+            st.dataframe(preview_df, hide_index=True, use_container_width=True)
+
+        if export_clicked:
+            try:
+                with st.spinner(f"正在將 {yymm} 新歌榜資料寫入 Google 試算表..."):
+                    final_df = build_new_song_test3_df(yymm, st.session_state["test3_live_views"])
+                    sheet_url = export_test3_to_gsheet(final_df, yymm)
+                st.success(f"✅ 已成功匯出 **{len(final_df)}** 筆資料至工作表 `{yymm}`！")
+                st.markdown(f"🔗 [開啟 Google 試算表查看]({sheet_url})")
+                st.dataframe(final_df, hide_index=True, use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ 匯出失敗：{e}")
