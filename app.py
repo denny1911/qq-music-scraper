@@ -2546,8 +2546,18 @@ with main_tabs[7]:
 
         return pd.DataFrame(rows_out, columns=TEST3_OUTPUT_COLUMNS)
 
+    def _col_idx_to_letter(col_idx: int) -> str:
+        result = ""
+        while col_idx > 0:
+            col_idx, rem = divmod(col_idx - 1, 26)
+            result = chr(65 + rem) + result
+        return result
+
     def export_test3_to_gsheet(df: pd.DataFrame, yymm: str) -> str:
         sa_info = dict(st.secrets["gcp_service_account"])
+        if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
+            sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n").strip()
+
         spreadsheet_id = st.secrets["gsheets"]["spreadsheet_id"]
 
         creds = Credentials.from_service_account_info(sa_info, scopes=GSHEETS_SCOPES)
@@ -2568,6 +2578,11 @@ with main_tabs[7]:
         safe_df["即時點閱率"] = safe_df["即時點閱率"].apply(_format_comma_str)
         values = [TEST3_OUTPUT_COLUMNS] + safe_df[TEST3_OUTPUT_COLUMNS].fillna("").astype(str).values.tolist()
         ws.update(range_name="A1", values=values, value_input_option="USER_ENTERED")
+
+        # 將第一列標題（例如 A1:I1）設為粗體
+        end_col_letter = _col_idx_to_letter(len(TEST3_OUTPUT_COLUMNS))
+        ws.format(f"A1:{end_col_letter}1", {"textFormat": {"bold": True}})
+
         return sh.url
 
     # 接著放你的標題與 UI 操作區
