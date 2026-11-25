@@ -2572,47 +2572,53 @@ with main_tabs[7]:
 
     # 接著放你的標題與 UI 操作區
     st.header("🌐 模組二結果表單之匯出測試")
-    st.markdown("輸入月份（`YYMM`）並載入後，會直接整理當月新歌榜 9 欄資料並帶出即時點閱率；確認無誤後按「匯出至 Google 試算表」即可。")
+    st.markdown("輸入月份（`YYMM`）並搜尋後，會整理當月新歌榜 9 欄資料並帶出即時點閱率；確認無誤後再按「匯出至 Google 試算表」。")
 
     if "test3_views_by_month" not in st.session_state:
         st.session_state["test3_views_by_month"] = {}
+    if "test3_loaded_yymm" not in st.session_state:
+        st.session_state["test3_loaded_yymm"] = None
 
-    yymm = st.text_input("輸入月份代號（YYMM，例如 2608）", value="2608", max_chars=4).strip()
+    with st.form(key="test3_search_form", clear_on_submit=False):
+        yymm = st.text_input(
+            "輸入月份代號（YYMM）",
+            value="",
+            placeholder="例如：2608",
+            max_chars=4,
+            key="test3_yymm_input",
+        ).strip()
+        search_submitted = st.form_submit_button("🔍 搜尋並預覽當月資料", type="primary")
 
-    if len(yymm) != 4 or not yymm.isdigit():
-        st.warning("⚠️ 請輸入 4 位數字的 `YYMM` 格式，例如 `2608`。")
-    else:
-        col_search, col_export = st.columns([1.2, 1.4])
-        with col_search:
-            search_clicked = st.button("🔍 搜尋並預覽當月資料", type="primary", key="test3_search_btn")
-        with col_export:
-            export_clicked = st.button("☁️ 匯出至 Google 試算表", key="test3_export_btn")
-
-        # 先組出當月基礎資料以取得 Youtube Id 清單
-        base_df = build_new_song_test3_df(yymm, st.session_state["test3_views_by_month"].get(yymm, {}))
-
-        # 點擊搜尋，或該月份尚未抓過即時點閱時，自動透過 YouTube API 抓取
-        if search_clicked or yymm not in st.session_state["test3_views_by_month"]:
+    if search_submitted:
+        if len(yymm) != 4 or not yymm.isdigit():
+            st.warning("⚠️ 請輸入 4 位數字的 `YYMM` 格式，例如 `2608`。")
+            st.session_state["test3_loaded_yymm"] = None
+        else:
             try:
                 with st.spinner(f"正在載入 {yymm} 新歌榜並抓取 YouTube 即時點閱率..."):
+                    base_df = build_new_song_test3_df(yymm, {})
                     vids = base_df["Youtube Id"].tolist() if not base_df.empty else []
                     fetched_views = _fetch_yt_views_for_ids(vids)
                     st.session_state["test3_views_by_month"][yymm] = fetched_views
-                current_df = build_new_song_test3_df(yymm, fetched_views)
+                    st.session_state["test3_loaded_yymm"] = yymm
             except Exception as e:
                 st.warning(f"⚠️ 即時點閱抓取未完成（仍可先預覽或匯出既有資料）：{e}")
-                current_df = base_df
-        else:
-            current_df = base_df
+                st.session_state["test3_views_by_month"].setdefault(yymm, {})
+                st.session_state["test3_loaded_yymm"] = yymm
 
-        st.info(f"📅 月份 `{yymm}` 新歌榜共 **{len(current_df)}** 筆資料（目標工作表：`{yymm}`）")
+    active_yymm = st.session_state.get("test3_loaded_yymm")
+    if active_yymm:
+        views_map = st.session_state["test3_views_by_month"].get(active_yymm, {})
+        current_df = build_new_song_test3_df(active_yymm, views_map)
+
+        st.info(f"📅 月份 `{active_yymm}` 新歌榜共 **{len(current_df)}** 筆資料（目標工作表：`{active_yymm}`）")
         st.dataframe(current_df, hide_index=True, use_container_width=True)
 
-        if export_clicked:
+        if st.button("☁️ 匯出至 Google 試算表", key="test3_export_btn"):
             try:
-                with st.spinner(f"正在將 {yymm} 新歌榜資料寫入 Google 試算表..."):
-                    sheet_url = export_test3_to_gsheet(current_df, yymm)
-                st.success(f"✅ 已成功匯出 **{len(current_df)}** 筆資料至工作表 `{yymm}`！")
+                with st.spinner(f"正在將 {active_yymm} 新歌榜資料寫入 Google 試算表..."):
+                    sheet_url = export_test3_to_gsheet(current_df, active_yymm)
+                st.success(f"✅ 已成功匯出 **{len(current_df)}** 筆資料至工作表 `{active_yymm}`！")
                 st.markdown(f"🔗 [開啟 Google 試算表查看]({sheet_url})")
             except Exception as e:
                 import traceback
