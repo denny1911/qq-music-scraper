@@ -872,6 +872,192 @@ def update_schedule_log(workflow_name="每日排程更新", status="成功"):
         json.dump(logs, f, ensure_ascii=False, indent=4)
 
 
+# ==========================================
+# 5. 每月 1 號中午 12 點後自動匯出上個月新歌榜至 Google 試算表
+# ==========================================
+def run_monthly_test3_export():
+    import calendar
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+    tz_taiwan = timezone(timedelta(hours=8))
+    now_tw = datetime.now(tz_taiwan)
+
+    # 只有在「每月 1 號」且「中午 12:00 以後」才執行
+    if not (now_tw.day == 1 and now_tw.hour >= 12):
+        print(f"⏭️ 目前台灣時間 {now_tw.strftime('%Y-%m-%d %H:%M')}，非每月 1 號 12:00 後，跳過月報匯出。")
+        return
+
+    # 推算前一個月的 YYMM（例如 12/1 執行 -> 推算 11 月 -> "2611"）
+    first_day_this_month = now_tw.replace(day=1)
+    last_month_date = first_day_this_month - timedelta(days=1)
+    yymm = last_month_date.strftime("%y%m")
+    target_year = last_month_date.strftime("%Y")
+    target_ym = last_month_date.strftime("%Y-%m")
+
+    # 檢查這個月是否已經匯出過，避免重複執行
+    log_path = os.path.join(DATA_DIR, "schedule_logs.json")
+    export_task_name = f"月報自動匯出 ({yymm})"
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                logs = json.load(f)
+            if any(item.get("name") == export_task_name and item.get("status") == "成功" for item in logs):
+                print(f"✅ 月份 {yymm} 本月已匯出過，略過重複執行。")
+                return
+        except Exception:
+            pass
+
+    sa_json_str = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "").strip()
+    spreadsheet_id = os.getenv("GSHEETS_SPREADSHEET_ID", "").strip()
+    if not sa_json_str or not spreadsheet_id:
+        print("⚠️ 缺少 GCP_SERVICE_ACCOUNT_JSON 或 GSHEETS_SPREADSHEET_ID，無法匯出至 Google 試算表。")
+        return
+
+    print(f"🚀 開始執行上個月（{yymm}）新歌榜彙整與 Google 試算表匯出...")
+
+    # 1. 讀取上個月所有日期的新歌榜 CSV
+    month_folder = os.path.join(DATA_DIR, target_year, target_ym)
+    if not os.path.exists(month_folder):
+        print(f"⚠️ 找不到 {month_folder} 資料夾，無法匯出。")
+        return
+
+    dfs = []
+    for day_folder in sorted(os.listdir(month_folder)):
+        new_csv = os.path.join(month_folder, day_folder, f"{day_folder}_new.csv")
+        if os.path.exists(new_csv):
+            try:
+                d_df = pd.read_csv(new_csv, dtype=str)
+                d_df["抓取日期"] = day_folder
+                dfs.append(d_df)
+            except Exception:
+                pass
+
+    if not dfs:
+        print(f"⚠️ {yymm} 沒有任何新歌榜資料可匯出。")
+        return
+
+    full_df = pd.concat(dfs, ignore_index=True)
+
+    # 2. 讀取 yt_mapping.csv 對照表
+    def _clean_key(t):
+        return "" if pd.isna(t) else str(t).strip().replace(" ", "").lower()
+
+    yt_map, lang_map, cmp_map = {}, {}, {}
+    if os.path.exists(MAPPING_FILE):
+        map_df = pd.read_csv(MAPPING_FILE, dtype=str).fillna("-")
+        for _, r in map_df.iterrows():
+            pair = (_clean_key(r.get("歌名", "")), _clean_key(r.get("歌手", "")))
+            if not pair[0] or not pair[1]:
+                continue
+            vid = str(r.get("Video ID", "")).strip()
+            lang = str(r.get("語言", "")).strip()
+            cmp_val = str(r.get("比對結果", "")).strip()
+            if vid not in ("", "-", "nan", "None"):
+                yt_map[pair] = vid
+            if lang not in ("", "-", "nan", "None", "未知"):
+                lang_map[pair] = lang
+            if cmp_val not in ("", "-", "nan", "None"):
+                cmp_map[pair] = cmp_val
+
+    # 補齊每日檔裡的資訊
+    for _, r in full_df.iterrows():
+        pair = (_clean_key(r.get("歌名", "")), _clean_key(r.get("歌手", "")))
+        if pair not in yt_map:
+            vid = str(r.get("YouTube ID", "")).strip()
+            if vid not in ("", "-", "nan", "None"):
+                yt_map[pair] = vid
+        if pair not in lang_map:
+            lang = str(r.get("語言", "")).strip()
+            if lang not in ("", "-", "nan", "None", "未知"):
+                lang_map[pair] = lang
+
+    # 3. 統計累積上榜天數
+    grouped = (
+        full_df.sort_values(by="抓取日期", ascending=True)
+        .groupby(["歌名", "歌手"], as_index=False)
+        .agg(累積上榜天數=("抓取日期", "nunique"))
+        .sort_values(by=["累積上榜天數", "歌名"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
+
+    # 4. 批次抓取最新 YouTube 點閱率
+    all_vids = list(dict.fromkeys(yt_map.values()))
+    raw_yt_keys = os.getenv("YOUTUBE_API_KEYS", "")
+    yt_api_keys = [k.strip() for k in raw_yt_keys.split(",") if k.strip()]
+    views_dict = {}
+
+    if all_vids and yt_api_keys:
+        key_idx = 0
+        for i in range(0, len(all_vids), 50):
+            chunk = all_vids[i : i + 50]
+            while key_idx < len(yt_api_keys):
+                url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics&id={','.join(chunk)}&key={yt_api_keys[key_idx]}"
+                res = requests.get(url, timeout=10)
+                if res.status_code == 200:
+                    for item in res.json().get("items", []):
+                        v_cnt = item.get("statistics", {}).get("viewCount")
+                        if v_cnt is not None:
+                            views_dict[item["id"]] = int(v_cnt)
+                    break
+                key_idx += 1
+
+    # 5. 組裝測試三的 9 欄資料
+    output_cols = [
+        "歌名", "歌手", "語言", "累積上榜天數", "比對結果",
+        "驊訊ID(同歌名同歌手)", "驊訊ID(同歌名不同歌手)", "即時點閱率", "Youtube Id"
+    ]
+    rows_out = []
+    for _, r in grouped.iterrows():
+        song_val = str(r["歌名"]).strip()
+        singer_val = str(r["歌手"]).strip()
+        pair = (_clean_key(song_val), _clean_key(singer_val))
+        vid_val = yt_map.get(pair, "")
+        raw_v = views_dict.get(vid_val)
+        views_str = f"{raw_v:,}" if isinstance(raw_v, int) else ""
+
+        rows_out.append({
+            "歌名": song_val,
+            "歌手": singer_val,
+            "語言": lang_map.get(pair, "未知"),
+            "累積上榜天數": int(r["累積上榜天數"]),
+            "比對結果": cmp_map.get(pair, ""),
+            "驊訊ID(同歌名同歌手)": "",
+            "驊訊ID(同歌名不同歌手)": "",
+            "即時點閱率": views_str,
+            "Youtube Id": vid_val,
+        })
+
+    out_df = pd.DataFrame(rows_out, columns=output_cols)
+
+    # 6. 寫入 Google 試算表並將第一列設為粗體
+    sa_info = json.loads(sa_json_str)
+    if "private_key" in sa_info and isinstance(sa_info["private_key"], str):
+        sa_info["private_key"] = sa_info["private_key"].replace("\\n", "\n").strip()
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds = Credentials.from_service_account_info(sa_info, scopes=scopes)
+    client = gspread.authorize(creds)
+    sh = client.open_by_key(spreadsheet_id)
+
+    try:
+        ws = sh.worksheet(yymm)
+        ws.clear()
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(title=yymm, rows=max(len(out_df) + 10, 100), cols=12)
+
+    values = [output_cols] + out_df[output_cols].fillna("").astype(str).values.tolist()
+    ws.update(range_name="A1", values=values, value_input_option="USER_ENTERED")
+    ws.format("A1:I1", {"textFormat": {"bold": True}})
+
+    print(f"🎉 已成功將 {yymm} 共 {len(out_df)} 筆資料匯出至 Google 試算表！")
+    update_schedule_log(workflow_name=export_task_name, status="成功")
+
+
 if __name__ == "__main__":
     main()
     update_schedule_log()
+    run_monthly_test3_export()
