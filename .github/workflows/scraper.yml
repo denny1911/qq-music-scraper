@@ -4,13 +4,15 @@ on:
   schedule:
     # 每天台灣時間 24:00 執行 (對應 UTC 時間 16:00)
     - cron: '00 16 * * *'
+    # 每月 1 號台灣時間 12:05 執行 (對應 UTC 時間 04:05，確保在 12 點以後)
+    - cron: '05 04 1 * *'
   workflow_dispatch:
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 授權 Bot 可以自動將 CSV 檔案寫回 GitHub 倉庫
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -31,7 +33,9 @@ jobs:
       - name: Run Scraper
         env:
           YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
-          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }} # 👈 已將 API_KEYS 改為 GEMINI_API_KEYS
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GSHEETS_SPREADSHEET_ID: ${{ secrets.GSHEETS_SPREADSHEET_ID }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
         run: python scraper.py
 
       - name: Auto Commit & Push result
